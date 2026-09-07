@@ -1,0 +1,12 @@
+# Zeilenenden: im Repo immer LF. Die Pipeline laeuft auf Linux, Windows-Checkouts bleiben trotzdem sauber.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.jar binary
+*.png binary
+*.jpg binary
+*.woff binary
+*.woff2 binary
+*.svg text

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (targetSdk 36): was bei einer Sicherung und bei der Uebertragung auf ein neues Geraet
+  NICHT mitgeht. Ausgenommen sind der DataStore (Serveradresse, Token, Anzeigename) und der
+  Offline-Stand (filesDir/offline, Stundenplan der Lehrkraft). Zusammen mit
+  android:allowBackup="false" verlaesst damit nichts davon das Geraet.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="datastore" />
+        <exclude domain="file" path="offline" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="datastore" />
+        <exclude domain="file" path="offline" />
+    </device-transfer>
+</data-extraction-rules>

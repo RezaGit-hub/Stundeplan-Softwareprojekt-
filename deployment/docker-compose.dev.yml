@@ -1,0 +1,56 @@
+# Entwicklungs-Override. Nur zusammen mit docker-compose.yml benutzen:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Unterschied zur Produktion: db und backend sind auf dem Rechner erreichbar
+# (Gradle, psql, curl), die Prism-Attrappe `mock` kommt dazu, das Backend laeuft im Profil `dev`.
+# Nur die Attrappe starten:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d mock
+#
+# Das Admin-Passwort kommt auch hier aus
+# ADMIN_INITIAL_PASSWORD in .env (docker-compose.yml verlangt die Variable); der Standard `admin` des
+# Profils greift nur ohne diese Variable, etwa bei scripts/dev-backend.sh.
+# Auf der VM wird diese Datei NICHT verwendet.
+
+services:
+
+  db:
+    ports:
+      - "${DB_PORT:-15432}:5432"
+
+  backend:
+    # 8080, weil der Vite-Proxy und scripts/dev-backend.sh genau diesen Port erwarten.
+    # Meldet Docker "port is already allocated": auf macOS hoert oft der mitgelieferte Apache
+    # auf 8080 (`curl -s -i localhost:8080/` zeigt dann `Server: Apache/...`).
+    # Abstellen mit `sudo apachectl stop` — oder einen anderen Port nehmen:
+    #   BACKEND_PORT=8089 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+    #   (cd ../frontend && VITE_PROXY_TARGET=http://localhost:8089 npm run dev)
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+
+  # Prism-Attrappe aus dem API-Vertrag: antwortet auf jeden Pfad mit dem `example` aus
+  # api-contract/openapi.yaml. Stand bis zum 05.09. in docker-compose.yml und damit auch auf der VM;
+  # sie gehoert aber nicht zum Produkt und hat bei der Abnahme nichts zu suchen (Befund 05.09.).
+  # Wer sie ohne Docker will: `cd api-contract && npm ci && npm run mock` (gleicher Port 1501,
+  # nie beides gleichzeitig).
+  #
+  # Zwei Festlegungen, beide gemessen (04.09.):
+  # - Feste Version 5.14.2 wie in api-contract/package.json. Der bewegliche Tag `5` zog 5.15.10, und
+  #   dort bricht der Mehrprozess-Start ab: „TypeError: Cannot read properties of undefined
+  #   (reading 'isPrimary')" — der Dienst startete endlos neu, Port 1501 antwortete nie.
+  # - `-m false` haelt Prism in einem Prozess. Fuer eine Attrappe reicht das; es umgeht denselben Fehler.
+  # Das Bild gibt es nur fuer linux/amd64; auf den Apple-Silicon-Macs des Teams laeuft es unter Rosetta.
+  mock:
+    image: stoplight/prism:5.14.2
+    platform: linux/amd64
+    restart: unless-stopped
+    command: mock -m false -p 4010 -h 0.0.0.0 /contract/openapi.yaml
+    volumes:
+      - ../api-contract/openapi.yaml:/contract/openapi.yaml:ro
+    ports:
+      - "${MOCK_PORT:-1501}:4010"
+    mem_limit: 256m

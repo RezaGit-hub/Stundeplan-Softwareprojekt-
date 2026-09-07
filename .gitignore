@@ -1,0 +1,23 @@
+# Wurzel-Ignorierliste. backend/.gitignore und frontend/.gitignore gelten zusaetzlich.
+
+# Zugangsdaten und Betriebsdaten — gehoeren nie ins Repo.
+deployment/.env
+deployment/backups/
+*.local
+
+# Abhaengigkeiten und Baustaende
+**/node_modules/
+**/dist/
+**/build/
+**/.gradle/
+**/.npm/
+
+# Aussenstehende Ordner (Demo-Datei fuer adesso, Zwischenstaende von Agenten)
+/demo/
+.agent-out/
+
+# Betriebssystem und Editoren
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

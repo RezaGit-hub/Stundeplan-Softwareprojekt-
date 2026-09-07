@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "es2023", "lib": ["ES2023"], "types": ["node"],
+    "module": "nodenext", "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true, "verbatimModuleSyntax": true, "moduleDetection": "force",
+    "noEmit": true, "skipLibCheck": true, "erasableSyntaxOnly": true
+  },
+  "include": ["vite.config.ts", "vite.demo.config.ts", "vitest.config.ts"]
+}

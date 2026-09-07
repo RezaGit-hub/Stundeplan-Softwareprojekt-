@@ -1,0 +1,55 @@
+### Start 2026-09-05 07:38:52
+== 0. Bestand vorher ==
+Klassen=12 Lehrkraefte=24 Raeume=18 Stunden=360
+== 1. Sichern ==
+Sichere Datenbank 'timetable' nach backups/timetable-2026-09-05-0738.sql.gz ...
+fertig: 12K backups/timetable-2026-09-05-0738.sql.gz
+Sicherung: backups/timetable-2026-09-05-0738.sql.gz (   11809 Bytes)
+== 2. Anwendung anhalten ==
+ Container stundenplan-web-1  Stopping
+ Container stundenplan-web-1  Stopped
+ Container stundenplan-backend-1  Stopping
+ Container stundenplan-backend-1  Stopped
+== 3. Schema leeren und zurueckspielen ==
+NOTICE:  drop cascades to 22 other objects
+DETAIL:  drop cascades to table auth_token
+drop cascades to table change_event
+drop cascades to table changelog_entry
+drop cascades to table class_subject
+drop cascades to table exception_event
+drop cascades to table flyway_schema_history
+drop cascades to table holiday
+drop cascades to table lesson
+drop cascades to table lesson_exception
+drop cascades to table room
+drop cascades to table rule
+drop cascades to table rule_preset
+drop cascades to table school_class
+drop cascades to table subject
+drop cascades to table system_config
+drop cascades to table teacher
+drop cascades to table teacher_blocked_timeslot
+drop cascades to table teacher_preferred_timeslot
+drop cascades to table teacher_subject
+drop cascades to table timeslot
+drop cascades to table timetable
+drop cascades to table user_account
+   Tabellen nach dem Leeren: 0
+   Tabellen nach dem Zurueckspielen: 22
+== 4. Anwendung starten ==
+ Container stundenplan-db-1  Waiting
+ Container stundenplan-db-1  Healthy
+ Container stundenplan-backend-1  Starting
+ Container stundenplan-backend-1  Started
+ Container stundenplan-backend-1  Waiting
+ Container stundenplan-backend-1  Healthy
+ Container stundenplan-web-1  Starting
+ Container stundenplan-web-1  Started
+== 5. Bestand nachher ==
+Klassen=12 Lehrkraefte=24 Raeume=18 Stunden=360
+
+ERGEBNIS: gleich — Ruecksicherung hat funktioniert.
+2026-09-05T07:39:05.932+02:00  INFO 1 --- [stundenplanung] [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-09-05T07:39:05.934+02:00  INFO 1 --- [stundenplanung] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-09-05T07:39:05.940+02:00  INFO 1 --- [stundenplanung] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 6 ms
+### Exit: 0

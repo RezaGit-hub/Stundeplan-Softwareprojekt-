@@ -1,3 +1,5 @@
+// Backend der Stundenplanung — Spring Boot 4.1.1, Java 21, Gradle 9.7.1.
+// Java-Toolchain 21 statt 25 (E-44): die VM hat OpenJDK 21, das CI-Image ist eclipse-temurin:21.
 plugins {
 	id 'java'
 	id 'org.springframework.boot' version '4.1.1'
@@ -7,9 +9,14 @@ plugins {
 group = 'de.wsp3_1'
 version = '0.0.1-SNAPSHOT'
 
+ext {
+	timefoldVersion = '2.6.0'
+	archunitVersion = '1.4.1'
+}
+
 java {
 	toolchain {
-		languageVersion = JavaLanguageVersion.of(25)
+		languageVersion = JavaLanguageVersion.of(21)
 	}
 }
 
@@ -17,12 +24,61 @@ repositories {
 	mavenCentral()
 }
 
+// Quelltext ist UTF-8. Ohne diese Zeile nimmt javac die Zeichensatz-Einstellung des Rechners; im
+// CI-Container ist die oft US-ASCII, und dann werden aus Umlauten in Meldungstexten Fragezeichen
+// ("Deaktivieren statt loeschen." statt "... löschen."). Ergaenzt in Bauphase backend1.
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+}
+
+dependencyManagement {
+	imports {
+		mavenBom "ai.timefold.solver:timefold-solver-bom:${timefoldVersion}"
+	}
+}
+
 dependencies {
+	// Web, Persistenz, Sicherheit, Validierung — Starter-Namen von Spring Boot 4.
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	// Boot 4 zieht Flyway nur noch über den eigenen Starter; das Postgres-Modul ist seit Flyway 10 getrennt.
+	implementation 'org.springframework.boot:spring-boot-starter-flyway'
+	implementation 'org.flywaydb:flyway-database-postgresql'
+	// Timefold Solver (Community Edition) als Spring-Boot-Starter.
+	implementation 'ai.timefold.solver:timefold-solver-spring-boot-starter'
+
+	runtimeOnly 'org.postgresql:postgresql'
+
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers-postgresql'
+	testImplementation "com.tngtech.archunit:archunit-junit5:${archunitVersion}"
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+bootJar {
+	archiveFileName = 'app.jar'
+}
+
+// Ebene 1+2 der Teststrategie (Unit, ConstraintVerifier, ArchUnit, @WebMvcTest): laufen bei jedem Push.
 tasks.named('test') {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		excludeTags 'integration'
+	}
+}
+
+// Ebene 3+4 (Spring-Kontext gegen echtes PostgreSQL): eigene Task, gleicher Classpath.
+tasks.register('integrationTest', Test) {
+	description = 'Integrationstests (Tag "integration") gegen PostgreSQL.'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform {
+		includeTags 'integration'
+	}
+	shouldRunAfter tasks.named('test')
 }

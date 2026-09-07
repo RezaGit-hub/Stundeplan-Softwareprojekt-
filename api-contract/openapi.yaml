@@ -1,0 +1,3607 @@
+openapi: 3.1.0
+
+info:
+  title: Stundenplanung — REST-API
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  description: |
+    Vertrag der REST-API der Stundenplanung (Gruppe WSP3_1 „PushnPull", Anwendungspartner adesso).
+    Diese Datei ist die einzige Wahrheit der API: Endpunkt bauen heißt zuerst hier ändern, dann
+    `npm run lint`, dann Prism prüfen, dann den Controller schreiben.
+
+    **Stand v1 (04.09.2026, Vollausbau).** v0 = Erreichbarkeit, Anmeldung, Konten, Grunddaten
+    (Lehrkräfte, Fächer, Räume, Klassen), Stundenraster, Regelwerk, Konfiguration, Beispieldaten.
+    v1 ergänzt additiv: aktiver Plan, aufgelöste Kalenderwoche (vier Sichten, eigene Woche der
+    Lehrkraft), Entwurf mit Handaufbau, Berechnung (asynchron) und Annehmen, Änderungsereignisse,
+    vertretungsbedürftige Stunden, Vertretungsoptionen, datierte Ausnahmen, Änderungsverlauf,
+    unterrichtsfreie Zeiträume. Kann-Felder (`classId` beim Berechnen, `validFrom` beim Annehmen)
+    sind optional und mit E-40 markiert. Was sich gegenüber v0 geändert hat und wie ein Modul den
+    Vertrag erweitern darf, steht in `docs/VERTRAG.md`.
+
+    **Konventionen.**
+    - Basis `/api`, keine Versionierung im Pfad.
+    - JSON, Feldnamen camelCase, Bezeichner englisch.
+    - Datum `yyyy-MM-dd`, Uhrzeit `HH:mm`, Wochentag `MO`…`SA`.
+    - IDs `integer` / `int64`, vom Server vergeben.
+    - Listen sind unpaginiert (Schulgröße); Ausnahme wird erst `/changelog` in v1.
+    - DTOs sind flach und tragen ID **und** Anzeigetext (`teacherId` und `teacherShort`), damit Web
+      und App nichts nachladen müssen.
+    - Alle Texte für Menschen (`title`, `detail`, `message`, `label`) sind deutsch in Schulsprache.
+    - Fehler sind immer `application/problem+json` nach RFC 9457 mit
+      `type: urn:pushnpull:problem:<slug>`.
+    - **Konflikte und Warnungen sind Daten, keine Fehler**: sie stehen als `warnings[]` bzw.
+      `conflicts[]` in 200/201-Antworten. Speichern wird nie blockiert.
+    - Schreibende Aufrufe auf den Entwurf antworten während einer Berechnung mit 409 `solving`;
+      `POST /api/draft/solve` und `DELETE /api/draft/solve` antworten 202 ohne Body, den Stand
+      liefert `GET /api/draft`.
+
+    **Rollen.** `x-role` an jeder Operation ist eine Lesehilfe: `ANY` = jedes angemeldete Konto
+    (bzw. ohne Token, wo `security: []` steht), `PLANNING` = nur die Planung, `TEACHER` = nur
+    Lehrkraft-Endpunkte, `STUDENT` = Klassenkonto. Serverseitig gilt: `GET /api/health` und
+    `POST /api/auth/login` ohne Token; `DELETE /api/auth/token`, `GET /api/me`, `GET /api/timegrid`
+    und `GET /api/me/class-week` für jedes angemeldete Konto; das übrige `/api/me/**`
+    (`PUT /api/me/password`, `GET /api/me/timetable/week`) für `PLANNING` und `TEACHER`; alles
+    Übrige unter `/api/**` verlangt die Rolle `PLANNING` (E-45) — eine Lehrkraft bekommt dort 403,
+    auch bei direkter Anfrage.
+
+    **Schülersicht (E-50, NACHTRAG 05.09.).** Ein Klassenkonto (Rolle `STUDENT`, Spalte
+    `user_account.class_id` aus der Migration `V7`) liest genau sechs Endpunkte: `GET /api/health`,
+    `POST /api/auth/login`, `DELETE /api/auth/token`, `GET /api/me`, `GET /api/timegrid` und
+    `GET /api/me/class-week`. Alles andere ist 403 — auch `GET /api/me/timetable/week` und
+    `PUT /api/me/password`. Die Klasse kommt aus dem Token, nie aus einem Parameter. Die Antwort
+    von `GET /api/me/class-week` ist **serverseitig gefiltert**: `reasons` ist immer leer und
+    `original` trägt nur Kürzel, Datum und Position. Begründung und Quellen:
+    `07-Konzept/recherche/sammelzugang-schueler.md`, Abschnitt „Bewertung"; Regeln ST-1 bis ST-5
+    in `docs/VERTRAG.md`, Abschnitt `students`.
+
+    **Beispiele.** Jede 2xx-Antwort hat ein `example` — davon lebt der Prism-Mock. Die Werte sind der
+    Testdatenbestand des Pflichtenhefts: Lehrkräfte Meyer, Schulz, Weber; Klassen 7a, 8b, 9c; Räume
+    R101, R204, P1; Raster Mo–Fr, sechs Stunden, große Pause nach der zweiten.
+
+servers:
+  - url: /
+    description: |
+      Gleiche Herkunft wie die Web-App — nginx (Betrieb) bzw. der Vite-Proxy (Entwicklung) leiten
+      /api an das Backend weiter. Die Basis /api steht deshalb in jedem Pfad und nicht im Server:
+      Prism blendet einen Server-Pfad aus, der Mock würde sonst /health statt /api/health bedienen.
+      Kein absoluter Server-Eintrag, damit im Vertrag keine Adresse verdrahtet ist.
+
+security:
+  - bearerToken: []
+
+tags:
+  - name: Erreichbarkeit
+    description: Health-Endpunkt für Web-App und Android-App (A-3).
+  - name: Anmeldung
+    description: Anmelden, Abmelden, eigene Identität, eigenes Passwort.
+  - name: Konten
+    description: Benutzerkonten der Planung und der Lehrkräfte.
+  - name: Lehrkräfte
+    description: Grunddaten der Lehrkräfte inklusive Deputat, Fächern und Sperrzeiten.
+  - name: Fächer
+    description: Grunddaten der Fächer inklusive geforderter Raumart und Farbe.
+  - name: Räume
+    description: Grunddaten der Räume inklusive Raumart.
+  - name: Klassen
+    description: Grunddaten der Klassen und ihre Fächerliste (Wochenstunden je Fach und Lehrkraft).
+  - name: Stundenraster
+    description: Zeitfenster je Wochentag inklusive Pausen.
+  - name: Regelwerk
+    description: Regeln der Planung (Wert, hart oder weich, Gewicht, aktiv).
+  - name: Konfiguration
+    description: Systemkonfiguration und Beispieldatenbestand.
+  - name: Plan
+    description: Aktiver Regelplan und aufgelöste Kalenderwochen in vier Sichten (W-4).
+  - name: Entwurf
+    description: Der eine Entwurf — Handaufbau, Berechnung, Festlegung, Annehmen (W-3, W-8, W-9).
+  - name: Änderungen
+    description: Ausfall einer Lehrkraft, Sperrung eines Raums, Zusatzstunde (W-5).
+  - name: Vertretung
+    description: Vertretungsbedürftige Stunden, freie Lehrkräfte und Räume, datierte Ausnahmen (W-6).
+  - name: Verlauf
+    description: Änderungsverlauf, nur lesend (W-7).
+  - name: Ferien
+    description: Unterrichtsfreie Zeiträume (Kann, E-13).
+  - name: Schülersicht
+    description: Wochenplan der eigenen Klasse für ein Klassenkonto — datensparsam (E-50).
+
+paths:
+  /api/health:
+    get:
+      tags: [Erreichbarkeit]
+      operationId: health
+      summary: Erreichbarkeit prüfen
+      description: Ohne Token erreichbar. Die Android-App prüft damit die eingetragene Serveradresse (A-3).
+      security: []
+      x-role: ANY
+      responses:
+        '200':
+          description: Server erreichbar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthDto'
+              example:
+                status: UP
+                schoolName: Gymnasium Musterstadt
+
+  /api/auth/login:
+    post:
+      tags: [Anmeldung]
+      operationId: login
+      summary: Anmelden
+      description: |
+        Prüft Benutzername und Passwort und gibt ein Zugriffsmerkmal (Token) zurück. Der Client sendet
+        es danach als `Authorization: Bearer <token>`. Das Token läuft nach zwölf Stunden ab.
+      security: []
+      x-role: ANY
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              username: admin
+              password: admin
+      responses:
+        '200':
+          description: Anmeldung erfolgreich
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              example:
+                token: 8Ck2Qk9wZ1tR7mS0vJ4bLxH6nP3dY5aUgE2fT1oI9cM
+                role: PLANNING
+                displayName: admin
+                teacherId: null
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+
+  /api/auth/token:
+    delete:
+      tags: [Anmeldung]
+      operationId: logout
+      summary: Abmelden
+      description: Löscht das eigene Token serverseitig. Danach führt jede weitere Anfrage zu 401.
+      x-role: ANY
+      responses:
+        '204':
+          description: abgemeldet
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+
+  /api/me:
+    get:
+      tags: [Anmeldung]
+      operationId: me
+      summary: Eigene Identität
+      description: Liefert das angemeldete Konto. `teacherId` ist gesetzt, wenn das Konto zu einer Lehrkraft gehört.
+      x-role: ANY
+      responses:
+        '200':
+          description: eigenes Konto
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeDto'
+              example:
+                id: 1
+                username: admin
+                role: PLANNING
+                displayName: admin
+                teacherId: null
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+
+  /api/me/password:
+    put:
+      tags: [Anmeldung]
+      operationId: changeMyPassword
+      summary: Eigenes Passwort ändern
+      x-role: ANY
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+            example:
+              oldPassword: admin
+              newPassword: neues-passwort
+      responses:
+        '204':
+          description: Passwort geändert
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+
+  /api/users:
+    get:
+      tags: [Konten]
+      operationId: listUsers
+      summary: Konten auflisten
+      x-role: PLANNING
+      responses:
+        '200':
+          description: alle Konten
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserDto'
+              example:
+                - { id: 1, username: admin, role: PLANNING, teacherId: null, classId: null, classShort: null }
+                - { id: 2, username: meyer, role: TEACHER, teacherId: 1, classId: null, classShort: null }
+                - { id: 3, username: schulz, role: TEACHER, teacherId: 2, classId: null, classShort: null }
+                - { id: 4, username: weber, role: TEACHER, teacherId: 3, classId: null, classShort: null }
+                - { id: 5, username: '7a', role: STUDENT, teacherId: null, classId: 1, classShort: 7a }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Konten]
+      operationId: createUser
+      summary: Konto anlegen
+      description: |
+        Ein Konto der Rolle `TEACHER` braucht `teacherId`, eines der Rolle `STUDENT` braucht
+        `classId` (Klassenkonto, E-50); die Planung lässt beide Felder leer. Je Lehrkraft und je
+        Klasse gibt es höchstens ein Konto — ein zweites ist 409 `in-use`.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUser'
+            example:
+              username: meyer
+              password: start-passwort
+              role: TEACHER
+              teacherId: 1
+      responses:
+        '201':
+          description: Konto angelegt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDto'
+              example:
+                id: 2
+                username: meyer
+                role: TEACHER
+                teacherId: 1
+                classId: null
+                classShort: null
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '409':
+          $ref: '#/components/responses/Conflict409'
+
+  /api/users/class-accounts:
+    post:
+      tags: [Konten]
+      operationId: createClassAccounts
+      summary: Konten für alle Klassen anlegen (E-50)
+      description: |
+        Legt für **jede aktive Klasse ohne Konto** genau ein Klassenkonto an (Rolle `STUDENT`).
+        Benutzername = Klassenkürzel in Kleinbuchstaben („7a"), Passwort zufällig, zehn Zeichen.
+
+        **Die Passwörter stehen genau einmal in dieser Antwort im Klartext** — danach kennt der
+        Server nur den BCrypt-Hash. Die Oberfläche zeigt sie zum Abschreiben oder Ausdrucken an;
+        wer eines verliert, setzt über `PUT /api/users/{id}/password` ein neues.
+
+        Der Aufruf ist **idempotent**: bestehende Konten bleiben unberührt, ein zweiter Aufruf
+        liefert eine leere Liste. Eine Klasse, deren Kürzel schon als anderer Benutzername vergeben
+        ist, wird übersprungen (sie lässt sich mit `POST /api/users` unter eigenem Namen anlegen).
+        Kein Body nötig; `{}` genügt.
+      x-role: PLANNING
+      responses:
+        '201':
+          description: die neu angelegten Konten (leer, wenn jede Klasse schon eines hatte)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClassAccountDto'
+              example:
+                - { username: '7a', classShort: 7a, password: kfr7t2mqbd }
+                - { username: 8b, classShort: 8b, password: xq4mvn8pth }
+                - { username: 9c, classShort: 9c, password: dw6zks3jrb }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/users/{id}/password:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    put:
+      tags: [Konten]
+      operationId: setUserPassword
+      summary: Passwort eines Kontos setzen
+      description: Die Planung setzt ein neues Passwort, ohne das alte zu kennen (Passwort-Rücksetzung ohne E-Mail).
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordSet'
+            example:
+              password: neues-passwort
+      responses:
+        '204':
+          description: Passwort gesetzt
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+  /api/teachers:
+    get:
+      tags: [Lehrkräfte]
+      operationId: listTeachers
+      summary: Lehrkräfte auflisten
+      description: |
+        `plannedHours` ist die Summe der Wochenstunden aus allen Klassenzuordnungen (berechnet);
+        `warnings[]` meldet Fächer ohne Lehrbefähigung (`SUBJECT_NOT_TAUGHT`) und überschrittenes
+        Deputat (`QUOTA_EXCEEDED`) — beides sind Daten, kein Fehler.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: alle Lehrkräfte
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TeacherDto'
+              example:
+                - id: 1
+                  name: Meyer
+                  shortName: MEY
+                  weeklyHoursQuota: 25
+                  subjectIds: [1, 3]
+                  preferredTimeslotIds: []
+                  blockedTimeslotIds: []
+                  active: true
+                  plannedHours: 5
+                  warnings: []
+                - id: 2
+                  name: Schulz
+                  shortName: SCZ
+                  weeklyHoursQuota: 2
+                  subjectIds: [1]
+                  preferredTimeslotIds: []
+                  blockedTimeslotIds: [34, 35]
+                  active: true
+                  plannedHours: 1
+                  warnings: []
+                - id: 3
+                  name: Weber
+                  shortName: WEB
+                  weeklyHoursQuota: 25
+                  subjectIds: [2]
+                  preferredTimeslotIds: []
+                  blockedTimeslotIds: []
+                  active: true
+                  plannedHours: 2
+                  warnings: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Lehrkräfte]
+      operationId: createTeacher
+      summary: Lehrkraft anlegen
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeacherInput'
+            example:
+              name: Schulz
+              shortName: SCZ
+              weeklyHoursQuota: 2
+              subjectIds: [1]
+              preferredTimeslotIds: []
+              blockedTimeslotIds: [34, 35]
+              active: true
+      responses:
+        '201':
+          description: Lehrkraft angelegt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeacherDto'
+              example:
+                id: 2
+                name: Schulz
+                shortName: SCZ
+                weeklyHoursQuota: 2
+                subjectIds: [1]
+                preferredTimeslotIds: []
+                blockedTimeslotIds: [34, 35]
+                active: true
+                plannedHours: 0
+                warnings: []
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/teachers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    get:
+      tags: [Lehrkräfte]
+      operationId: getTeacher
+      summary: Lehrkraft lesen
+      x-role: PLANNING
+      responses:
+        '200':
+          description: eine Lehrkraft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeacherDto'
+              example:
+                id: 1
+                name: Meyer
+                shortName: MEY
+                weeklyHoursQuota: 25
+                subjectIds: [1, 3]
+                preferredTimeslotIds: []
+                blockedTimeslotIds: []
+                active: true
+                plannedHours: 5
+                warnings: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    put:
+      tags: [Lehrkräfte]
+      operationId: updateTeacher
+      summary: Lehrkraft ändern
+      description: '`active: false` deaktiviert die Lehrkraft — sie bleibt in bestehenden Plänen, wird aber nicht mehr neu eingeplant.'
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeacherInput'
+            example:
+              name: Meyer
+              shortName: MEY
+              weeklyHoursQuota: 25
+              subjectIds: [1, 3]
+              preferredTimeslotIds: []
+              blockedTimeslotIds: []
+              active: true
+      responses:
+        '200':
+          description: Lehrkraft geändert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeacherDto'
+              example:
+                id: 1
+                name: Meyer
+                shortName: MEY
+                weeklyHoursQuota: 25
+                subjectIds: [1, 3]
+                preferredTimeslotIds: []
+                blockedTimeslotIds: []
+                active: true
+                plannedHours: 5
+                warnings: []
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    delete:
+      tags: [Lehrkräfte]
+      operationId: deleteTeacher
+      summary: Lehrkraft löschen
+      description: Löschen geht nur ohne Verweise. Ist die Lehrkraft eingeplant, kommt 409 `in-use` mit dem Hinweis auf das Deaktivieren (T-W1.3).
+      x-role: PLANNING
+      responses:
+        '204':
+          description: gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Conflict409'
+
+  /api/subjects:
+    get:
+      tags: [Fächer]
+      operationId: listSubjects
+      summary: Fächer auflisten
+      x-role: PLANNING
+      responses:
+        '200':
+          description: alle Fächer
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubjectDto'
+              example:
+                - { id: 1, name: Mathematik, shortName: Ma, requiredRoomType: null, color: '#1976D2' }
+                - { id: 2, name: Deutsch, shortName: De, requiredRoomType: null, color: '#388E3C' }
+                - { id: 3, name: Physik, shortName: Ph, requiredRoomType: Fachraum Physik, color: '#F57C00' }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Fächer]
+      operationId: createSubject
+      summary: Fach anlegen
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectInput'
+            example:
+              name: Physik
+              shortName: Ph
+              requiredRoomType: Fachraum Physik
+              color: '#F57C00'
+      responses:
+        '201':
+          description: Fach angelegt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDto'
+              example: { id: 3, name: Physik, shortName: Ph, requiredRoomType: Fachraum Physik, color: '#F57C00' }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/subjects/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    get:
+      tags: [Fächer]
+      operationId: getSubject
+      summary: Fach lesen
+      x-role: PLANNING
+      responses:
+        '200':
+          description: ein Fach
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDto'
+              example: { id: 1, name: Mathematik, shortName: Ma, requiredRoomType: null, color: '#1976D2' }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    put:
+      tags: [Fächer]
+      operationId: updateSubject
+      summary: Fach ändern
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectInput'
+            example: { name: Mathematik, shortName: Ma, requiredRoomType: null, color: '#1976D2' }
+      responses:
+        '200':
+          description: Fach geändert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDto'
+              example: { id: 1, name: Mathematik, shortName: Ma, requiredRoomType: null, color: '#1976D2' }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    delete:
+      tags: [Fächer]
+      operationId: deleteSubject
+      summary: Fach löschen
+      description: 409 `in-use`, solange das Fach in einer Klassenfächerliste oder in einem Plan vorkommt.
+      x-role: PLANNING
+      responses:
+        '204':
+          description: gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Conflict409'
+
+  /api/rooms:
+    get:
+      tags: [Räume]
+      operationId: listRooms
+      summary: Räume auflisten
+      x-role: PLANNING
+      responses:
+        '200':
+          description: alle Räume
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoomDto'
+              example:
+                - { id: 1, name: R101, roomType: Klassenraum, active: true }
+                - { id: 2, name: R204, roomType: Klassenraum, active: true }
+                - { id: 3, name: P1, roomType: Fachraum Physik, active: true }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Räume]
+      operationId: createRoom
+      summary: Raum anlegen
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomInput'
+            example: { name: P1, roomType: Fachraum Physik, active: true }
+      responses:
+        '201':
+          description: Raum angelegt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomDto'
+              example: { id: 3, name: P1, roomType: Fachraum Physik, active: true }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/rooms/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    get:
+      tags: [Räume]
+      operationId: getRoom
+      summary: Raum lesen
+      x-role: PLANNING
+      responses:
+        '200':
+          description: ein Raum
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomDto'
+              example: { id: 1, name: R101, roomType: Klassenraum, active: true }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    put:
+      tags: [Räume]
+      operationId: updateRoom
+      summary: Raum ändern
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomInput'
+            example: { name: R101, roomType: Klassenraum, active: true }
+      responses:
+        '200':
+          description: Raum geändert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomDto'
+              example: { id: 1, name: R101, roomType: Klassenraum, active: true }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    delete:
+      tags: [Räume]
+      operationId: deleteRoom
+      summary: Raum löschen
+      description: 409 `in-use`, solange der Raum in einem Plan belegt ist. Sperrzeiten eines Raums stehen ab v1 unter `GET /api/events?roomId=`.
+      x-role: PLANNING
+      responses:
+        '204':
+          description: gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Conflict409'
+
+  /api/classes:
+    get:
+      tags: [Klassen]
+      operationId: listClasses
+      summary: Klassen auflisten
+      description: '`subjects[]` ist die Fächerliste der Klasse, `warnings[]` meldet fehlende Lehrbefähigung oder überschrittenes Deputat.'
+      x-role: PLANNING
+      responses:
+        '200':
+          description: alle Klassen
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClassDto'
+              example:
+                - id: 1
+                  name: 7a
+                  grade: 7
+                  active: true
+                  subjects:
+                    - { subjectId: 1, subjectShort: Ma, weeklyHours: 2, teacherId: 1, teacherShort: MEY }
+                    - { subjectId: 2, subjectShort: De, weeklyHours: 1, teacherId: 3, teacherShort: WEB }
+                    - { subjectId: 3, subjectShort: Ph, weeklyHours: 1, teacherId: 1, teacherShort: MEY }
+                  warnings: []
+                - id: 2
+                  name: 8b
+                  grade: 8
+                  active: true
+                  subjects:
+                    - { subjectId: 1, subjectShort: Ma, weeklyHours: 2, teacherId: 1, teacherShort: MEY }
+                    - { subjectId: 2, subjectShort: De, weeklyHours: 1, teacherId: 3, teacherShort: WEB }
+                  warnings: []
+                - id: 3
+                  name: 9c
+                  grade: 9
+                  active: true
+                  subjects:
+                    - { subjectId: 1, subjectShort: Ma, weeklyHours: 1, teacherId: 2, teacherShort: SCZ }
+                  warnings: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Klassen]
+      operationId: createClass
+      summary: Klasse anlegen
+      description: Legt die Klasse ohne Fächer an; die Fächerliste kommt mit `PUT /api/classes/{id}/subjects`.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassInput'
+            example: { name: 9c, grade: 9, active: true }
+      responses:
+        '201':
+          description: Klasse angelegt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassDto'
+              example: { id: 3, name: 9c, grade: 9, active: true, subjects: [], warnings: [] }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/classes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    get:
+      tags: [Klassen]
+      operationId: getClass
+      summary: Klasse lesen
+      x-role: PLANNING
+      responses:
+        '200':
+          description: eine Klasse
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassDto'
+              example:
+                id: 1
+                name: 7a
+                grade: 7
+                active: true
+                subjects:
+                  - { subjectId: 1, subjectShort: Ma, weeklyHours: 2, teacherId: 1, teacherShort: MEY }
+                  - { subjectId: 2, subjectShort: De, weeklyHours: 1, teacherId: 3, teacherShort: WEB }
+                  - { subjectId: 3, subjectShort: Ph, weeklyHours: 1, teacherId: 1, teacherShort: MEY }
+                warnings: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    put:
+      tags: [Klassen]
+      operationId: updateClass
+      summary: Klasse ändern
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassInput'
+            example: { name: 7a, grade: 7, active: true }
+      responses:
+        '200':
+          description: Klasse geändert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassDto'
+              example:
+                id: 1
+                name: 7a
+                grade: 7
+                active: true
+                subjects:
+                  - { subjectId: 1, subjectShort: Ma, weeklyHours: 2, teacherId: 1, teacherShort: MEY }
+                  - { subjectId: 2, subjectShort: De, weeklyHours: 1, teacherId: 3, teacherShort: WEB }
+                  - { subjectId: 3, subjectShort: Ph, weeklyHours: 1, teacherId: 1, teacherShort: MEY }
+                warnings: []
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    delete:
+      tags: [Klassen]
+      operationId: deleteClass
+      summary: Klasse löschen
+      description: 409 `in-use`, solange die Klasse in einem Plan vorkommt.
+      x-role: PLANNING
+      responses:
+        '204':
+          description: gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Conflict409'
+
+  /api/classes/{id}/subjects:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    put:
+      tags: [Klassen]
+      operationId: replaceClassSubjects
+      summary: Fächerliste einer Klasse ersetzen
+      description: |
+        Ersetzt die Fächerliste vollständig. Jede Zeile braucht `weeklyHours` mindestens 1 **und** eine
+        `teacherId`, sonst 400 `validation`. Fehlende Lehrbefähigung oder überschrittenes Deputat sind
+        keine Fehler, sondern `warnings[]` in der Antwort.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClassSubjectInput'
+            example:
+              - { subjectId: 1, weeklyHours: 2, teacherId: 1 }
+              - { subjectId: 2, weeklyHours: 1, teacherId: 3 }
+              - { subjectId: 3, weeklyHours: 1, teacherId: 1 }
+      responses:
+        '200':
+          description: Fächerliste ersetzt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassDto'
+              example:
+                id: 1
+                name: 7a
+                grade: 7
+                active: true
+                subjects:
+                  - { subjectId: 1, subjectShort: Ma, weeklyHours: 2, teacherId: 1, teacherShort: MEY }
+                  - { subjectId: 2, subjectShort: De, weeklyHours: 1, teacherId: 3, teacherShort: WEB }
+                  - { subjectId: 3, subjectShort: Ph, weeklyHours: 1, teacherId: 1, teacherShort: MEY }
+                warnings: []
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+  /api/timegrid:
+    get:
+      tags: [Stundenraster]
+      operationId: getTimegrid
+      summary: Stundenraster lesen
+      description: |
+        Für jedes angemeldete Konto lesbar — die App und „Mein Plan" brauchen die Zeiten, und das
+        Raster enthält keine personenbezogenen Daten. Der Beispieldatensatz zeigt Mo–Fr mit sechs
+        Unterrichtsstunden und der großen Pause nach der zweiten Stunde (Position 3).
+      x-role: ANY
+      responses:
+        '200':
+          description: Stundenraster
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimegridDto'
+              example:
+                slots:
+                  - { id: 1, day: MO, position: 1, startTime: '08:00', endTime: '08:45', isBreak: false }
+                  - { id: 2, day: MO, position: 2, startTime: '08:50', endTime: '09:35', isBreak: false }
+                  - { id: 3, day: MO, position: 3, startTime: '09:35', endTime: '09:55', isBreak: true }
+                  - { id: 4, day: MO, position: 4, startTime: '09:55', endTime: '10:40', isBreak: false }
+                  - { id: 5, day: MO, position: 5, startTime: '10:45', endTime: '11:30', isBreak: false }
+                  - { id: 6, day: MO, position: 6, startTime: '11:50', endTime: '12:35', isBreak: false }
+                  - { id: 7, day: MO, position: 7, startTime: '12:40', endTime: '13:25', isBreak: false }
+                  - { id: 8, day: TU, position: 1, startTime: '08:00', endTime: '08:45', isBreak: false }
+                  - { id: 9, day: TU, position: 2, startTime: '08:50', endTime: '09:35', isBreak: false }
+                  - { id: 10, day: TU, position: 3, startTime: '09:35', endTime: '09:55', isBreak: true }
+                  - { id: 11, day: TU, position: 4, startTime: '09:55', endTime: '10:40', isBreak: false }
+                  - { id: 12, day: TU, position: 5, startTime: '10:45', endTime: '11:30', isBreak: false }
+                  - { id: 13, day: TU, position: 6, startTime: '11:50', endTime: '12:35', isBreak: false }
+                  - { id: 14, day: TU, position: 7, startTime: '12:40', endTime: '13:25', isBreak: false }
+                  - { id: 15, day: WE, position: 1, startTime: '08:00', endTime: '08:45', isBreak: false }
+                  - { id: 16, day: WE, position: 2, startTime: '08:50', endTime: '09:35', isBreak: false }
+                  - { id: 17, day: WE, position: 3, startTime: '09:35', endTime: '09:55', isBreak: true }
+                  - { id: 18, day: WE, position: 4, startTime: '09:55', endTime: '10:40', isBreak: false }
+                  - { id: 19, day: WE, position: 5, startTime: '10:45', endTime: '11:30', isBreak: false }
+                  - { id: 20, day: WE, position: 6, startTime: '11:50', endTime: '12:35', isBreak: false }
+                  - { id: 21, day: WE, position: 7, startTime: '12:40', endTime: '13:25', isBreak: false }
+                  - { id: 22, day: TH, position: 1, startTime: '08:00', endTime: '08:45', isBreak: false }
+                  - { id: 23, day: TH, position: 2, startTime: '08:50', endTime: '09:35', isBreak: false }
+                  - { id: 24, day: TH, position: 3, startTime: '09:35', endTime: '09:55', isBreak: true }
+                  - { id: 25, day: TH, position: 4, startTime: '09:55', endTime: '10:40', isBreak: false }
+                  - { id: 26, day: TH, position: 5, startTime: '10:45', endTime: '11:30', isBreak: false }
+                  - { id: 27, day: TH, position: 6, startTime: '11:50', endTime: '12:35', isBreak: false }
+                  - { id: 28, day: TH, position: 7, startTime: '12:40', endTime: '13:25', isBreak: false }
+                  - { id: 29, day: FR, position: 1, startTime: '08:00', endTime: '08:45', isBreak: false }
+                  - { id: 30, day: FR, position: 2, startTime: '08:50', endTime: '09:35', isBreak: false }
+                  - { id: 31, day: FR, position: 3, startTime: '09:35', endTime: '09:55', isBreak: true }
+                  - { id: 32, day: FR, position: 4, startTime: '09:55', endTime: '10:40', isBreak: false }
+                  - { id: 33, day: FR, position: 5, startTime: '10:45', endTime: '11:30', isBreak: false }
+                  - { id: 34, day: FR, position: 6, startTime: '11:50', endTime: '12:35', isBreak: false }
+                  - { id: 35, day: FR, position: 7, startTime: '12:40', endTime: '13:25', isBreak: false }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+    put:
+      tags: [Stundenraster]
+      operationId: putTimegrid
+      summary: Stundenraster ersetzen
+      description: |
+        Upsert nach `(day, position)`: Zeilen mit `id` werden geändert, Zeilen ohne `id` neu angelegt,
+        fehlende Zeilen gelöscht. Ein noch belegtes Zeitfenster zu löschen führt zu 409 `in-use`.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimegridInput'
+            example:
+              slots:
+                - { id: 1, day: MO, position: 1, startTime: '08:00', endTime: '08:45', isBreak: false }
+                - { id: 2, day: MO, position: 2, startTime: '08:50', endTime: '09:35', isBreak: false }
+                - { id: 3, day: MO, position: 3, startTime: '09:35', endTime: '09:55', isBreak: true }
+      responses:
+        '200':
+          description: Stundenraster gespeichert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimegridDto'
+              example:
+                slots:
+                  - { id: 1, day: MO, position: 1, startTime: '08:00', endTime: '08:45', isBreak: false }
+                  - { id: 2, day: MO, position: 2, startTime: '08:50', endTime: '09:35', isBreak: false }
+                  - { id: 3, day: MO, position: 3, startTime: '09:35', endTime: '09:55', isBreak: true }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '409':
+          $ref: '#/components/responses/Conflict409'
+
+  /api/rules:
+    get:
+      tags: [Regelwerk]
+      operationId: listRules
+      summary: Regelwerk lesen
+      description: |
+        `scope` ist `null`, wo die Regel weder Klasse noch Lehrkraft betrifft (Pausenregel).
+        `grade` ist `null` für die schulweite Zeile und gesetzt für eine jahrgangsspezifische Zeile
+        (Soll, E-47).
+      x-role: PLANNING
+      responses:
+        '200':
+          description: alle Regeln
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RuleDto'
+              example:
+                - { id: 1, type: MAX_LESSONS_PER_DAY, scope: CLASS, grade: null, value: 6, severity: SOFT, weight: 1, active: true, label: Maximale Stunden pro Tag }
+                - { id: 2, type: MAX_LESSONS_PER_WEEK, scope: CLASS, grade: null, value: 30, severity: SOFT, weight: 1, active: true, label: Maximale Stunden pro Woche }
+                - { id: 3, type: MAX_LESSONS_PER_DAY, scope: TEACHER, grade: null, value: 6, severity: SOFT, weight: 1, active: false, label: Maximale Stunden pro Tag }
+                - { id: 4, type: MAX_LESSONS_PER_WEEK, scope: TEACHER, grade: null, value: 26, severity: SOFT, weight: 1, active: false, label: Maximale Stunden pro Woche }
+                - { id: 5, type: NO_LESSONS_IN_BREAKS, scope: null, grade: null, value: 1, severity: HARD, weight: 1, active: true, label: Keine Stunden in Pausen }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Regelwerk]
+      operationId: createRule
+      summary: Jahrgangsregel anlegen
+      description: Nur für jahrgangsspezifische Zeilen — `grade` muss gesetzt sein (Soll, E-47). Eine zweite Zeile mit gleichem `(type, scope, grade)` führt zu 409.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuleInput'
+            example: { type: MAX_LESSONS_PER_DAY, scope: CLASS, grade: 5, value: 5, severity: SOFT, weight: 2, active: true }
+      responses:
+        '201':
+          description: Regel angelegt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleDto'
+              example: { id: 6, type: MAX_LESSONS_PER_DAY, scope: CLASS, grade: 5, value: 5, severity: SOFT, weight: 2, active: true, label: Maximale Stunden pro Tag }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '409':
+          $ref: '#/components/responses/Conflict409'
+
+  /api/rules/reset:
+    post:
+      tags: [Regelwerk]
+      operationId: resetRules
+      summary: Regelwerk auf die Voreinstellung des Bundeslands zurücksetzen
+      description: |
+        Kopiert den Beispielsatz des in `GET /api/config` eingestellten Bundeslands aus `rule_preset`
+        nach `rule` (E-48). Kein Bundesland ist im Code verdrahtet; jeder Wert bleibt danach einzeln
+        änderbar.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: Regelwerk zurückgesetzt
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RuleDto'
+              example:
+                - { id: 1, type: MAX_LESSONS_PER_DAY, scope: CLASS, grade: null, value: 6, severity: SOFT, weight: 1, active: true, label: Maximale Stunden pro Tag }
+                - { id: 2, type: MAX_LESSONS_PER_WEEK, scope: CLASS, grade: null, value: 30, severity: SOFT, weight: 1, active: true, label: Maximale Stunden pro Woche }
+                - { id: 3, type: MAX_LESSONS_PER_DAY, scope: TEACHER, grade: null, value: 6, severity: SOFT, weight: 1, active: false, label: Maximale Stunden pro Tag }
+                - { id: 4, type: MAX_LESSONS_PER_WEEK, scope: TEACHER, grade: null, value: 26, severity: SOFT, weight: 1, active: false, label: Maximale Stunden pro Woche }
+                - { id: 5, type: NO_LESSONS_IN_BREAKS, scope: null, grade: null, value: 1, severity: HARD, weight: 1, active: true, label: Keine Stunden in Pausen }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/rules/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    put:
+      tags: [Regelwerk]
+      operationId: updateRule
+      summary: Regel ändern
+      description: '`value` kleiner als 1 führt zu 400 `validation`.'
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuleInput'
+            example: { value: 7, severity: SOFT, weight: 2, active: true }
+      responses:
+        '200':
+          description: Regel geändert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleDto'
+              example: { id: 1, type: MAX_LESSONS_PER_DAY, scope: CLASS, grade: null, value: 7, severity: SOFT, weight: 2, active: true, label: Maximale Stunden pro Tag }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    delete:
+      tags: [Regelwerk]
+      operationId: deleteRule
+      summary: Jahrgangsregel löschen
+      description: Nur jahrgangsspezifische Zeilen lassen sich löschen; eine schulweite Zeile antwortet mit 409.
+      x-role: PLANNING
+      responses:
+        '204':
+          description: gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Conflict409'
+
+  /api/config:
+    get:
+      tags: [Konfiguration]
+      operationId: getConfig
+      summary: Systemkonfiguration lesen
+      description: Der Schulname für die Android-App kommt aus `GET /api/health`, nicht von hier.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: Systemkonfiguration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigDto'
+              example: { schoolName: Gymnasium Musterstadt, state: SH, schoolType: GYMNASIUM, maxSolveSeconds: 60 }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    put:
+      tags: [Konfiguration]
+      operationId: putConfig
+      summary: Systemkonfiguration ändern
+      description: '`state` und `schoolType` sind reine Daten (Vorbelegung SH/GYMNASIUM); sie wählen nur die Voreinstellung für `POST /api/rules/reset`.'
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigDto'
+            example: { schoolName: Gymnasium Musterstadt, state: SH, schoolType: GYMNASIUM, maxSolveSeconds: 30 }
+      responses:
+        '200':
+          description: Systemkonfiguration gespeichert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigDto'
+              example: { schoolName: Gymnasium Musterstadt, state: SH, schoolType: GYMNASIUM, maxSolveSeconds: 30 }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/sample-data:
+    post:
+      tags: [Konfiguration]
+      operationId: loadSampleData
+      summary: Beispieldatenbestand laden
+      description: |
+        Lädt eine vollständige Beispielschule (12 Klassen, 24 Lehrkräfte, 18 Räume) inklusive eines
+        angenommenen, gefüllten aktiven Plans (E-46) — der Plan wird beim Laden vom Solver berechnet,
+        der Aufruf dauert deshalb etwa zehn Sekunden. Sind schon Grunddaten vorhanden, antwortet der
+        Server mit 409 `data-exists`; mit `replace: true` ersetzt er alles: Grunddaten, Pläne,
+        Ereignisse, Ausnahmen, Verlauf und Lehrkraft-Konten (das Konto der Planung bleibt). Regelwerk
+        und Systemkonfiguration bleiben unverändert. Konten für Lehrkräfte werden nicht angelegt.
+      x-role: PLANNING
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SampleDataRequest'
+            example: { replace: false }
+      responses:
+        '200':
+          description: Beispieldaten geladen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleDataResult'
+              example: { classes: 12, teachers: 24, rooms: 18 }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '409':
+          description: Es sind bereits Daten vorhanden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: urn:pushnpull:problem:data-exists
+                title: Es sind bereits Daten vorhanden
+                status: 409
+                detail: Die Datenbank enthält bereits Grunddaten. Zum Ersetzen „replace" setzen.
+
+  # =====================================================================================================
+  # v1 — Planung, Wochensichten, Entwurf, Berechnung, Ereignisse, Vertretung, Verlauf, Ferien (T-403)
+  # Beispielzustand: Testdaten des Pflichtenhefts NACH dem Leitszenario (Woche 21.–25.09.2026):
+  # Meyer fällt am 21.09. aus (Ereignis 1 „Krankmeldung"), R101 ist am 21.09. gesperrt (Ereignis 2
+  # „Wasserschaden"), die 1. Stunde der 7a wird von Schulz in R204 vertreten (Ausnahme 1). Zusätzlich:
+  # die Dienstagsstunde der 7a ist auf Mittwoch verlegt (Ausnahme 2) und am Donnerstag gibt es eine
+  # Zusatzstunde 9c Mathematik (Ereignis 3, Ausnahme 3). So kommen in den Wochenbeispielen alle sieben
+  # kind-Werte vor. Stunden-IDs: aktiver Plan 1–7, Entwurf 11–18. Zeitfenster-IDs wie in /api/timegrid.
+  # =====================================================================================================
+
+  /api/timetable:
+    get:
+      tags: [Plan]
+      operationId: getTimetable
+      summary: Aktiven Regelplan lesen
+      description: |
+        Der aktive Plan aller Klassen (Wochenmuster) mit den **aktuell berechneten** Konflikten — der
+        `ConflictChecker` läuft bei jedem Lesen, damit Grunddatenänderungen sofort sichtbar werden (W-1).
+        Vor der ersten Annahme: `id: null`, leere Listen. Für die Rolle Lehrkraft 403 (Zugriffsschutz).
+      x-role: PLANNING
+      responses:
+        '200':
+          description: aktiver Plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimetableDto'
+              example:
+                id: 1
+                acceptedAt: '2026-09-14T15:00:00Z'
+                validFrom: null
+                lessons:
+                  - { id: 1, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 2, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 3, classId: 1, classShort: 7a, subjectId: 3, subjectShort: Ph, subjectColor: '#F57C00', teacherId: 1, teacherShort: MEY, roomId: 3, roomShort: P1, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 4, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 5, classId: 2, classShort: 8b, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 2, roomShort: R204, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 6, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 5, day: MO, position: 5, pinned: true }
+                  - { id: 7, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 8, day: TU, position: 1, pinned: true }
+                conflicts: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/timetable/week:
+    get:
+      tags: [Plan]
+      operationId: getWeek
+      summary: Aufgelöste Kalenderwoche lesen (W-4, W-5)
+      description: |
+        Regelplan des am Datum gültigen aktiven Plans, überlagert mit Ereignissen und datierten Ausnahmen
+        der Woche; unterrichtsfreie Tage haben `schoolDay: false` und keine Einträge. `date` darf ein
+        beliebiger Tag der Woche sein; die Antwort beginnt immer am Montag. Sichten: `SCHOOL` (alle
+        Einträge, `id` entfällt), `CLASS`, `TEACHER`, `ROOM` (Raumsicht, Musskriterium E-39) mit `id`.
+        In der Sicht `TEACHER` erscheint eine vertretene Stunde der Lehrkraft als `GIVEN_AWAY`.
+        Das Beispiel ist die Sicht `SCHOOL` der Woche vom 21.09.2026 nach dem Leitszenario.
+      x-role: PLANNING
+      parameters:
+        - name: date
+          in: query
+          required: true
+          description: ein Tag der gewünschten Woche
+          schema: { type: string, format: date }
+          example: '2026-09-21'
+        - name: view
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/View'
+          example: SCHOOL
+        - name: id
+          in: query
+          required: false
+          description: Klassen-, Lehrkraft- oder Raum-ID; Pflicht bei allen Sichten außer SCHOOL (sonst 400)
+          schema: { type: integer, format: int64 }
+          example: 1
+      responses:
+        '200':
+          description: aufgelöste Woche
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeekDto'
+              example:
+                monday: '2026-09-21'
+                days:
+                  - date: '2026-09-21'
+                    schoolDay: true
+                    entries:
+                      - { date: '2026-09-21', timeslotId: 1, day: MO, position: 1, lessonId: 1, classId: 1, classShort: 7a, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 2, teacherShort: SCZ, roomId: 2, roomShort: R204, kind: SUBSTITUTED, original: { teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101 }, reasons: [Krankmeldung, Wasserschaden], exceptionId: 1 }
+                      - { date: '2026-09-21', timeslotId: 2, day: MO, position: 2, lessonId: 2, classId: 1, classShort: 7a, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, kind: NEEDS_SUBSTITUTION, original: null, reasons: [Wasserschaden], exceptionId: null }
+                      - { date: '2026-09-21', timeslotId: 2, day: MO, position: 2, lessonId: 4, classId: 2, classShort: 8b, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, kind: NEEDS_SUBSTITUTION, original: null, reasons: [Krankmeldung], exceptionId: null }
+                      - { date: '2026-09-21', timeslotId: 4, day: MO, position: 4, lessonId: 3, classId: 1, classShort: 7a, subjectShort: Ph, subjectColor: '#F57C00', teacherId: 1, teacherShort: MEY, roomId: 3, roomShort: P1, kind: NEEDS_SUBSTITUTION, original: null, reasons: [Krankmeldung], exceptionId: null }
+                      - { date: '2026-09-21', timeslotId: 4, day: MO, position: 4, lessonId: 5, classId: 2, classShort: 8b, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 2, roomShort: R204, kind: REGULAR, original: null, reasons: [], exceptionId: null }
+                      - { date: '2026-09-21', timeslotId: 5, day: MO, position: 5, lessonId: 6, classId: 2, classShort: 8b, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, kind: NEEDS_SUBSTITUTION, original: null, reasons: [Krankmeldung], exceptionId: null }
+                  - date: '2026-09-22'
+                    schoolDay: true
+                    entries:
+                      - { date: '2026-09-22', timeslotId: 8, day: TU, position: 1, lessonId: 7, classId: 1, classShort: 7a, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, kind: CANCELLED, original: null, reasons: ['verlegt → Mi 1.'], exceptionId: 2 }
+                  - date: '2026-09-23'
+                    schoolDay: true
+                    entries:
+                      - { date: '2026-09-23', timeslotId: 15, day: WE, position: 1, lessonId: 7, classId: 1, classShort: 7a, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, kind: MOVED, original: { date: '2026-09-22', position: 1 }, reasons: [], exceptionId: 2 }
+                  - date: '2026-09-24'
+                    schoolDay: true
+                    entries:
+                      - { date: '2026-09-24', timeslotId: 22, day: TH, position: 1, lessonId: null, classId: 3, classShort: 9c, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 2, teacherShort: SCZ, roomId: 2, roomShort: R204, kind: ADDED, original: null, reasons: [Nachholstunde], exceptionId: 3 }
+                  - date: '2026-09-25'
+                    schoolDay: true
+                    entries: []
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+  /api/me/timetable/week:
+    get:
+      tags: [Anmeldung]
+      operationId: getMyWeek
+      summary: Eigene Woche der angemeldeten Lehrkraft (A-1, A-2, „Mein Plan")
+      description: |
+        Wie `GET /api/timetable/week` mit `view=TEACHER`, aber die Lehrkraft kommt **aus dem Token**, nie
+        aus einem Parameter (Musskriterium Zugriffsschutz). Einziger Fachendpunkt der Android-App und der
+        Web-Seite „Mein Plan" — neben `GET /api/timegrid` für die Uhrzeiten. Ein Konto ohne Lehrkraft
+        (z. B. `admin`) bekommt 404. `date` fehlt → aktuelle Woche.
+        Beispiel: Meyer in der Woche vom 21.09.2026 nach dem Leitszenario — die 1. Stunde ist abgegeben
+        (`GIVEN_AWAY`), drei Stunden sind noch nicht vertreten (T-A2.1).
+      x-role: ANY
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          example: '2026-09-21'
+      responses:
+        '200':
+          description: eigene Woche
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeekDto'
+              example:
+                monday: '2026-09-21'
+                days:
+                  - date: '2026-09-21'
+                    schoolDay: true
+                    entries:
+                      - { date: '2026-09-21', timeslotId: 1, day: MO, position: 1, lessonId: 1, classId: 1, classShort: 7a, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 2, teacherShort: SCZ, roomId: 2, roomShort: R204, kind: GIVEN_AWAY, original: { teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101 }, reasons: [Krankmeldung, Wasserschaden], exceptionId: 1 }
+                      - { date: '2026-09-21', timeslotId: 2, day: MO, position: 2, lessonId: 4, classId: 2, classShort: 8b, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, kind: NEEDS_SUBSTITUTION, original: null, reasons: [Krankmeldung], exceptionId: null }
+                      - { date: '2026-09-21', timeslotId: 4, day: MO, position: 4, lessonId: 3, classId: 1, classShort: 7a, subjectShort: Ph, subjectColor: '#F57C00', teacherId: 1, teacherShort: MEY, roomId: 3, roomShort: P1, kind: NEEDS_SUBSTITUTION, original: null, reasons: [Krankmeldung], exceptionId: null }
+                      - { date: '2026-09-21', timeslotId: 5, day: MO, position: 5, lessonId: 6, classId: 2, classShort: 8b, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, kind: NEEDS_SUBSTITUTION, original: null, reasons: [Krankmeldung], exceptionId: null }
+                  - date: '2026-09-22'
+                    schoolDay: true
+                    entries:
+                      - { date: '2026-09-22', timeslotId: 8, day: TU, position: 1, lessonId: 7, classId: 1, classShort: 7a, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, kind: CANCELLED, original: null, reasons: ['verlegt → Mi 1.'], exceptionId: 2 }
+                  - date: '2026-09-23'
+                    schoolDay: true
+                    entries:
+                      - { date: '2026-09-23', timeslotId: 15, day: WE, position: 1, lessonId: 7, classId: 1, classShort: 7a, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, kind: MOVED, original: { date: '2026-09-22', position: 1 }, reasons: [], exceptionId: 2 }
+                  - date: '2026-09-24'
+                    schoolDay: true
+                    entries: []
+                  - date: '2026-09-25'
+                    schoolDay: true
+                    entries: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+  /api/me/class-week:
+    get:
+      tags: [Schülersicht]
+      operationId: getMyClassWeek
+      summary: Woche der eigenen Klasse für ein Klassenkonto (E-50, „Klassenplan")
+      description: |
+        Wie `GET /api/timetable/week` mit `view=CLASS`, aber die Klasse kommt **aus dem Token**, nie
+        aus einem Parameter — der einzige Parameter ist `date`. Ein Konto ohne Klasse (Planung,
+        Lehrkraft) bekommt 404. `date` fehlt → aktuelle Woche.
+
+        **Serverseitig gefiltert (datensparsam):**
+        - `reasons` ist **immer leer**. Der Anlass einer Vertretung ist ein Gesundheitsdatum der
+          Lehrkraft; mehrere Aufsichtsbehörden nennen seine Anzeige unzulässig. Die *Art* bleibt:
+          `NEEDS_SUBSTITUTION` heißt in der Oberfläche „Vertretung offen", ohne Grund.
+        - `original` trägt nur `teacherShort`, `roomShort`, `date` und `position`; `teacherId` und
+          `roomId` sind dort `null`.
+        - Lehrkräfte erscheinen ohnehin nur als Kürzel — `EntryDto` kennt keinen Klarnamen, und die
+          Grunddaten (`GET /api/teachers`) sind für ein Klassenkonto gesperrt.
+
+        Unterrichtsfreie Tage und Ferien stehen wie in allen anderen Sichten als
+        `schoolDay: false` mit leerem `entries`.
+
+        Quellen und Abwägung: `07-Konzept/recherche/sammelzugang-schueler.md`, Abschnitt
+        „Bewertung".
+      x-role: STUDENT
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          example: '2026-09-21'
+      responses:
+        '200':
+          description: Woche der eigenen Klasse, gefiltert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeekDto'
+              example:
+                monday: '2026-09-21'
+                days:
+                  - date: '2026-09-21'
+                    schoolDay: true
+                    entries:
+                      - { date: '2026-09-21', timeslotId: 1, day: MO, position: 1, lessonId: 1, classId: 1, classShort: 7a, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 2, teacherShort: SCZ, roomId: 2, roomShort: R204, kind: SUBSTITUTED, original: { teacherId: null, teacherShort: MEY, roomId: null, roomShort: R101, date: null, position: null }, reasons: [], exceptionId: 1 }
+                      - { date: '2026-09-21', timeslotId: 2, day: MO, position: 2, lessonId: 2, classId: 1, classShort: 7a, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, kind: REGULAR, original: null, reasons: [], exceptionId: null }
+                      - { date: '2026-09-21', timeslotId: 4, day: MO, position: 4, lessonId: 3, classId: 1, classShort: 7a, subjectShort: Ph, subjectColor: '#F57C00', teacherId: 1, teacherShort: MEY, roomId: 3, roomShort: P1, kind: NEEDS_SUBSTITUTION, original: null, reasons: [], exceptionId: null }
+                  - date: '2026-09-22'
+                    schoolDay: true
+                    entries:
+                      - { date: '2026-09-22', timeslotId: 8, day: TU, position: 1, lessonId: 7, classId: 1, classShort: 7a, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, kind: REGULAR, original: null, reasons: [], exceptionId: null }
+                  - date: '2026-09-23'
+                    schoolDay: true
+                    entries: []
+                  - date: '2026-09-24'
+                    schoolDay: true
+                    entries: []
+                  - date: '2026-09-25'
+                    schoolDay: true
+                    entries: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+  /api/draft:
+    get:
+      tags: [Entwurf]
+      operationId: getDraft
+      summary: Den einen Entwurf lesen
+      description: |
+        Es gibt höchstens einen Entwurf. Die Antwort trägt Stunden, berechnete Konflikte, offene Stunden
+        (`openLessons[]` = fehlende Wochenstunden je Klasse und Fach, zugleich die Pflichtfächer-Prüfung)
+        und Warnungen (überzählige Stunden). `status` ist `SOLVING`, solange eine Berechnung läuft
+        (Web fragt dann alle 2 s), `FAILED`, wenn der letzte Lauf mit einem Fehler endete (`solve.error`),
+        sonst `EDITING`. `solve.lastScore` ist der Timefold-Score des letzten Laufs
+        („0hard/0medium/-2soft"). Kein Entwurf → 404 `not-found` (für das Web ein Zustand, kein Fehler).
+        Beispiel: Kopie des aktiven Plans; die Mathematikstunde der 9c ist noch offen.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: der Entwurf
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 2
+                createdAt: '2026-09-15T09:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 11, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 12, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 13, classId: 1, classShort: 7a, subjectId: 3, subjectShort: Ph, subjectColor: '#F57C00', teacherId: 1, teacherShort: MEY, roomId: 3, roomShort: P1, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 14, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 15, classId: 2, classShort: 8b, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 2, roomShort: R204, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 16, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 5, day: MO, position: 5, pinned: true }
+                  - { id: 17, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 8, day: TU, position: 1, pinned: true }
+                conflicts: []
+                openLessons:
+                  - { classId: 3, classShort: 9c, subjectShort: Ma, missing: 1 }
+                warnings: []
+                expiringExceptions: 0
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    post:
+      tags: [Entwurf]
+      operationId: createDraft
+      summary: Entwurf anlegen
+      description: |
+        `EMPTY` legt einen leeren Entwurf an, `COPY_ACTIVE` kopiert den aktiven Plan: konfliktfreie Stunden
+        festgelegt (`pinned: true`), konfliktbehaftete nicht festgelegt (W-1, „konfliktfreie Stunden bleiben
+        festgelegt"). Gibt es schon einen Entwurf: 409 `draft-exists`. `EMPTY` + `accept` ist der Weg zum
+        leeren aktiven Plan, den der Testdurchlauf vor W-8 verlangt (E-46).
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDraft'
+            example: { source: COPY_ACTIVE }
+      responses:
+        '201':
+          description: Entwurf angelegt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 2
+                createdAt: '2026-09-15T09:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 11, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 12, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 13, classId: 1, classShort: 7a, subjectId: 3, subjectShort: Ph, subjectColor: '#F57C00', teacherId: 1, teacherShort: MEY, roomId: 3, roomShort: P1, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 14, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 15, classId: 2, classShort: 8b, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 2, roomShort: R204, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 16, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 5, day: MO, position: 5, pinned: true }
+                  - { id: 17, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 8, day: TU, position: 1, pinned: true }
+                conflicts: []
+                openLessons:
+                  - { classId: 3, classShort: 9c, subjectShort: Ma, missing: 1 }
+                warnings: []
+                expiringExceptions: 0
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '409':
+          description: Es gibt bereits einen Entwurf
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: urn:pushnpull:problem:draft-exists
+                title: Es gibt bereits einen Entwurf
+                status: 409
+                detail: Es gibt bereits einen Entwurf. Erst annehmen oder verwerfen.
+    delete:
+      tags: [Entwurf]
+      operationId: deleteDraft
+      summary: Entwurf verwerfen
+      description: Löscht den Entwurf mit allen Stunden; der aktive Plan bleibt unberührt. Während einer Berechnung 409 `solving` (erst abbrechen).
+      x-role: PLANNING
+      responses:
+        '204':
+          description: verworfen
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Solving409'
+
+  /api/draft/lessons:
+    post:
+      tags: [Entwurf]
+      operationId: addDraftLesson
+      summary: Stunde von Hand einplanen (W-3)
+      description: |
+        Klasse, Fach, Zeitfenster und Raum; die Lehrkraft folgt aus der Fachzuordnung der Klasse und wird
+        nicht gewählt (E-18). Die Stunde wird festgelegt (`pinned: true`). Konflikte blockieren nicht: die
+        Antwort ist der ganze Entwurf mit `conflicts[]` (T-W3.1: genau ein Raumkonflikt mit R101 und beiden
+        Stunden). Hat die Klasse das Fach nicht: 400 `validation`. Während einer Berechnung: 409 `solving`.
+        Beispiel: 9c Mathematik Montag 1. Stunde in R101 — Raumkonflikt mit der 7a.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddLessonInput'
+            example: { classId: 3, subjectId: 1, timeslotId: 1, roomId: 1 }
+      responses:
+        '201':
+          description: Stunde eingeplant; Antwort ist der ganze Entwurf
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 2
+                createdAt: '2026-09-15T09:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 11, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 12, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 13, classId: 1, classShort: 7a, subjectId: 3, subjectShort: Ph, subjectColor: '#F57C00', teacherId: 1, teacherShort: MEY, roomId: 3, roomShort: P1, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 14, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 15, classId: 2, classShort: 8b, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 2, roomShort: R204, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 16, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 5, day: MO, position: 5, pinned: true }
+                  - { id: 17, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 8, day: TU, position: 1, pinned: true }
+                  - { id: 18, classId: 3, classShort: 9c, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 2, teacherShort: SCZ, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                conflicts:
+                  - type: ROOM_DOUBLE_BOOKED
+                    severity: HARD
+                    message: Raum R101 ist am Montag in der 1. Stunde doppelt belegt (7a, 9c).
+                    lessonIds: [11, 18]
+                    ruleId: null
+                    objects:
+                      - { kind: ROOM, id: 1, label: R101 }
+                openLessons: []
+                warnings: []
+                expiringExceptions: 0
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Solving409'
+
+  /api/draft/lessons/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    patch:
+      tags: [Entwurf]
+      operationId: patchDraftLesson
+      summary: Stunde verschieben, Raum ändern, Festlegung setzen oder aufheben (W-3, W-9)
+      description: |
+        Nur die gesendeten Felder ändern sich. `timeslotId` oder `roomId` setzen = verschieben bzw. Raum
+        wechseln; dabei wird die Stunde festgelegt, außer `pinned` steht ausdrücklich im Body. `pinned:
+        false` hebt die Festlegung auf, die Stunde nimmt an der nächsten Berechnung wieder teil (T-W9.1).
+        Eine offene Stunde braucht beim Einplanen `timeslotId` **und** `roomId` (Invariante „belegt oder
+        offen", sonst 400). Antwort ist der ganze Entwurf mit neu berechneten Konflikten (T-W3.2: der
+        Konflikt verschwindet an beiden Stunden). Während einer Berechnung: 409 `solving`.
+        Beispiel: die 9c-Stunde auf Montag, 5. Stunde (Zeitfenster 6) verschieben.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchLessonInput'
+            example: { timeslotId: 6 }
+      responses:
+        '200':
+          description: Stunde geändert; Antwort ist der ganze Entwurf
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 2
+                createdAt: '2026-09-15T09:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 11, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 12, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 13, classId: 1, classShort: 7a, subjectId: 3, subjectShort: Ph, subjectColor: '#F57C00', teacherId: 1, teacherShort: MEY, roomId: 3, roomShort: P1, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 14, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 15, classId: 2, classShort: 8b, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 2, roomShort: R204, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 16, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 5, day: MO, position: 5, pinned: true }
+                  - { id: 17, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 8, day: TU, position: 1, pinned: true }
+                  - { id: 18, classId: 3, classShort: 9c, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 2, teacherShort: SCZ, roomId: 1, roomShort: R101, timeslotId: 6, day: MO, position: 6, pinned: true }
+                conflicts: []
+                openLessons: []
+                warnings: []
+                expiringExceptions: 0
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Solving409'
+    delete:
+      tags: [Entwurf]
+      operationId: deleteDraftLesson
+      summary: Stunde aus dem Entwurf entfernen (W-3)
+      description: Entfernt die Stunde aus dem Wochenmuster des Entwurfs; das Zeitfenster ist wieder frei. Antwort ist der ganze Entwurf. Während einer Berechnung 409 `solving`.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: Stunde entfernt; Antwort ist der ganze Entwurf
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 2
+                createdAt: '2026-09-15T09:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 11, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 12, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 13, classId: 1, classShort: 7a, subjectId: 3, subjectShort: Ph, subjectColor: '#F57C00', teacherId: 1, teacherShort: MEY, roomId: 3, roomShort: P1, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 14, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 15, classId: 2, classShort: 8b, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 2, roomShort: R204, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 16, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 5, day: MO, position: 5, pinned: true }
+                  - { id: 17, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 8, day: TU, position: 1, pinned: true }
+                conflicts: []
+                openLessons:
+                  - { classId: 3, classShort: 9c, subjectShort: Ma, missing: 1 }
+                warnings: []
+                expiringExceptions: 0
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Solving409'
+
+  /api/draft/solve:
+    post:
+      tags: [Entwurf]
+      operationId: startSolve
+      summary: Berechnung starten (W-8, W-9)
+      description: |
+        Prüft die Vorbedingungen, ergänzt je Klasse und Fach die fehlenden Stunden als offene, nicht
+        festgelegte Zeilen und startet den Solver **asynchron**; die Antwort 202 kommt sofort. Rechenzeit
+        je Lauf = `maxSolveSeconds` aus `GET /api/config`; die Berechnung endet spätestens damit und liefert
+        das bis dahin beste Ergebnis (T-W8.1). Festgelegte Stunden bleiben unverändert (T-W9.1). Den Stand
+        liefert `GET /api/draft` (`status: SOLVING` → alle 2 s abfragen). Ergebnis: jede Stunde ist belegt
+        oder offen, kein dritter Zustand; keine Doppelbelegung von Raum, Lehrkraft oder Klasse.
+
+        Fehler (409): `master-data-incomplete` mit `missing[]` (eine aktive Klasse hat kein Fach),
+        `pinned-contradiction` mit `conflicts[]` (harte Konflikte allein zwischen festgelegten Stunden),
+        `solving` (läuft schon).
+
+        **Kann (E-40, nach Rückfrage R1):** `classId` begrenzt die Neuberechnung auf eine Klasse; alle
+        Stunden anderer Klassen gelten für diesen Lauf als festgelegt. Ohne Body oder mit `{}`: ganzer Plan.
+      x-role: PLANNING
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartSolveInput'
+            example: {}
+      responses:
+        '202':
+          description: Berechnung gestartet; Stand über GET /api/draft
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          description: Vorbedingung verletzt oder Berechnung läuft schon (`master-data-incomplete`, `pinned-contradiction`, `solving`)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: urn:pushnpull:problem:master-data-incomplete
+                title: Grunddaten unvollständig
+                status: 409
+                detail: Vor der Berechnung fehlen Angaben.
+                missing:
+                  - Klasse 9c hat kein Fach
+    delete:
+      tags: [Entwurf]
+      operationId: cancelSolve
+      summary: Berechnung vorzeitig beenden
+      description: Beendet den laufenden Solver; das bis dahin beste Ergebnis wird in den Entwurf übernommen (T-W8.1). Läuft nichts, ändert sich nichts — trotzdem 202.
+      x-role: PLANNING
+      responses:
+        '202':
+          description: Abbruch angestoßen; Stand über GET /api/draft
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+  /api/draft/accept:
+    post:
+      tags: [Entwurf]
+      operationId: acceptDraft
+      summary: Entwurf annehmen — er wird der aktive Plan (W-8)
+      description: |
+        Eine Transaktion: bisheriger aktiver Plan → `ARCHIVED`, Entwurf → `ACTIVE` mit `acceptedAt`,
+        Verlaufseintrag `TIMETABLE_ACCEPTED`. Danach gibt es keinen Entwurf mehr. Konflikte blockieren
+        nicht (die Planung entscheidet). Während einer Berechnung 409 `solving`. Ausnahmen (Vertretungen)
+        mit Datum ab heute hängen am alten Plan und verfallen; die Antwort nennt das in `warnings[]`, die
+        Web-App fragt **vor** dem Senden nach (`GET /api/exceptions?from=heute`).
+
+        Offene Stunden (ohne `timeslotId`/`roomId`) wandern unverändert in den aktiven Plan und tauchen
+        danach in keiner Wochensicht auf. `warnings[]` nennt deshalb zuerst ihre Anzahl
+        („*n* Stunden bleiben unverplant …"); der Annehmen-Dialog zeigt dieselbe Zahl schon vorher aus
+        `openLessons` des Entwurfs.
+
+        **Kann (E-40, nach Rückfrage R1):** `validFrom` — der neue Plan gilt erst ab diesem Datum; bis
+        dahin lösen die Wochensichten den bisherigen Plan auf. Ohne Body oder mit `{}`: gilt sofort.
+      x-role: PLANNING
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptDraftInput'
+            example: {}
+      responses:
+        '200':
+          description: der neue aktive Plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptDraftResponse'
+              example:
+                id: 2
+                acceptedAt: '2026-09-15T10:30:00Z'
+                validFrom: '2026-09-21'
+                lessons:
+                  - { id: 11, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 12, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 13, classId: 1, classShort: 7a, subjectId: 3, subjectShort: Ph, subjectColor: '#F57C00', teacherId: 1, teacherShort: MEY, roomId: 3, roomShort: P1, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 14, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 2, day: MO, position: 2, pinned: true }
+                  - { id: 15, classId: 2, classShort: 8b, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 2, roomShort: R204, timeslotId: 4, day: MO, position: 4, pinned: true }
+                  - { id: 16, classId: 2, classShort: 8b, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 2, roomShort: R204, timeslotId: 5, day: MO, position: 5, pinned: true }
+                  - { id: 17, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 8, day: TU, position: 1, pinned: true }
+                  - { id: 18, classId: 3, classShort: 9c, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 2, teacherShort: SCZ, roomId: 1, roomShort: R101, timeslotId: 6, day: MO, position: 6, pinned: true }
+                conflicts: []
+                warnings:
+                  - '2 Vertretungen ab dem 2026-09-21 verfallen: ihre Stunden gibt es im neuen Plan nicht mehr.'
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Solving409'
+
+  /api/events:
+    get:
+      tags: [Änderungen]
+      operationId: listEvents
+      summary: Änderungsereignisse lesen (W-5)
+      description: |
+        Alle Ereignisse, deren Zeitraum den Bereich `from`..`to` berührt; ohne Bereich alle. `roomId`
+        liefert die Sperrzeiten eines Raums, `teacherId` die Ausfälle einer Lehrkraft. `affected[]` wird
+        bei jedem Lesen neu berechnet (Stunden des aktiven Plans im Zeitraum mit dieser Lehrkraft bzw.
+        diesem Raum, ohne bereits entfallene).
+      x-role: PLANNING
+      parameters:
+        - { name: from, in: query, required: false, schema: { type: string, format: date }, example: '2026-09-21' }
+        - { name: to, in: query, required: false, schema: { type: string, format: date }, example: '2026-09-25' }
+        - { name: teacherId, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: roomId, in: query, required: false, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Ereignisse
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventDto'
+              example:
+                - id: 1
+                  kind: TEACHER_ABSENCE
+                  teacherId: 1
+                  roomId: null
+                  dateFrom: '2026-09-21'
+                  dateTo: '2026-09-21'
+                  reason: Krankmeldung
+                  createdAt: '2026-09-18T09:12:00Z'
+                  createdBy: admin
+                  affected:
+                    - { date: '2026-09-21', lessonId: 1, classShort: 7a, position: 1 }
+                    - { date: '2026-09-21', lessonId: 4, classShort: 8b, position: 2 }
+                    - { date: '2026-09-21', lessonId: 3, classShort: 7a, position: 4 }
+                    - { date: '2026-09-21', lessonId: 6, classShort: 8b, position: 5 }
+                  hint: null
+                  extra: null
+                - id: 2
+                  kind: ROOM_BLOCKED
+                  teacherId: null
+                  roomId: 1
+                  dateFrom: '2026-09-21'
+                  dateTo: '2026-09-21'
+                  reason: Wasserschaden
+                  createdAt: '2026-09-18T09:15:00Z'
+                  createdBy: admin
+                  affected:
+                    - { date: '2026-09-21', lessonId: 1, classShort: 7a, position: 1 }
+                    - { date: '2026-09-21', lessonId: 2, classShort: 7a, position: 2 }
+                  hint: null
+                  extra: null
+                - id: 3
+                  kind: EXTRA_LESSON
+                  teacherId: null
+                  roomId: null
+                  dateFrom: '2026-09-24'
+                  dateTo: '2026-09-24'
+                  reason: Nachholstunde
+                  createdAt: '2026-09-18T09:30:00Z'
+                  createdBy: admin
+                  affected: []
+                  hint: Zusatzstunde für 9c am 24.09.2026 angelegt.
+                  extra: { date: '2026-09-24', timeslotId: 22, classId: 3, subjectId: 1, teacherId: 2, roomId: 2 }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Änderungen]
+      operationId: createEvent
+      summary: Änderung erfassen — Ausfall, Raumsperrung, Zusatzstunde (W-5)
+      description: |
+        `TEACHER_ABSENCE` braucht `teacherId`, `ROOM_BLOCKED` braucht `roomId`, `EXTRA_LESSON` braucht
+        `extra` (Datum, Zeitfenster, Klasse, Fach, Lehrkraft, Raum) und setzt `dateFrom = dateTo =
+        extra.date`; eine Zusatzstunde legt zugleich eine Ausnahme der Art `ADDED` an. Der Regelplan bleibt
+        unverändert; betroffene Stunden werden berechnet, nicht gespeichert (T-W5.1: vier Stunden am 21.09.,
+        keine am 22.09.). Trifft das Ereignis keine Stunde, steht das in `hint` (Ausnahme aus W-5).
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+            example: { kind: TEACHER_ABSENCE, teacherId: 1, roomId: null, dateFrom: '2026-09-21', dateTo: '2026-09-21', reason: Krankmeldung }
+      responses:
+        '201':
+          description: Ereignis erfasst; `affected[]` nennt die betroffenen Stunden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventDto'
+              example:
+                id: 1
+                kind: TEACHER_ABSENCE
+                teacherId: 1
+                roomId: null
+                dateFrom: '2026-09-21'
+                dateTo: '2026-09-21'
+                reason: Krankmeldung
+                createdAt: '2026-09-18T09:12:00Z'
+                createdBy: admin
+                affected:
+                  - { date: '2026-09-21', lessonId: 1, classShort: 7a, position: 1 }
+                  - { date: '2026-09-21', lessonId: 4, classShort: 8b, position: 2 }
+                  - { date: '2026-09-21', lessonId: 3, classShort: 7a, position: 4 }
+                  - { date: '2026-09-21', lessonId: 6, classShort: 8b, position: 5 }
+                hint: null
+                extra: null
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/events/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    delete:
+      tags: [Änderungen]
+      operationId: deleteEvent
+      summary: Ereignis zurücknehmen
+      description: |
+        Löscht das Ereignis. Vorhandene Ausnahmen bleiben bestehen und verlieren nur diesen Anlass; die
+        Zusatzstunde eines `EXTRA_LESSON` wird mit gelöscht. Vertretungsbedarfe, die nur durch dieses
+        Ereignis entstanden, verschwinden beim nächsten Lesen von selbst (sie werden berechnet).
+      x-role: PLANNING
+      responses:
+        '204':
+          description: gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+  /api/substitutions/pending:
+    get:
+      tags: [Vertretung]
+      operationId: listPending
+      summary: Vertretungsbedürftige Stunden (W-6, „nächste offene Stunde")
+      description: |
+        Alle Einträge mit `kind = NEEDS_SUBSTITUTION` im Bereich, sortiert nach Datum, Position und Klasse.
+        Berechnet vom `WeekResolver`, nichts wird gespeichert. `reasons[]` sind die Anlässe, `eventIds[]`
+        die auslösenden Ereignisse. Beispiel: Woche vom 21.09. nach dem Leitszenario — die 1. Stunde der 7a
+        ist schon vertreten, vier Stunden sind offen.
+      x-role: PLANNING
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date }, example: '2026-09-21' }
+        - { name: to, in: query, required: true, schema: { type: string, format: date }, example: '2026-09-25' }
+      responses:
+        '200':
+          description: offene Stunden
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PendingRow'
+              example:
+                - { date: '2026-09-21', lessonId: 2, classShort: 7a, subjectShort: De, position: 2, teacherShort: WEB, roomShort: R101, reasons: [Wasserschaden], eventIds: [2] }
+                - { date: '2026-09-21', lessonId: 4, classShort: 8b, subjectShort: Ma, position: 2, teacherShort: MEY, roomShort: R204, reasons: [Krankmeldung], eventIds: [1] }
+                - { date: '2026-09-21', lessonId: 3, classShort: 7a, subjectShort: Ph, position: 4, teacherShort: MEY, roomShort: P1, reasons: [Krankmeldung], eventIds: [1] }
+                - { date: '2026-09-21', lessonId: 6, classShort: 8b, subjectShort: Ma, position: 5, teacherShort: MEY, roomShort: R204, reasons: [Krankmeldung], eventIds: [1] }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/substitutions/options:
+    get:
+      tags: [Vertretung]
+      operationId: getOptions
+      summary: Freie Lehrkräfte und Räume für eine Stunde an einem Datum (W-6)
+      description: |
+        Keine Berechnung, nur Filtern und Sortieren: Lehrkräfte, die aktiv sind, an dem Datum nicht
+        abwesend sind, im Zeitfenster keine Stunde (inklusive Vertretungen) und keine Sperrzeit haben —
+        fachgleiche zuerst (`teachesSubject`), dann nach Name. Räume, die aktiv, im Zeitfenster frei und an
+        dem Datum nicht gesperrt sind — passende Raumart zuerst (`matchesRequirement`; ohne Raumanforderung
+        des Fachs passt jeder Raum), dann nach Name. Die ausgefallene Lehrkraft selbst fehlt.
+        Beispiel T-W6.1: 7a am 21.09., 1. Stunde — Schulz ja, Meyer nein; R204 ja, R101 nein.
+        404 `not-found`, wenn die Stunde an diesem Kalendertag nicht liegt (anderer Wochentag,
+        unterrichtsfreier Tag, Ferien) — dieselbe Bedingung wie bei `POST /api/exceptions`.
+      x-role: PLANNING
+      parameters:
+        - { name: date, in: query, required: true, schema: { type: string, format: date }, example: '2026-09-21' }
+        - { name: lessonId, in: query, required: true, schema: { type: integer, format: int64 }, example: 1 }
+      responses:
+        '200':
+          description: Vorschlagslisten
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OptionsDto'
+              example:
+                teachers:
+                  - { id: 2, shortName: SCZ, name: Schulz, teachesSubject: true }
+                  - { id: 3, shortName: WEB, name: Weber, teachesSubject: false }
+                rooms:
+                  - { id: 3, name: P1, roomType: Fachraum Physik, matchesRequirement: true }
+                  - { id: 2, name: R204, roomType: Klassenraum, matchesRequirement: true }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+  /api/exceptions:
+    get:
+      tags: [Vertretung]
+      operationId: listExceptions
+      summary: Datierte Ausnahmen lesen
+      description: Ausnahmen mit `date` im Bereich. `GET ?from=heute` zeigt vor dem Annehmen eines Entwurfs, welche Vertretungen verfallen würden.
+      x-role: PLANNING
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date }, example: '2026-09-21' }
+        - { name: to, in: query, required: true, schema: { type: string, format: date }, example: '2026-09-25' }
+      responses:
+        '200':
+          description: Ausnahmen
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExceptionDto'
+              example:
+                - { id: 1, date: '2026-09-21', lessonId: 1, kind: SUBSTITUTION, substituteTeacherId: 2, substituteRoomId: 2, newDate: null, newTimeslotId: null, eventIds: [1, 2], conflicts: [] }
+                - { id: 2, date: '2026-09-22', lessonId: 7, kind: MOVE, substituteTeacherId: null, substituteRoomId: null, newDate: '2026-09-23', newTimeslotId: 15, eventIds: [], conflicts: [] }
+                - { id: 3, date: '2026-09-24', lessonId: null, kind: ADDED, substituteTeacherId: null, substituteRoomId: null, newDate: '2026-09-24', newTimeslotId: 22, eventIds: [3], conflicts: [] }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Vertretung]
+      operationId: createException
+      summary: Vertretung, Raumwechsel, Verlegung oder Entfall für einen Kalendertag anlegen (W-6, W-7)
+      description: |
+        Eine Ausnahme je Stunde und Datum. `SUBSTITUTION` trägt `substituteTeacherId` und/oder
+        `substituteRoomId` in **einer** Zeile (Leitszenario: ein Arbeitsgang, T-W6.1); `MOVE` braucht
+        `newDate` und `newTimeslotId`; `CANCEL` nichts weiter; `ADDED` wird nicht hier, sondern über ein
+        Ereignis `EXTRA_LESSON` angelegt (400). `eventIds[]` sind die Anlässe; fehlen sie, nimmt der Server
+        alle Ereignisse, die die Stunde an dem Datum betreffen. Der Server prüft Folgekonflikte des Tages
+        auf der aufgelösten Woche und liefert sie als `conflicts[]` — Daten, kein Fehler; gespeichert wird
+        immer. Schreibt den Verlaufseintrag `EXCEPTION_CREATED` mit alter und neuer Belegung (T-W7.1).
+        Zweite Ausnahme für dieselbe Stunde am selben Tag: 409 `exception-exists` (erst aufheben).
+        Der Regelplan bleibt unverändert: am 28.09. steht wieder Meyer in R101.
+
+        400 `validation` mit dem Feldnamen liefert der Server außerdem, wenn eine Kennung ins Leere zeigt
+        (`substituteTeacherId`, `substituteRoomId`, `newTimeslotId`, `eventIds`), wenn eine Vertretung
+        weder Lehrkraft noch Raum ändert, wenn die Vertretungslehrkraft an dem Datum selbst ausfällt oder
+        der Vertretungsraum gesperrt ist, und wenn bei `MOVE` das Zielzeitfenster nicht zum Wochentag von
+        `newDate` gehört. 404 `not-found`, wenn die Stunde an diesem Kalendertag nicht liegt — anderer
+        Wochentag, unterrichtsfreier Tag oder Ferien.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExceptionInput'
+            example: { date: '2026-09-21', lessonId: 1, kind: SUBSTITUTION, substituteTeacherId: 2, substituteRoomId: 2, eventIds: [1, 2] }
+      responses:
+        '201':
+          description: Ausnahme angelegt; `conflicts[]` sind Folgekonflikte des Tages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExceptionDto'
+              example: { id: 1, date: '2026-09-21', lessonId: 1, kind: SUBSTITUTION, substituteTeacherId: 2, substituteRoomId: 2, newDate: null, newTimeslotId: null, eventIds: [1, 2], conflicts: [] }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          description: Für diese Stunde gibt es an diesem Tag schon eine Ausnahme
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: urn:pushnpull:problem:exception-exists
+                title: Ausnahme existiert bereits
+                status: 409
+                detail: Für diese Stunde gibt es am 21.09.2026 schon eine Ausnahme. Erst aufheben, dann neu anlegen.
+
+  /api/exceptions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    delete:
+      tags: [Vertretung]
+      operationId: deleteException
+      summary: Ausnahme aufheben
+      description: |
+        Die Stunde wird wieder vertretungsbedürftig, solange das Ereignis besteht. Schreibt den
+        Verlaufseintrag `EXCEPTION_DELETED`; `oldAssignment` nennt, was aufgehoben wird — bei `MOVE` das
+        Ziel („Mi, 1. Stunde"), bei `CANCEL` „entfällt", sonst die Belegung. Eine Zusatzstunde (`ADDED`)
+        geht diesen Weg **nicht**: sie gehört zu ihrem Ereignis und wird mit `DELETE /api/events/{id}`
+        zurückgenommen; hier antwortet der Server 400 `validation`.
+      x-role: PLANNING
+      responses:
+        '204':
+          description: aufgehoben
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+  /api/changelog:
+    get:
+      tags: [Verlauf]
+      operationId: getChangelog
+      summary: Änderungsverlauf lesen (W-7)
+      description: |
+        Chronologisch absteigend, seitenweise (`page` ab 0, `size` Standard 50). Filter `from`/`to` wirken
+        auf das Datum der Stunde, `classId`, `teacherId` (Lehrkraft der Regelplanstunde) und `lessonId`.
+        Belegungen stehen als Text-Schnappschuss, damit der Eintrag nach dem Deaktivieren oder Umbenennen
+        von Grunddaten lesbar bleibt. **Es gibt kein PUT und kein DELETE** (T-W7.1).
+        Beispiel: Filter Klasse 7a — genau ein Vertretungseintrag mit beiden Anlässen.
+      x-role: PLANNING
+      parameters:
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+        - { name: classId, in: query, required: false, schema: { type: integer, format: int64 }, example: 1 }
+        - { name: teacherId, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: lessonId, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
+      responses:
+        '200':
+          description: eine Seite des Verlaufs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangelogPage'
+              example:
+                items:
+                  - id: 2
+                    timestamp: '2026-09-18T09:20:00Z'
+                    action: EXCEPTION_CREATED
+                    date: '2026-09-21'
+                    position: 1
+                    classShort: 7a
+                    oldAssignment: Meyer / R101
+                    newAssignment: Schulz / R204
+                    reasons: Krankmeldung; Wasserschaden
+                    username: admin
+                page: 0
+                size: 50
+                total: 1
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/holidays:
+    get:
+      tags: [Ferien]
+      operationId: listHolidays
+      summary: Unterrichtsfreie Zeiträume lesen (Kann, E-13)
+      description: 'Ferien und Feiertage. An diesen Tagen liefert die Wochensicht `schoolDay: false`, keine Einträge und keine Vertretungsbedarfe. Kein automatischer Bezug aus dem Internet.'
+      x-role: PLANNING
+      responses:
+        '200':
+          description: Zeiträume
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HolidayDto'
+              example:
+                - { id: 1, name: Herbstferien, dateFrom: '2026-10-19', dateTo: '2026-10-31', kind: VACATION }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Ferien]
+      operationId: createHoliday
+      summary: Unterrichtsfreien Zeitraum anlegen (Kann)
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HolidayInput'
+            example: { name: Tag der Deutschen Einheit, dateFrom: '2026-10-03', dateTo: '2026-10-03', kind: PUBLIC_HOLIDAY }
+      responses:
+        '201':
+          description: Zeitraum angelegt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HolidayDto'
+              example: { id: 2, name: Tag der Deutschen Einheit, dateFrom: '2026-10-03', dateTo: '2026-10-03', kind: PUBLIC_HOLIDAY }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/holidays/preset-years:
+    get:
+      tags: [Ferien]
+      operationId: listHolidayPresetYears
+      summary: Schuljahre der mitgelieferten Vorlage (Kann, E-51)
+      description: |
+        Die Schuljahre, für die zum Bundesland aus `GET /api/config` eine Ferien- und
+        Feiertagsvorlage mitgeliefert wird. Die Vorlage ist **Daten, kein Dienst**: sie steht in der
+        Tabelle `holiday_preset` (Migration V8, erzeugt aus der Recherche), es wird zur Laufzeit
+        nichts aus dem Internet geholt.
+
+        Leeres `schoolYears` heißt: für dieses Bundesland liegt keine Vorlage bei — die Oberfläche
+        blendet „Vorlage laden" dann aus. Kein Bundesland ist im Code verdrahtet.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: verfügbare Schuljahre, älteste zuerst
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HolidayPresetYearsDto'
+              example: { state: SH, schoolYears: ['2026/27', '2027/28'] }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/holidays/preset:
+    post:
+      tags: [Ferien]
+      operationId: loadHolidayPreset
+      summary: Ferien und Feiertage aus der Vorlage übernehmen (Kann, E-51)
+      description: |
+        Kopiert die mitgelieferten Zeiträume des in `GET /api/config` eingestellten Bundeslands für
+        ein Schuljahr nach `holiday` — genau das, was `POST /api/rules/reset` für das Regelwerk tut.
+
+        Der Aufruf ist **idempotent**: ein Zeitraum wird übersprungen, wenn schon einer mit derselben
+        Bezeichnung und demselben Anfang und Ende steht. Ein zweiter Aufruf liefert also `added: 0`.
+        Jeder übernommene Eintrag ist danach ein Zeitraum wie jeder andere und bleibt einzeln
+        änderbar und löschbar.
+
+        Enthalten sind die amtlichen Ferienblöcke und die landesweit geltenden Feiertage. **Nicht**
+        enthalten sind Feiertage, die nur in einem Teilgebiet gelten (Fronleichnam in Teilen von
+        Sachsen und Thüringen, Mariä Himmelfahrt in katholischen Gemeinden Bayerns, Augsburger
+        Friedensfest), sowie bewegliche Ferientage — beides trägt die Schule von Hand nach.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HolidayPresetInput'
+            example: { schoolYear: '2026/27' }
+      responses:
+        '200':
+          description: übernommen (`added`) und übersprungen (`skipped`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HolidayPresetResultDto'
+              example: { added: 14, skipped: 0, state: SH, schoolYear: '2026/27' }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '409':
+          $ref: '#/components/responses/PresetMissing409'
+
+  /api/holidays/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    delete:
+      tags: [Ferien]
+      operationId: deleteHoliday
+      summary: Unterrichtsfreien Zeitraum löschen (Kann)
+      x-role: PLANNING
+      responses:
+        '204':
+          description: gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+
+components:
+
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: |
+        Zugriffsmerkmal aus `POST /api/auth/login`, gesendet als `Authorization: Bearer <token>`.
+        Der Server speichert nur den SHA-256-Hash mit Ablauf nach zwölf Stunden. Kein JWT, keine
+        Cookies, kein externer Anmeldedienst.
+
+  parameters:
+    PathId:
+      name: id
+      in: path
+      required: true
+      description: ID des Datensatzes
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      example: 1
+
+  responses:
+    Validation400:
+      description: Eingabe ungültig (Bean-Validation oder unlesbares JSON)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: urn:pushnpull:problem:validation
+            title: Eingabe ungültig
+            status: 400
+            detail: Bitte die markierten Felder prüfen.
+            errors:
+              - { field: weeklyHours, message: muss mindestens 1 sein }
+    Unauthenticated401:
+      description: kein, ungültiges oder abgelaufenes Token — oder falsches Passwort
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: urn:pushnpull:problem:unauthenticated
+            title: Nicht angemeldet
+            status: 401
+            detail: Bitte erneut anmelden.
+    Forbidden403:
+      description: falsche Rolle oder fremde Ressource
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: urn:pushnpull:problem:forbidden
+            title: Keine Berechtigung
+            status: 403
+            detail: Dieser Bereich ist der Planung vorbehalten.
+    NotFound404:
+      description: unbekannte ID
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: urn:pushnpull:problem:not-found
+            title: Nicht gefunden
+            status: 404
+            detail: Es gibt keinen Datensatz mit dieser Nummer.
+    Conflict409:
+      description: Der Datensatz wird noch verwendet oder widerspricht dem vorhandenen Stand.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: urn:pushnpull:problem:in-use
+            title: Lehrkraft wird noch verwendet
+            status: 409
+            detail: Meyer ist in 4 Stunden eingeplant. Deaktivieren statt löschen.
+    PresetMissing409:
+      description: Zu diesem Bundesland und Schuljahr liegt keine Ferien- und Feiertagsvorlage bei (E-51).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: urn:pushnpull:problem:preset-missing
+            title: Konflikt
+            status: 409
+            detail: 'Fuer SH und das Schuljahr 2030/31 gibt es keine Vorlage. Vorhanden: 2026/27, 2027/28.'
+
+    Solving409:
+      description: Der Entwurf wird gerade berechnet; erst abwarten oder abbrechen (DELETE /api/draft/solve).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: urn:pushnpull:problem:solving
+            title: Berechnung läuft
+            status: 409
+            detail: Der Entwurf wird gerade berechnet. Bitte warten oder die Berechnung abbrechen.
+
+  schemas:
+
+    Role:
+      type: string
+      enum: [PLANNING, TEACHER, STUDENT]
+      description: |
+        Rolle eines Kontos. In der Oberfläche heißt PLANNING „Planung", TEACHER „Lehrkraft" und
+        STUDENT „Klasse". STUDENT ist ein Klassenkonto: ein Konto je Klasse, das nur den Plan der
+        eigenen Klasse liest (E-50, NACHTRAG 05.09.).
+
+    Weekday:
+      type: string
+      enum: [MO, TU, WE, TH, FR, SA]
+      description: Wochentag; SA ist vorgesehen, im Referenzszenario aber unbenutzt.
+
+    Severity:
+      type: string
+      enum: [HARD, SOFT]
+      description: hart (darf nie verletzt werden) oder weich (Verletzung kostet Punkte)
+
+    RuleType:
+      type: string
+      enum: [MAX_LESSONS_PER_DAY, MAX_LESSONS_PER_WEEK, NO_LESSONS_IN_BREAKS]
+
+    RuleScope:
+      type: string
+      enum: [CLASS, TEACHER]
+
+    WarningCode:
+      type: string
+      enum: [SUBJECT_NOT_TAUGHT, QUOTA_EXCEEDED]
+      description: SUBJECT_NOT_TAUGHT = Lehrkraft hat das Fach nicht; QUOTA_EXCEEDED = Deputat überschritten
+
+    ConflictType:
+      type: string
+      enum: [ROOM_DOUBLE_BOOKED, TEACHER_DOUBLE_BOOKED, CLASS_DOUBLE_BOOKED, TEACHER_BLOCKED_TIME, ROOM_TYPE_MISMATCH, RULE_VIOLATION]
+
+    ObjectKind:
+      type: string
+      enum: [CLASS, TEACHER, ROOM]
+
+    HealthDto:
+      type: object
+      description: Antwort von GET /api/health
+      required: [status, schoolName]
+      properties:
+        status:
+          type: string
+          description: '"UP", solange der Server antwortet'
+          examples: [UP]
+        schoolName:
+          type: string
+          description: Schulname aus der Systemkonfiguration; die App zeigt ihn nach dem Verbindungstest
+          examples: [Gymnasium Musterstadt]
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          examples: [admin]
+        password:
+          type: string
+          minLength: 1
+          format: password
+          examples: [admin]
+
+    LoginResponse:
+      type: object
+      required: [token, role, displayName, teacherId]
+      properties:
+        token:
+          type: string
+          description: 'Zugriffsmerkmal für den Header `Authorization: Bearer <token>`; zwölf Stunden gültig'
+        role:
+          $ref: '#/components/schemas/Role'
+        displayName:
+          type: string
+          description: Anzeigename für die Kopfzeile (Name der Lehrkraft, sonst Benutzername)
+        teacherId:
+          type: [integer, 'null']
+          format: int64
+          description: gesetzt, wenn das Konto zu einer Lehrkraft gehört
+
+    MeDto:
+      type: object
+      required: [id, username, role, displayName, teacherId]
+      properties:
+        id: { type: integer, format: int64 }
+        username: { type: string }
+        role:
+          $ref: '#/components/schemas/Role'
+        displayName: { type: string }
+        teacherId:
+          type: [integer, 'null']
+          format: int64
+
+    PasswordChange:
+      type: object
+      required: [oldPassword, newPassword]
+      properties:
+        oldPassword: { type: string, format: password, minLength: 1 }
+        newPassword: { type: string, format: password, minLength: 8 }
+
+    PasswordSet:
+      type: object
+      description: Body von PUT /api/users/{id}/password — die Planung setzt ein neues Passwort ohne Kenntnis des alten.
+      required: [password]
+      properties:
+        password: { type: string, format: password, minLength: 8 }
+
+    UserDto:
+      type: object
+      required: [id, username, role, teacherId, classId, classShort]
+      properties:
+        id: { type: integer, format: int64 }
+        username: { type: string }
+        role:
+          $ref: '#/components/schemas/Role'
+        teacherId:
+          type: [integer, 'null']
+          format: int64
+        classId:
+          type: [integer, 'null']
+          format: int64
+          description: gesetzt bei der Rolle STUDENT — die Klasse dieses Klassenkontos (E-50)
+        classShort:
+          type: [string, 'null']
+          description: Name der Klasse („7a"); nur zum Anzeigen, damit die Kontenliste nichts nachladen muss
+
+    CreateUser:
+      type: object
+      description: Body von POST /api/users
+      required: [username, password, role]
+      properties:
+        username: { type: string, minLength: 1 }
+        password: { type: string, format: password, minLength: 8 }
+        role:
+          $ref: '#/components/schemas/Role'
+        teacherId:
+          type: [integer, 'null']
+          format: int64
+          description: Pflicht bei der Rolle TEACHER, sonst leer
+        classId:
+          type: [integer, 'null']
+          format: int64
+          description: Pflicht bei der Rolle STUDENT (Klassenkonto, E-50), sonst leer
+
+    ClassAccountDto:
+      type: object
+      description: |
+        Eine Zeile der Antwort von POST /api/users/class-accounts. `password` steht hier **einmal**
+        im Klartext — der Server speichert nur den BCrypt-Hash und gibt es nie wieder heraus. Wer es
+        verliert, setzt über PUT /api/users/{id}/password ein neues.
+      required: [username, classShort, password]
+      properties:
+        username: { type: string, examples: ['7a'] }
+        classShort: { type: string, examples: ['7a'] }
+        password: { type: string, format: password, examples: [kfr7t2mqbd] }
+
+    WarningDto:
+      type: object
+      description: Hinweis in einer 200-Antwort — nie ein Fehler
+      required: [code, message, teacherId]
+      properties:
+        code:
+          $ref: '#/components/schemas/WarningCode'
+        message:
+          type: string
+          description: deutscher Text für die Oberfläche
+        teacherId:
+          type: [integer, 'null']
+          format: int64
+
+    TeacherDto:
+      type: object
+      required: [id, name, shortName, weeklyHoursQuota, subjectIds, preferredTimeslotIds, blockedTimeslotIds, active, plannedHours, warnings]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string, examples: [Meyer] }
+        shortName: { type: string, description: Kürzel für die Planungsraster, examples: [MEY] }
+        weeklyHoursQuota: { type: integer, minimum: 0, description: Deputat in Wochenstunden, examples: [25] }
+        subjectIds:
+          type: array
+          items: { type: integer, format: int64 }
+          description: Fächer, die die Lehrkraft unterrichten darf
+        preferredTimeslotIds:
+          type: array
+          items: { type: integer, format: int64 }
+          description: Wunschzeiten (weich)
+        blockedTimeslotIds:
+          type: array
+          items: { type: integer, format: int64 }
+          description: Sperrzeiten (hart)
+        active: { type: boolean, description: 'false = deaktiviert: bleibt in alten Plänen, wird nicht neu eingeplant' }
+        plannedHours: { type: integer, minimum: 0, description: Summe der Wochenstunden aus allen Klassenzuordnungen (berechnet) }
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/WarningDto'
+
+    TeacherInput:
+      type: object
+      required: [name, shortName, weeklyHoursQuota, subjectIds, preferredTimeslotIds, blockedTimeslotIds, active]
+      properties:
+        name: { type: string, minLength: 1 }
+        shortName: { type: string, minLength: 1, maxLength: 10 }
+        weeklyHoursQuota: { type: integer, minimum: 0 }
+        subjectIds:
+          type: array
+          items: { type: integer, format: int64 }
+        preferredTimeslotIds:
+          type: array
+          items: { type: integer, format: int64 }
+        blockedTimeslotIds:
+          type: array
+          items: { type: integer, format: int64 }
+        active: { type: boolean }
+
+    SubjectDto:
+      type: object
+      required: [id, name, shortName, requiredRoomType, color]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string, examples: [Mathematik] }
+        shortName: { type: string, examples: [Ma] }
+        requiredRoomType:
+          type: [string, 'null']
+          description: geforderte Raumart; null = jeder Raum passt
+          examples: [Fachraum Physik]
+        color:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+          description: Farbe der Fachkacheln im Plan
+          examples: ['#1976D2']
+
+    SubjectInput:
+      type: object
+      required: [name, shortName, requiredRoomType, color]
+      properties:
+        name: { type: string, minLength: 1 }
+        shortName: { type: string, minLength: 1, maxLength: 10 }
+        requiredRoomType:
+          type: [string, 'null']
+        color:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+
+    RoomDto:
+      type: object
+      required: [id, name, roomType, active]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string, examples: [R101] }
+        roomType: { type: string, description: Raumart; muss zur geforderten Raumart des Fachs passen, examples: [Klassenraum] }
+        active: { type: boolean }
+
+    RoomInput:
+      type: object
+      required: [name, roomType, active]
+      properties:
+        name: { type: string, minLength: 1 }
+        roomType: { type: string, minLength: 1 }
+        active: { type: boolean }
+
+    ClassSubjectDto:
+      type: object
+      description: eine Zeile der Fächerliste einer Klasse
+      required: [subjectId, subjectShort, weeklyHours, teacherId, teacherShort]
+      properties:
+        subjectId: { type: integer, format: int64 }
+        subjectShort: { type: string }
+        weeklyHours: { type: integer, minimum: 1 }
+        teacherId: { type: integer, format: int64 }
+        teacherShort: { type: string }
+
+    ClassSubjectInput:
+      type: object
+      description: 'eine Zeile beim Speichern; `weeklyHours` oder `teacherId` leer wird mit 400 abgelehnt'
+      required: [subjectId, weeklyHours, teacherId]
+      properties:
+        subjectId: { type: integer, format: int64 }
+        weeklyHours:
+          type: [integer, 'null']
+          minimum: 1
+        teacherId:
+          type: [integer, 'null']
+          format: int64
+
+    ClassDto:
+      type: object
+      required: [id, name, grade, active, subjects, warnings]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string, examples: [7a] }
+        grade: { type: integer, minimum: 1, description: Jahrgang, examples: [7] }
+        active: { type: boolean }
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClassSubjectDto'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/WarningDto'
+
+    ClassInput:
+      type: object
+      required: [name, grade, active]
+      properties:
+        name: { type: string, minLength: 1 }
+        grade: { type: integer, minimum: 1 }
+        active: { type: boolean }
+
+    TimeslotDto:
+      type: object
+      required: [id, day, position, startTime, endTime, isBreak]
+      properties:
+        id: { type: integer, format: int64 }
+        day:
+          $ref: '#/components/schemas/Weekday'
+        position: { type: integer, minimum: 1, description: 'laufende Nummer des Zeitfensters am Tag, Pausen mitgezählt' }
+        startTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', examples: ['08:00'] }
+        endTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', examples: ['08:45'] }
+        isBreak: { type: boolean, description: 'true = Pause: kein Unterricht, aber Teil des Rasters' }
+
+    TimeslotInput:
+      type: object
+      required: [day, position, startTime, endTime, isBreak]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: gesetzt = ändern, fehlend = neu anlegen
+        day:
+          $ref: '#/components/schemas/Weekday'
+        position: { type: integer, minimum: 1 }
+        startTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+        endTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+        isBreak: { type: boolean }
+
+    TimegridDto:
+      type: object
+      required: [slots]
+      properties:
+        slots:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeslotDto'
+
+    TimegridInput:
+      type: object
+      required: [slots]
+      properties:
+        slots:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeslotInput'
+
+    RuleDto:
+      type: object
+      required: [id, type, scope, grade, value, severity, weight, active, label]
+      properties:
+        id: { type: integer, format: int64 }
+        type:
+          $ref: '#/components/schemas/RuleType'
+        scope:
+          oneOf:
+            - $ref: '#/components/schemas/RuleScope'
+            - type: 'null'
+          description: null = betrifft weder Klasse noch Lehrkraft (Pausenregel)
+        grade:
+          type: [integer, 'null']
+          minimum: 1
+          description: null = schulweit; gesetzt = nur dieser Jahrgang (Soll, E-47)
+        value: { type: integer, minimum: 1, description: Zahlenwert der Regel; kleiner als 1 wird mit 400 abgelehnt }
+        severity:
+          $ref: '#/components/schemas/Severity'
+        weight: { type: integer, minimum: 1, description: Gewicht der weichen Regel }
+        active: { type: boolean }
+        label: { type: string, description: deutscher Text für die Oberfläche }
+
+    RuleInput:
+      type: object
+      description: 'PUT ändert Wert, Härte, Gewicht und Aktivierung; POST braucht zusätzlich type, scope und grade.'
+      required: [value, severity, weight, active]
+      properties:
+        type:
+          $ref: '#/components/schemas/RuleType'
+        scope:
+          oneOf:
+            - $ref: '#/components/schemas/RuleScope'
+            - type: 'null'
+        grade:
+          type: [integer, 'null']
+          minimum: 1
+        value: { type: integer, minimum: 1 }
+        severity:
+          $ref: '#/components/schemas/Severity'
+        weight: { type: integer, minimum: 1 }
+        active: { type: boolean }
+
+    ConfigDto:
+      type: object
+      required: [schoolName, state, schoolType, maxSolveSeconds]
+      properties:
+        schoolName: { type: string, minLength: 1, examples: [Gymnasium Musterstadt] }
+        state:
+          type: string
+          description: Bundesland-Kürzel; wählt die Voreinstellung für POST /api/rules/reset (E-48)
+          enum: [BW, BY, BE, BB, HB, HH, HE, MV, NI, NW, RP, SL, SN, ST, SH, TH]
+          examples: [SH]
+        schoolType: { type: string, description: 'Schulform als Datum, keine Fallunterscheidung im Code', examples: [GYMNASIUM] }
+        maxSolveSeconds: { type: integer, minimum: 1, maximum: 600, description: 'Rechenzeit je Berechnung in Sekunden; die Obergrenze schützt den einen Solver-Thread (601 → 400 „höchstens 600")', examples: [60] }
+
+    SampleDataRequest:
+      type: object
+      properties:
+        replace:
+          type: boolean
+          default: false
+          description: true = vorhandene Daten ersetzen statt 409 zu melden (E-46)
+
+    SampleDataResult:
+      type: object
+      description: Anzahl der geladenen Datensätze
+      required: [classes, teachers, rooms]
+      properties:
+        classes: { type: integer, minimum: 0, examples: [12] }
+        teachers: { type: integer, minimum: 0, examples: [24] }
+        rooms: { type: integer, minimum: 0, examples: [18] }
+
+    ConflictObject:
+      type: object
+      description: das Objekt, an dem ein Konflikt hängt — für die Oberfläche zum Anspringen
+      required: [kind, id, label]
+      properties:
+        kind:
+          $ref: '#/components/schemas/ObjectKind'
+        id: { type: integer, format: int64 }
+        label: { type: string }
+
+    ConflictDto:
+      type: object
+      description: |
+        Ein Konflikt ist immer ein Datum, nie ein Fehler: Entwurf, aktiver Plan und die Antwort auf
+        eine neue Ausnahme tragen `conflicts[]`; im Fehlerkörper steht er nur bei `pinned-contradiction`.
+        Der Text `message` nennt Regel, Wert, Objekt und Tag in Schulsprache (T-W2.1); `objects[]` sind
+        die beteiligten Objekte zum Anspringen (T-W3.1: der Raum R101 und beide Stunden in `lessonIds`).
+      required: [type, severity, message, lessonIds, ruleId, objects]
+      properties:
+        type:
+          $ref: '#/components/schemas/ConflictType'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        message: { type: string, description: deutscher Text für die Oberfläche }
+        lessonIds:
+          type: array
+          items: { type: integer, format: int64 }
+        ruleId:
+          type: [integer, 'null']
+          format: int64
+          description: gesetzt bei RULE_VIOLATION
+        objects:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConflictObject'
+
+    FieldErrorDto:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string, examples: [weeklyHours] }
+        message: { type: string, examples: [muss mindestens 1 sein] }
+
+    ProblemDetail:
+      type: object
+      description: |
+        Fehlerkörper nach RFC 9457, ausgeliefert als `application/problem+json`.
+        `type` ist immer `urn:pushnpull:problem:<slug>` mit den Slugs `validation`, `unauthenticated`,
+        `forbidden`, `not-found`, `in-use`, `draft-exists`, `solving`, `master-data-incomplete`,
+        `pinned-contradiction`, `data-exists`, `exception-exists`, `internal`.
+      required: [type, title, status]
+      properties:
+        type: { type: string, examples: ['urn:pushnpull:problem:in-use'] }
+        title: { type: string, description: kurze deutsche Überschrift }
+        status: { type: integer, minimum: 100, maximum: 599 }
+        detail: { type: string, description: ausführlicher deutscher Text für die Oberfläche }
+        instance: { type: string, description: angefragter Pfad }
+        errors:
+          type: array
+          description: nur bei `validation`
+          items:
+            $ref: '#/components/schemas/FieldErrorDto'
+        missing:
+          type: array
+          description: nur bei `master-data-incomplete`
+          items: { type: string }
+        conflicts:
+          type: array
+          description: nur bei `pinned-contradiction`
+          items:
+            $ref: '#/components/schemas/ConflictDto'
+
+    # ---------------------------------------------------------------------------------------------- v1
+
+    View:
+      type: string
+      enum: [SCHOOL, CLASS, TEACHER, ROOM]
+      description: Plansicht (W-4); ROOM ist die Raumsicht (Musskriterium E-39)
+
+    EntryKind:
+      type: string
+      enum: [REGULAR, NEEDS_SUBSTITUTION, SUBSTITUTED, GIVEN_AWAY, MOVED, CANCELLED, ADDED]
+      description: |
+        Art eines Wocheneintrags. REGULAR = Regelplan; NEEDS_SUBSTITUTION = vertretungsbedürftig („noch
+        nicht vertreten"); SUBSTITUTED = andere Lehrkraft und/oder anderer Raum; GIVEN_AWAY = nur in der
+        Sicht TEACHER: die eigene Stunde, die eine andere Lehrkraft übernimmt; MOVED = Ziel einer Verlegung;
+        CANCELLED = entfällt (auch der Ursprung einer Verlegung, mit `reasons` „verlegt → …"); ADDED =
+        Zusatzstunde ohne Regelplanstunde (`lessonId: null`).
+
+    DraftStatus:
+      type: string
+      enum: [EDITING, SOLVING, FAILED]
+
+    DraftSource:
+      type: string
+      enum: [EMPTY, COPY_ACTIVE]
+
+    EventKind:
+      type: string
+      enum: [TEACHER_ABSENCE, ROOM_BLOCKED, EXTRA_LESSON]
+
+    ExceptionKind:
+      type: string
+      enum: [SUBSTITUTION, MOVE, CANCEL, ADDED]
+
+    ChangelogAction:
+      type: string
+      enum: [EXCEPTION_CREATED, EXCEPTION_DELETED, TIMETABLE_ACCEPTED]
+
+    HolidayKind:
+      type: string
+      enum: [VACATION, PUBLIC_HOLIDAY]
+
+    LessonDto:
+      type: object
+      description: Eine Stunde des Wochenmusters (Entwurf oder aktiver Plan). Zeitfenster und Raum sind beide gesetzt („belegt") oder beide null („offen"); einen dritten Zustand gibt es nicht (T-W8.1).
+      required: [id, classId, classShort, subjectId, subjectShort, subjectColor, teacherId, teacherShort, roomId, roomShort, timeslotId, day, position, pinned]
+      properties:
+        id: { type: integer, format: int64 }
+        classId: { type: integer, format: int64 }
+        classShort: { type: string, examples: [7a] }
+        subjectId: { type: integer, format: int64 }
+        subjectShort: { type: string, examples: [Ma] }
+        subjectColor: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        teacherId: { type: integer, format: int64, description: aus der Fachzuordnung der Klasse; die Stunde trägt keine eigene Lehrkraft (E-18) }
+        teacherShort: { type: string, examples: [MEY] }
+        roomId: { type: [integer, 'null'], format: int64 }
+        roomShort: { type: [string, 'null'] }
+        timeslotId: { type: [integer, 'null'], format: int64, description: null = offene Stunde }
+        day:
+          oneOf:
+            - $ref: '#/components/schemas/Weekday'
+            - type: 'null'
+        position: { type: [integer, 'null'], minimum: 1 }
+        pinned: { type: boolean, description: festgelegt (W-9) — der Solver lässt die Stunde stehen }
+
+    TimetableDto:
+      type: object
+      description: 'Der aktive Regelplan. Vor der ersten Annahme `id: null` und leere Listen.'
+      required: [id, acceptedAt, validFrom, lessons, conflicts]
+      properties:
+        id: { type: [integer, 'null'], format: int64 }
+        acceptedAt: { type: [string, 'null'], format: date-time }
+        validFrom:
+          type: [string, 'null']
+          format: date
+          description: |
+            Ab welchem Kalendertag dieser Plan gilt (E-40). `null`, wenn ohne Stichtag angenommen —
+            dann gilt er ab dem Tag der Annahme. Ergänzt am 05.09. (Befund PFLICHTENHEFT-6): vorher
+            musste die Web-App den Beginn aus `acceptedAt` raten und zeigte bei einem Plan mit Stichtag
+            das falsche Datum.
+        lessons:
+          type: array
+          items:
+            $ref: '#/components/schemas/LessonDto'
+        conflicts:
+          type: array
+          description: bei jedem Lesen neu berechnet (E-31)
+          items:
+            $ref: '#/components/schemas/ConflictDto'
+
+    AcceptDraftResponse:
+      allOf:
+        - $ref: '#/components/schemas/TimetableDto'
+        - type: object
+          required: [warnings]
+          properties:
+            warnings:
+              type: array
+              description: >-
+                deutsche Hinweise, in dieser Reihenfolge: offene Stunden, die unverplant in den aktiven
+                Plan wandern; danach die verfallenden Vertretungen. Gezählt werden nur die, deren Stunde
+                der neue Plan verschiebt, umräumt oder streicht — Vertretungen an unverändert
+                übernommenen Stunden hängt der Server auf die neue Stunde um und sie bleiben wirksam
+                (dieselbe Zahl nennt `expiringExceptions` am `DraftDto` schon vor dem Annehmen)
+              items: { type: string }
+
+    SolveInfo:
+      type: object
+      description: Daten des letzten bzw. laufenden Solver-Laufs für die Fortschrittsanzeige (verstrichene Zeit / limitSeconds)
+      required: [startedAt, limitSeconds, lastScore, error]
+      properties:
+        startedAt: { type: [string, 'null'], format: date-time }
+        limitSeconds: { type: [integer, 'null'], minimum: 1, description: Rechenzeit dieses Laufs aus der Systemkonfiguration }
+        lastScore: { type: [string, 'null'], description: 'Timefold-Score des letzten Laufs, z. B. "0hard/0medium/-2soft"' }
+        error: { type: [string, 'null'], description: 'deutscher Fehlertext, wenn der Lauf abgebrochen ist (status FAILED)' }
+
+    OpenLessonDto:
+      type: object
+      description: fehlende Wochenstunden je Klasse und Fach (offene Stunden, zugleich Pflichtfächer-Prüfung)
+      required: [classId, classShort, subjectShort, missing]
+      properties:
+        classId: { type: integer, format: int64 }
+        classShort: { type: string }
+        subjectShort: { type: string }
+        missing: { type: integer, minimum: 1 }
+
+    DraftDto:
+      type: object
+      required: [id, createdAt, status, solve, lessons, conflicts, openLessons, warnings, expiringExceptions]
+      properties:
+        id: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+        status:
+          $ref: '#/components/schemas/DraftStatus'
+        solve:
+          $ref: '#/components/schemas/SolveInfo'
+        lessons:
+          type: array
+          items:
+            $ref: '#/components/schemas/LessonDto'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConflictDto'
+        openLessons:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpenLessonDto'
+        warnings:
+          type: array
+          description: 'deutsche Hinweise, z. B. überzählige Stunden („7a Ma: 3 Stunden geplant, 2 vorgesehen")'
+          items: { type: string }
+        expiringExceptions:
+          type: integer
+          format: int64
+          description: >-
+            Wie viele datierte Vertretungen ab heute das Annehmen dieses Entwurfs verfallen ließe.
+            Gezählt werden nur die, deren Stunde der Entwurf verschiebt, in einen anderen Raum legt oder
+            streicht — Vertretungen an unverändert übernommenen Stunden wandern beim Annehmen mit und
+            zählen nicht (E-40, Befund PFLICHTENHEFT-9). `0` heißt: beim Annehmen geht nichts verloren;
+            der Annehmen-Dialog verlangt dann keine Bestätigung.
+
+    CreateDraft:
+      type: object
+      required: [source]
+      properties:
+        source:
+          $ref: '#/components/schemas/DraftSource'
+
+    AddLessonInput:
+      type: object
+      description: Handaufbau (W-3) — keine Lehrkraft im Body, sie folgt aus der Fachzuordnung der Klasse
+      required: [classId, subjectId, timeslotId, roomId]
+      properties:
+        classId: { type: integer, format: int64 }
+        subjectId: { type: integer, format: int64 }
+        timeslotId: { type: integer, format: int64 }
+        roomId: { type: integer, format: int64 }
+
+    PatchLessonInput:
+      type: object
+      description: nur gesendete Felder ändern sich; timeslotId/roomId setzen legt die Stunde fest, außer pinned steht im Body
+      properties:
+        timeslotId: { type: integer, format: int64 }
+        roomId: { type: integer, format: int64 }
+        pinned: { type: boolean }
+
+    StartSolveInput:
+      type: object
+      properties:
+        classId:
+          type: integer
+          format: int64
+          description: 'Kann (E-40, nach R1): nur diese Klasse neu berechnen; alle anderen Stunden gelten für den Lauf als festgelegt. Fehlt: ganzer Plan.'
+
+    AcceptDraftInput:
+      type: object
+      properties:
+        validFrom:
+          type: string
+          format: date
+          description: 'Kann (E-40, nach R1): der neue Plan gilt erst ab diesem Datum; bis dahin bleibt der bisherige Plan in den Wochensichten. Fehlt: gilt sofort.'
+
+    EntryOriginal:
+      type: object
+      description: |
+        Nur die geänderten Werte sind gesetzt — Vertretung (Lehrkraft/Raum), Verlegung
+        (Datum/Position). Die übrigen Felder stehen als `null` in der Antwort; deshalb ist jedes
+        Feld nullable (klargestellt im NACHTRAG 05.09.). In der Schülersicht
+        (`GET /api/me/class-week`) sind `teacherId` und `roomId` **immer** `null` — dort stehen nur
+        Kürzel (E-50).
+      properties:
+        teacherId: { type: [integer, 'null'], format: int64 }
+        teacherShort: { type: [string, 'null'] }
+        roomId: { type: [integer, 'null'], format: int64 }
+        roomShort: { type: [string, 'null'] }
+        date: { type: [string, 'null'], format: date }
+        position: { type: [integer, 'null'], minimum: 1 }
+
+    EntryDto:
+      type: object
+      description: Eine Stunde an einem Kalendertag, fertig aufgelöst — Web und App färben und beschriften nur (ui.md)
+      required: [date, timeslotId, day, position, lessonId, classId, classShort, subjectShort, subjectColor, teacherId, teacherShort, roomId, roomShort, kind, original, reasons, exceptionId]
+      properties:
+        date: { type: string, format: date }
+        timeslotId: { type: integer, format: int64 }
+        day:
+          $ref: '#/components/schemas/Weekday'
+        position: { type: integer, minimum: 1 }
+        lessonId: { type: [integer, 'null'], format: int64, description: null bei einer Zusatzstunde (ADDED) }
+        classId: { type: integer, format: int64 }
+        classShort: { type: string }
+        subjectShort: { type: string }
+        subjectColor: { type: string, pattern: '^#[0-9A-Fa-f]{6}$' }
+        teacherId: { type: [integer, 'null'], format: int64, description: bei SUBSTITUTED/GIVEN_AWAY die vertretende Lehrkraft }
+        teacherShort: { type: [string, 'null'] }
+        roomId: { type: [integer, 'null'], format: int64 }
+        roomShort: { type: [string, 'null'] }
+        kind:
+          $ref: '#/components/schemas/EntryKind'
+        original:
+          oneOf:
+            - $ref: '#/components/schemas/EntryOriginal'
+            - type: 'null'
+        reasons:
+          type: array
+          description: Anlässe der auslösenden Ereignisse (bei einer Verlegung zuerst „verlegt → Mi 1.")
+          items: { type: string }
+        exceptionId: { type: [integer, 'null'], format: int64 }
+
+    DayDto:
+      type: object
+      required: [date, schoolDay, entries]
+      properties:
+        date: { type: string, format: date }
+        schoolDay: { type: boolean, description: 'false = unterrichtsfrei (Ferien, Feiertag): keine Einträge' }
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/EntryDto'
+
+    WeekDto:
+      type: object
+      description: Kalenderwoche ab Montag; Tage = Unterrichtstage des Rasters (Mo–Fr, Sa nur wenn im Raster)
+      required: [monday, days]
+      properties:
+        monday: { type: string, format: date }
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/DayDto'
+
+    AffectedDto:
+      type: object
+      required: [date, lessonId, classShort, position]
+      properties:
+        date: { type: string, format: date }
+        lessonId: { type: integer, format: int64 }
+        classShort: { type: string }
+        position: { type: integer, minimum: 1 }
+
+    ExtraLessonInput:
+      type: object
+      description: Angaben einer Zusatzstunde (Ereignis EXTRA_LESSON)
+      required: [date, timeslotId, classId, subjectId, teacherId, roomId]
+      properties:
+        date: { type: string, format: date }
+        timeslotId: { type: integer, format: int64 }
+        classId: { type: integer, format: int64 }
+        subjectId: { type: integer, format: int64 }
+        teacherId: { type: integer, format: int64 }
+        roomId: { type: integer, format: int64 }
+
+    EventDto:
+      type: object
+      required: [id, kind, teacherId, roomId, dateFrom, dateTo, reason, createdAt, createdBy, affected, hint]
+      properties:
+        id: { type: integer, format: int64 }
+        kind:
+          $ref: '#/components/schemas/EventKind'
+        teacherId: { type: [integer, 'null'], format: int64, description: nur bei TEACHER_ABSENCE }
+        roomId: { type: [integer, 'null'], format: int64, description: nur bei ROOM_BLOCKED }
+        dateFrom: { type: string, format: date }
+        dateTo: { type: string, format: date }
+        reason: { type: string, description: 'Anlass (Freitext), erscheint als Grund in Wochensicht und Verlauf' }
+        createdAt: { type: string, format: date-time }
+        createdBy: { type: string, description: Benutzername des erfassenden Kontos }
+        affected:
+          type: array
+          description: betroffene Stunden des aktiven Plans im Zeitraum (berechnet, nicht gespeichert)
+          items:
+            $ref: '#/components/schemas/AffectedDto'
+        hint: { type: [string, 'null'], description: 'gesetzt, wenn keine Stunde betroffen ist (Ausnahme aus W-5) oder bei einer Zusatzstunde' }
+        extra:
+          oneOf:
+            - $ref: '#/components/schemas/ExtraLessonInput'
+            - type: 'null'
+
+    EventInput:
+      type: object
+      required: [kind, dateFrom, dateTo, reason]
+      properties:
+        kind:
+          $ref: '#/components/schemas/EventKind'
+        teacherId: { type: [integer, 'null'], format: int64, description: Pflicht bei TEACHER_ABSENCE }
+        roomId: { type: [integer, 'null'], format: int64, description: Pflicht bei ROOM_BLOCKED }
+        dateFrom: { type: string, format: date }
+        dateTo: { type: string, format: date, description: 'nicht vor dateFrom; bei EXTRA_LESSON gleich extra.date' }
+        reason: { type: string, minLength: 1, maxLength: 255 }
+        extra:
+          oneOf:
+            - $ref: '#/components/schemas/ExtraLessonInput'
+            - type: 'null'
+          description: Pflicht bei EXTRA_LESSON
+
+    PendingRow:
+      type: object
+      description: eine vertretungsbedürftige Stunde an einem Datum
+      required: [date, lessonId, classShort, subjectShort, position, teacherShort, roomShort, reasons, eventIds]
+      properties:
+        date: { type: string, format: date }
+        lessonId: { type: integer, format: int64 }
+        classShort: { type: string }
+        subjectShort: { type: string }
+        position: { type: integer, minimum: 1 }
+        teacherShort: { type: string }
+        roomShort: { type: string }
+        reasons:
+          type: array
+          items: { type: string }
+        eventIds:
+          type: array
+          items: { type: integer, format: int64 }
+
+    TeacherOption:
+      type: object
+      required: [id, shortName, name, teachesSubject]
+      properties:
+        id: { type: integer, format: int64 }
+        shortName: { type: string }
+        name: { type: string }
+        teachesSubject: { type: boolean, description: unterrichtet das Fach der Stunde — diese stehen zuerst }
+
+    RoomOption:
+      type: object
+      required: [id, name, roomType, matchesRequirement]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        roomType: { type: string }
+        matchesRequirement: { type: boolean, description: Raumart passt zur Raumanforderung des Fachs (ohne Anforderung immer true) — diese stehen zuerst }
+
+    OptionsDto:
+      type: object
+      required: [teachers, rooms]
+      properties:
+        teachers:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeacherOption'
+        rooms:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoomOption'
+
+    ExceptionDto:
+      type: object
+      required: [id, date, lessonId, kind, substituteTeacherId, substituteRoomId, newDate, newTimeslotId, eventIds, conflicts]
+      properties:
+        id: { type: integer, format: int64 }
+        date: { type: string, format: date }
+        lessonId: { type: [integer, 'null'], format: int64, description: null nur bei ADDED }
+        kind:
+          $ref: '#/components/schemas/ExceptionKind'
+        substituteTeacherId: { type: [integer, 'null'], format: int64 }
+        substituteRoomId: { type: [integer, 'null'], format: int64 }
+        newDate: { type: [string, 'null'], format: date, description: bei MOVE das Zieldatum; bei ADDED das Datum der Zusatzstunde }
+        newTimeslotId: { type: [integer, 'null'], format: int64 }
+        eventIds:
+          type: array
+          items: { type: integer, format: int64 }
+        conflicts:
+          type: array
+          description: Folgekonflikte des Tages — Daten, kein Fehler; nur in der Antwort von POST gefüllt
+          items:
+            $ref: '#/components/schemas/ConflictDto'
+
+    ExceptionInput:
+      type: object
+      required: [date, lessonId, kind]
+      properties:
+        date: { type: string, format: date }
+        lessonId: { type: integer, format: int64, description: Stunde des aktiven Plans }
+        kind:
+          $ref: '#/components/schemas/ExceptionKind'
+        substituteTeacherId: { type: [integer, 'null'], format: int64, description: 'SUBSTITUTION: Lehrkraft und/oder Raum, mindestens eines' }
+        substituteRoomId: { type: [integer, 'null'], format: int64 }
+        newDate: { type: [string, 'null'], format: date, description: 'MOVE: Pflicht' }
+        newTimeslotId: { type: [integer, 'null'], format: int64, description: 'MOVE: Pflicht' }
+        eventIds:
+          type: array
+          description: Anlässe; fehlt die Liste, nimmt der Server alle Ereignisse, die die Stunde an dem Datum betreffen
+          items: { type: integer, format: int64 }
+
+    ChangelogItem:
+      type: object
+      required: [id, timestamp, action, date, position, classShort, oldAssignment, newAssignment, reasons, username]
+      properties:
+        id: { type: integer, format: int64 }
+        timestamp: { type: string, format: date-time }
+        action:
+          $ref: '#/components/schemas/ChangelogAction'
+        date: { type: [string, 'null'], format: date, description: Datum der Stunde; bei TIMETABLE_ACCEPTED der Gültigkeitsbeginn oder null }
+        position: { type: [integer, 'null'], minimum: 1 }
+        classShort: { type: [string, 'null'] }
+        oldAssignment: { type: string, description: 'Text-Schnappschuss, z. B. "Meyer / R101"' }
+        newAssignment: { type: string, description: 'z. B. "Schulz / R204", "entfällt", "Di, 3. Stunde"' }
+        reasons: { type: string, description: 'alle Anlässe, mit "; " getrennt' }
+        username: { type: string }
+
+    ChangelogPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChangelogItem'
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1 }
+        total: { type: integer, minimum: 0 }
+
+    HolidayDto:
+      type: object
+      required: [id, name, dateFrom, dateTo, kind]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string, examples: [Herbstferien] }
+        dateFrom: { type: string, format: date }
+        dateTo: { type: string, format: date }
+        kind:
+          $ref: '#/components/schemas/HolidayKind'
+
+    HolidayInput:
+      type: object
+      required: [name, dateFrom, dateTo, kind]
+      properties:
+        name: { type: string, minLength: 1 }
+        dateFrom: { type: string, format: date }
+        dateTo: { type: string, format: date }
+        kind:
+          $ref: '#/components/schemas/HolidayKind'
+
+    HolidayPresetYearsDto:
+      type: object
+      required: [state, schoolYears]
+      properties:
+        state: { type: string, minLength: 2, maxLength: 2, description: 'Bundesland aus GET /api/config', examples: [SH] }
+        schoolYears:
+          type: array
+          description: Schuljahre mit Vorlage, älteste zuerst; leer = für dieses Bundesland liegt keine bei
+          items: { type: string, pattern: '^\d{4}/\d{2}$' }
+
+    HolidayPresetInput:
+      type: object
+      required: [schoolYear]
+      properties:
+        schoolYear:
+          type: string
+          pattern: '^\d{4}/\d{2}$'
+          description: Schuljahr in der Schreibweise der KMK
+          examples: ['2026/27']
+
+    HolidayPresetResultDto:
+      type: object
+      required: [added, skipped, state, schoolYear]
+      properties:
+        added: { type: integer, description: neu angelegte Zeiträume }
+        skipped: { type: integer, description: 'übersprungen, weil derselbe Zeitraum mit derselben Bezeichnung schon stand' }
+        state: { type: string, examples: [SH] }
+        schoolYear: { type: string, examples: ['2026/27'] }
