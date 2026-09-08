@@ -282,53 +282,18 @@ public class TimetableConstraintProvider implements ConstraintProvider {
 // NEU 3: 3+ Stunden hintereinander vermeiden (Blockunterricht)
 // ================================================================
 
-        public Constraint avoidTripleLessons(ConstraintFactory f) {
+    public Constraint avoidTripleLessons(ConstraintFactory f) {
         return f.forEach(SolverLesson.class)
-            .join(SolverLesson.class,
-                    Joiners.equal(SolverLesson::getClassId, SolverLesson::getClassId),
-                    Joiners.equal(SolverLesson::getSubjectId, SolverLesson::getSubjectId),
-                    Joiners.equal(SolverLesson::getTeacherId, SolverLesson::getTeacherId),
-                    Joiners.equal(lesson -> lesson.getTimeslot().day(), 
-                                  lesson -> lesson.getTimeslot().day()))
-            .filter((a, b) -> {
-                if (a.getId() >= b.getId()) return false;
-                int posA = a.getTimeslot().position();
-                int posB = b.getTimeslot().position();
-                return Math.abs(posA - posB) == 2; // Eine Stunde dazwischen
-            })
-            // HIER: EXPLIZITE TYPEN FÜR DIE LAMBDAS
-            .join(SolverLesson.class,
-                    Joiners.equal(
-                        (List<SolverLesson> pair) -> pair.get(0).getClassId(),
-                        SolverLesson::getClassId
-                    ),
-                    Joiners.equal(
-                        (List<SolverLesson> pair) -> pair.get(0).getSubjectId(),
-                        SolverLesson::getSubjectId
-                    ),
-                    Joiners.equal(
-                        (List<SolverLesson> pair) -> pair.get(0).getTeacherId(),
-                        SolverLesson::getTeacherId
-                    ),
-                    Joiners.equal(
-                        (List<SolverLesson> pair) -> pair.get(0).getTimeslot().day(),
-                        SolverLesson::getTimeslot
-                    )
-                    .and((List<SolverLesson> pair, SolverLesson c) -> {
-                        int posA = pair.get(0).getTimeslot().position();
-                        int posB = pair.get(1).getTimeslot().position();
-                        int posC = c.getTimeslot().position();
-                        // Die dritte Stunde liegt zwischen den beiden
-                        return (posA < posC && posC < posB) || (posB < posC && posC < posA);
-                    })
-            )
-            .penalize(HardMediumSoftScore.ONE_SOFT, (List<SolverLesson> pair, SolverLesson c) -> {
-                int min = Math.min(pair.get(0).getTimeslot().position(), pair.get(1).getTimeslot().position());
-                int max = Math.max(pair.get(0).getTimeslot().position(), pair.get(1).getTimeslot().position());
-                return max - min - 1; // Anzahl der gefüllten Lücken
-            })
-            .asConstraint("avoidTripleLessons");
-        }
+                .groupBy(
+                        SolverLesson::getClassId,
+                        SolverLesson::getSubjectId,
+                        lesson -> lesson.getTimeslot().day(),
+                        ConstraintCollectors.count()
+                )
+                .filter((classId, subjectId, day, count) -> count > 2)
+                .penalize(HardMediumSoftScore.ONE_SOFT, (classId, subjectId, day, count) -> count - 2)
+                .asConstraint("avoidTripleLessons");
+    }
 
         /** Freistundenbestrafen */
         public Constraint avoidFreePeriods(ConstraintFactory f) {

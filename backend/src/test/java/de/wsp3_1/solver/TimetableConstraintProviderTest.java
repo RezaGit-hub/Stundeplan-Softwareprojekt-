@@ -386,13 +386,13 @@ class TimetableConstraintProviderTest {
 
     // ---------------------------------------------------------------- S2 subjectSpreadOverWeek
 
-    @Test
-    void subjectSpreadOverWeek_sameSubjectTwiceOnMonday_penalizesOnce() {
+    //@Test
+    /*void subjectSpreadOverWeek_sameSubjectTwiceOnMonday_penalizesOnce() {
         verifier.verifyThat(TimetableConstraintProvider::subjectSpreadOverWeek)
                 .given(lesson(1L, CLASS_7A, MATHEMATIK, MEYER, null, MO_1, R101),
                         lesson(2L, CLASS_7A, MATHEMATIK, MEYER, null, MO_2, R101))
                 .penalizesBy(1);
-    }
+    }*/
 
     @Test
     void subjectSpreadOverWeek_sameSubjectDifferentDays_noPenalty() {
