@@ -37,15 +37,48 @@ public class TimetableConstraintProvider implements ConstraintProvider {
     @Override
     public Constraint[] defineConstraints(ConstraintFactory f) {
         return new Constraint[] {
-                roomConflict(f), teacherConflict(f), classConflict(f), teacherBlockedTime(f), roomTypeMismatch(f),
-                movableLessonInBreak(f), movableLessonInInactiveRoom(f),
-                unassignedLesson(f),
-                maxLessonsPerDayClassHard(f), maxLessonsPerDayClassSoft(f),
-                maxLessonsPerDayTeacherHard(f), maxLessonsPerDayTeacherSoft(f),
-                maxLessonsPerWeekClassHard(f), maxLessonsPerWeekClassSoft(f),
-                maxLessonsPerWeekTeacherHard(f), maxLessonsPerWeekTeacherSoft(f),
-                noLessonsInBreaksHard(f), noLessonsInBreaksSoft(f),
-                teacherPreferredTime(f), subjectSpreadOverWeek(f)
+        // ============================================================
+        // HARTE CONSTRAINTS (müssen 0 sein)
+        // ============================================================
+        roomConflict(f),
+        teacherConflict(f),
+        classConflict(f),
+        teacherBlockedTime(f),
+        roomTypeMismatch(f),
+        movableLessonInBreak(f),
+        movableLessonInInactiveRoom(f),
+        
+        // ============================================================
+        // REGELWERK – HARTE ZWILLINGE
+        // ============================================================
+        maxLessonsPerDayClassHard(f),
+        maxLessonsPerDayTeacherHard(f),
+        maxLessonsPerWeekClassHard(f),
+        maxLessonsPerWeekTeacherHard(f),
+        noLessonsInBreaksHard(f),
+        
+        // ============================================================
+        // MEDIUM CONSTRAINT
+        // ============================================================
+        unassignedLesson(f),
+        
+        // ============================================================
+        // REGELWERK – WEICHE ZWILLINGE
+        // ============================================================
+        maxLessonsPerDayClassSoft(f),
+        maxLessonsPerDayTeacherSoft(f),
+        maxLessonsPerWeekClassSoft(f),
+        maxLessonsPerWeekTeacherSoft(f),
+        noLessonsInBreaksSoft(f),
+        
+        // ============================================================
+        // WEICHE WÜNSCHE
+        // ============================================================
+        teacherPreferredTime(f),
+        subjectSpreadOverWeek(f),
+        doubleLesson(f),
+        avoidFreePeriods(f),
+        avoidTripleLessons(f)
         };
     }
 
@@ -245,39 +278,56 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         }
 
         /* S4: Bestrafung für mehr als 2 gleiche Fachstunden hintereinander */
+        // ================================================================
+// NEU 3: 3+ Stunden hintereinander vermeiden (Blockunterricht)
+// ================================================================
+
         public Constraint avoidTripleLessons(ConstraintFactory f) {
         return f.forEach(SolverLesson.class)
-                .join(SolverLesson.class,
-                        Joiners.equal(SolverLesson::getClassId),
-                        Joiners.equal(SolverLesson::getSubjectId),
-                        Joiners.equal(SolverLesson::getTeacherId),
-                        Joiners.equal(lesson -> lesson.getTimeslot().day()))
-                .filter((a, b) -> {
-                        if (a.getId() >= b.getId()) return false; // Duplikate vermeiden
-                        int posA = a.getTimeslot().position();
-                        int posB = b.getTimeslot().position();
-                        return Math.abs(posA - posB) == 2; // Eine Stunde dazwischen
-                })
-            // Finde die dritte Stunde, die dazwischen liegt
-                .join(SolverLesson.class,
-                        Joiners.equal((a, b) -> a.get(0).getClassId(), SolverLesson::getClassId),
-                        Joiners.equal((a, b) -> a.get(0).getSubjectId(), SolverLesson::getSubjectId),
-                        Joiners.equal((a, b) -> a.get(0).getTeacherId(), SolverLesson::getTeacherId),
-                        Joiners.equal((a, b) -> a.get(0).getTimeslot().day(), SolverLesson::getTimeslot)
-                                .and((trio, c) -> {
-                                        int posA = trio.get(0).getTimeslot().position();
-                                        int posB = trio.get(1).getTimeslot().position();
-                                        int posC = c.getTimeslot().position();
-                                        // Die dritte Stunde liegt zwischen den beiden
-                                        return (posA < posC && posC < posB) || (posB < posC && posC < posA);
-                                }))
-                .penalize(HardMediumSoftScore.ONE_SOFT, (trio, c) -> {
-                        // Je mehr Stunden hintereinander, desto höher die Strafe
-                        int min = Math.min(trio.get(0).getTimeslot().position(), trio.get(1).getTimeslot().position());
-                        int max = Math.max(trio.get(0).getTimeslot().position(), trio.get(1).getTimeslot().position());
-                        return max - min - 1; // Anzahl der gefüllten Lücken
-                })
-                .asConstraint("avoidTripleLessons");
+            .join(SolverLesson.class,
+                    Joiners.equal(SolverLesson::getClassId, SolverLesson::getClassId),
+                    Joiners.equal(SolverLesson::getSubjectId, SolverLesson::getSubjectId),
+                    Joiners.equal(SolverLesson::getTeacherId, SolverLesson::getTeacherId),
+                    Joiners.equal(lesson -> lesson.getTimeslot().day(), 
+                                  lesson -> lesson.getTimeslot().day()))
+            .filter((a, b) -> {
+                if (a.getId() >= b.getId()) return false;
+                int posA = a.getTimeslot().position();
+                int posB = b.getTimeslot().position();
+                return Math.abs(posA - posB) == 2; // Eine Stunde dazwischen
+            })
+            // HIER: EXPLIZITE TYPEN FÜR DIE LAMBDAS
+            .join(SolverLesson.class,
+                    Joiners.equal(
+                        (List<SolverLesson> pair) -> pair.get(0).getClassId(),
+                        SolverLesson::getClassId
+                    ),
+                    Joiners.equal(
+                        (List<SolverLesson> pair) -> pair.get(0).getSubjectId(),
+                        SolverLesson::getSubjectId
+                    ),
+                    Joiners.equal(
+                        (List<SolverLesson> pair) -> pair.get(0).getTeacherId(),
+                        SolverLesson::getTeacherId
+                    ),
+                    Joiners.equal(
+                        (List<SolverLesson> pair) -> pair.get(0).getTimeslot().day(),
+                        SolverLesson::getTimeslot
+                    )
+                    .and((List<SolverLesson> pair, SolverLesson c) -> {
+                        int posA = pair.get(0).getTimeslot().position();
+                        int posB = pair.get(1).getTimeslot().position();
+                        int posC = c.getTimeslot().position();
+                        // Die dritte Stunde liegt zwischen den beiden
+                        return (posA < posC && posC < posB) || (posB < posC && posC < posA);
+                    })
+            )
+            .penalize(HardMediumSoftScore.ONE_SOFT, (List<SolverLesson> pair, SolverLesson c) -> {
+                int min = Math.min(pair.get(0).getTimeslot().position(), pair.get(1).getTimeslot().position());
+                int max = Math.max(pair.get(0).getTimeslot().position(), pair.get(1).getTimeslot().position());
+                return max - min - 1; // Anzahl der gefüllten Lücken
+            })
+            .asConstraint("avoidTripleLessons");
         }
 
         /** Freistundenbestrafen */
