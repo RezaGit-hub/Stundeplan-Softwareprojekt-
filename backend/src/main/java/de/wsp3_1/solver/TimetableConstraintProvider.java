@@ -77,7 +77,7 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         teacherPreferredTime(f),
         subjectSpreadOverWeek(f),
         doubleLesson(f),
-        avoidFreePeriods(f),
+        //avoidFreePeriods(f),
         avoidTripleLessons(f)
         };
     }
@@ -295,7 +295,7 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                 .asConstraint("avoidTripleLessons");
     }
 
-        /** Freistundenbestrafen */
+        /** Freistundenbestrafen */ /*
         public Constraint avoidFreePeriods(ConstraintFactory f) {
                 return f.forEachUniquePair(SolverLesson.class,
                         Joiners.equal(SolverLesson::getClassId),
@@ -316,7 +316,7 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                         return diff - 1; // 1 Stunde frei → +1, 3 Stunden frei → +3
                 })
                 .asConstraint("avoidFreePeriods");
-        }
+        }*/
 
     // ---------------------------------------------------------------- gemeinsame Stroeme der Regel-Zwillinge
 
