@@ -142,5 +142,11 @@ services:
     entrypoint: ["sh", "/beispieldaten.sh"]
     mem_limit: 64m
 
+  mein-projekt:
+    image: mein-image:latest
+    ports:
+      - "8082:80"
+    restart: unless-stopped
+
 volumes:
   pgdata:
