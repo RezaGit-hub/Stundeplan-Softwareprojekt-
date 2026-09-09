@@ -13,6 +13,7 @@ import de.wsp3_1.shared.RuleType;
 import de.wsp3_1.shared.Severity;
 import de.wsp3_1.shared.Weekday;
 
+import java.util.List;
 import java.util.function.Function;
 
 /**
@@ -295,28 +296,49 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                 .asConstraint("avoidTripleLessons");
     }
 
-        /** Freistundenbestrafen */ /*
-        public Constraint avoidFreePeriods(ConstraintFactory f) {
-                return f.forEachUniquePair(SolverLesson.class,
-                        Joiners.equal(SolverLesson::getClassId),
-                        Joiners.equal(lesson -> lesson.getTimeslot().day()))
-                .filter((a, b) -> {
-                        int posA = a.getTimeslot().position();
-                        int posB = b.getTimeslot().position();
-                        int min = Math.min(posA, posB);
-                        int max = Math.max(posA, posB);
-                
-                        // Bestrafe alle Lücken von 1-3 Positionen
-                        // (1 Stunde frei, 2 Stunden frei, 3 Stunden frei)
-                        return max - min >= 2 && max - min <= 4;
+    public Constraint avoidFreePeriods(ConstraintFactory f) {
+        return f.forEach(SolverLesson.class)
+                .groupBy(
+                        SolverLesson::getClassId,
+                        lesson -> lesson.getTimeslot().day(),
+                        ConstraintCollectors.toList()
+                )
+                .filter((classId, day, lessons) -> {
+                    // Nur Tage mit mindestens 2 Stunden prüfen
+                    if (lessons.size() < 2) return false;
+
+                    // Sortierte Positionen dieser Klasse an diesem Tag
+                    List<Integer> positions = lessons.stream()
+                            .map(l -> l.getTimeslot().position())
+                            .sorted()
+                            .distinct()
+                            .toList();
+
+                    // Prüfe, ob zwischen zwei aufeinanderfolgenden Positionen eine Lücke > 1 ist
+                    for (int i = 0; i < positions.size() - 1; i++) {
+                        int gap = positions.get(i + 1) - positions.get(i);
+                        if (gap > 1) {
+                            return true; // Es gibt mindestens eine Freistunde
+                        }
+                    }
+                    return false;
                 })
-                .penalize(HardMediumSoftScore.ONE_SOFT, (a, b) -> {
-                        // Je größer die Lücke, desto höher die Strafe
-                        int diff = Math.abs(a.getTimeslot().position() - b.getTimeslot().position());
-                        return diff - 1; // 1 Stunde frei → +1, 3 Stunden frei → +3
+                // Hier wird nur einmal pro Tag/Klasse bestraft, nicht pro Paar
+                // Besser: Anzahl der Freistunden berechnen
+                .penalize(HardMediumSoftScore.ONE_SOFT, (classId, day, lessons) -> {
+                    List<Integer> positions = lessons.stream()
+                            .map(l -> l.getTimeslot().position())
+                            .sorted()
+                            .distinct()
+                            .toList();
+                    int totalGap = 0;
+                    for (int i = 0; i < positions.size() - 1; i++) {
+                        totalGap += positions.get(i + 1) - positions.get(i) - 1;
+                    }
+                    return totalGap; // Anzahl der tatsächlichen Freistunden
                 })
                 .asConstraint("avoidFreePeriods");
-        }*/
+            }
 
     // ---------------------------------------------------------------- gemeinsame Stroeme der Regel-Zwillinge
 
