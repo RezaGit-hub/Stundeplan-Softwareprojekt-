@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'motion/react'
-import { AlertCircle, CalendarDays } from 'lucide-react'
+import { AlertCircle, CalendarDays, Eye, EyeOff } from 'lucide-react'
 import { IS_MOCK } from '@/api/api'
 import { problemOf } from '@/api/errors'
 import { useHealth } from '@/api/hooks'
@@ -42,6 +42,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   if (booting) return null
   if (user) return <Navigate to={targetFor(user, from)} replace />
@@ -91,9 +92,26 @@ export function LoginPage() {
               <Label htmlFor="login-user">Benutzername</Label>
               <Input id="login-user" autoComplete="username" autoFocus value={username} onChange={(e) => setUsername(e.target.value)} className="mt-1 bg-surface" />
             </div>
-            <div>
+              <div>
               <Label htmlFor="login-pass">Passwort</Label>
-              <Input id="login-pass" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 bg-surface" />
+              <div className="relative mt-1">
+                <Input
+                  id="login-pass"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="bg-surface pr-9"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute inset-y-0 right-2 flex items-center text-foreground-subtle"
+                  aria-label={showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'}
+                >
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
             </div>
             <Button type="submit" className="w-full" disabled={pending}>
               {pending ? 'Anmelden…' : 'Anmelden'}
