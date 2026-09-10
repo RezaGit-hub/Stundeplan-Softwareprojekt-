@@ -1,0 +1,255 @@
+# Pipeline der Stundenplanung. Jeder Job hat ein Gegenstueck unter scripts/, das ohne Runner laeuft:
+#
+#   contract:lint      -> scripts/ci-contract-lint.sh
+#   backend:test       -> scripts/ci-backend-test.sh   (Teil 1)
+#   backend:integration-> scripts/ci-backend-test.sh   (Teil 2, Postgres im Docker-Netz)
+#   frontend:build     -> scripts/ci-frontend-build.sh
+#   image:build        -> scripts/ci-image.sh    (nur der Bau; das Ablegen in der Registry geht nur im Runner)
+#   deploy:vm          -> scripts/deploy-vm.sh   (mit DRY_RUN=1 zeigt es jeden Befehl, ohne etwas zu tun)
+#   alle vier CI-Jobs  -> scripts/ci-all.sh
+#
+# runner:check hat kein Gegenstueck: er beantwortet, was der Runner des CAU-GitLab kann, und das
+# laesst sich nur dort feststellen.
+#
+# Regel: erst lokal scripts/ci-all.sh, dann pushen. Rote Pipeline blockiert jeden Merge;
+# wer sie rot macht, repariert oder revertiert innerhalb einer Stunde.
+
+stages:
+  - build
+  - test
+  - image
+  - deploy
+
+variables:
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+  GIT_DEPTH: "20"
+
+default:
+  interruptible: true
+
+# ---------------------------------------------------------------- Vorlagen
+
+.gradle:
+  image: eclipse-temurin:21-jdk
+  cache:
+    key:
+      files:
+        - backend/gradle/wrapper/gradle-wrapper.properties
+    paths:
+      - .gradle/caches
+      - .gradle/wrapper
+    policy: pull-push
+
+.node:
+  image: node:22-alpine
+
+# ---------------------------------------------------------------- build
+
+# Der API-Vertrag ist die eine Wahrheit der REST-API — er wird zuerst geprueft.
+contract:lint:
+  extends: .node
+  stage: build
+  cache:
+    key: npm-api-contract
+    paths:
+      - api-contract/.npm
+  script:
+    - cd api-contract
+    - npm ci --cache .npm --prefer-offline
+    - npm run lint
+
+# Typen, Lint, Tests und Produktionsbuild der Web-App. dist/ ist zugleich der Rueckfall,
+# falls der Image-Build auf der VM einmal nicht durchlaeuft (siehe deployment/README-VM.md).
+frontend:build:
+  extends: .node
+  stage: build
+  cache:
+    key: npm-frontend
+    paths:
+      - frontend/.npm
+  script:
+    - cd frontend
+    - npm ci --cache .npm --prefer-offline
+    - npm run typecheck
+    - npm run lint
+    - npm test
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist
+    expire_in: 1 week
+
+# ---------------------------------------------------------------- test
+
+# Schnelle Tests ohne Datenbank: Fachlogik, ArchUnit, Solver-Constraints, Sicherheitsregeln.
+# `bootJar` haengt mit dran, damit das Jar als Artefakt bereitliegt (Rueckfall-Deploy).
+backend:test:
+  extends: .gradle
+  stage: test
+  # Kein Warten auf die Build-Stufe: die Tests brauchen weder dist/ noch das Jar der
+  # anderen Jobs (Befund BETRIEB-8, 05.09.).
+  needs: []
+  script:
+    - cd backend
+    - ./gradlew test bootJar --no-daemon
+  artifacts:
+    when: always
+    paths:
+      - backend/build/libs/*.jar
+    reports:
+      junit: backend/build/test-results/test/TEST-*.xml
+    expire_in: 1 week
+
+# Integrationstests gegen ein echtes PostgreSQL (kein H2) — dieselbe SQL, dieselben Migrationen.
+backend:integration:
+  extends: .gradle
+  stage: test
+  # Kein Warten auf die Build-Stufe: die Tests brauchen weder dist/ noch das Jar der
+  # anderen Jobs (Befund BETRIEB-8, 05.09.).
+  needs: []
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: timetable
+    POSTGRES_USER: tt
+    POSTGRES_PASSWORD: tt
+    SPRING_PROFILES_ACTIVE: ci
+    SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/timetable"
+    SPRING_DATASOURCE_USERNAME: tt
+    SPRING_DATASOURCE_PASSWORD: tt
+  script:
+    - cd backend
+    - ./gradlew integrationTest --no-daemon
+  artifacts:
+    when: always
+    reports:
+      junit: backend/build/test-results/integrationTest/TEST-*.xml
+    expire_in: 1 week
+
+# ---------------------------------------------------------------- Runner pruefen
+
+# Beantwortet die offene Frage Q-B-09 / Karte T-703 in einem Klick: Was kann der Runner des
+# CAU-GitLab? Von Hand ausloesbar auf jedem Branch, schlaegt nie fehl, aendert nichts.
+#
+# Zu lesen sind vier Dinge in der Ausgabe:
+#   1. "Server Version" bei `docker info` -> Docker-in-Docker geht, image:build laeuft.
+#      "Cannot connect to the Docker daemon" -> DinD geht NICHT, dann Kaniko (siehe image:build).
+#   2. CI_REGISTRY / CI_REGISTRY_IMAGE gefuellt -> die Container-Registry ist eingeschaltet.
+#      Leer -> Abbilder koennen nirgends hin; die VM baut selbst (deploy:vm kann das).
+#   3. CI_RUNNER_TAGS -> die Marken, die Jobs ggf. brauchen (`tags:` im Job).
+#   4. free -m -> wie viel Speicher der Runner hat; Gradle im Container mag knapp werden.
+#
+# Ergebnis als eine Zeile in 07-Konzept/workflows/lernnotizen.md eintragen. Danach darf dieser Job weg.
+runner:check:
+  stage: build
+  image: docker:27
+  services:
+    - name: docker:27-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+  rules:
+    - when: manual
+  allow_failure: true
+  script:
+    - echo "--- docker ---"; docker info || echo "KEIN Docker-in-Docker in diesem Runner."
+    - echo "--- registry ---"; echo "CI_REGISTRY=$CI_REGISTRY"; echo "CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE"
+    - echo "--- runner ---"; echo "CI_RUNNER_DESCRIPTION=$CI_RUNNER_DESCRIPTION"; echo "CI_RUNNER_TAGS=$CI_RUNNER_TAGS"
+    - echo "--- speicher ---"; free -m || true; nproc || true
+
+# ---------------------------------------------------------------- image
+
+# Baut die beiden Abbilder und legt sie in die Container-Registry des CAU-GitLab.
+# Der Registry-Pfad steht NICHT als Text im Repo: $CI_REGISTRY_IMAGE setzt GitLab selbst auf
+# <registry-host>/ifi-ag-se/softwareprojekt/wsp3_1/web-app. Wer den Stack woanders betreibt,
+# ueberschreibt REGISTRY_IMAGE in Settings -> CI/CD -> Variables; docker-compose.yml liest denselben
+# Namen. Marken: die kurze Commit-Kennung (eindeutig, fuer Rollback) und `latest`.
+#
+# Nur auf main, von Hand, nie blockierend: ob der Shared Runner des RZ Docker-in-Docker kann, ist
+# ungeprueft (siehe Kopf von scripts/ci-image.sh). Solange dieser Job nicht laeuft, baut die VM selbst —
+# deploy:vm kann beides.
+#
+# Wenn `runner:check` zeigt, dass DinD fehlt: Kaniko baut Abbilder ohne Docker-Daemon und ohne
+# privilegierten Runner. Dann `image` und `services` hier ersetzen durch
+#   image: { name: gcr.io/kaniko-project/executor:debug, entrypoint: [""] }
+# und je Abbild einen Aufruf
+#   /kaniko/executor --context "$CI_PROJECT_DIR/backend" --dockerfile backend/Dockerfile
+#                    --destination "$CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHORT_SHA"
+# (fuer `web` Kontext "$CI_PROJECT_DIR" und --dockerfile frontend/Dockerfile). Die Anmeldung laeuft
+# dann ueber /kaniko/.docker/config.json statt `docker login`. Quelle: GitLab-Doku „Use kaniko to
+# build Docker images". UNGEPRUEFT — hier weder gebaut noch gelaufen.
+image:build:
+  stage: image
+  image: docker:27
+  services:
+    - name: docker:27-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    REGISTRY_IMAGE: "$CI_REGISTRY_IMAGE"
+    IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+  before_script:
+    # Manche docker-Images bringen das compose-Plugin nicht mit.
+    - docker compose version || apk add --no-cache docker-cli-compose
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - cp deployment/.env.example deployment/.env
+  script:
+    - cd deployment
+    - docker compose build backend web
+    - docker compose push backend web
+    # Zusaetzlich als `latest` — ein Deploy ohne IMAGE_TAG holt diese Marke. Nur umbenennen,
+    # nicht ein zweites Mal bauen.
+    - docker tag "$REGISTRY_IMAGE/backend:$IMAGE_TAG" "$REGISTRY_IMAGE/backend:latest"
+    - docker tag "$REGISTRY_IMAGE/web:$IMAGE_TAG" "$REGISTRY_IMAGE/web:latest"
+    - docker push "$REGISTRY_IMAGE/backend:latest"
+    - docker push "$REGISTRY_IMAGE/web:latest"
+
+# ---------------------------------------------------------------- deploy
+
+# Bewusst manuell: vor dem 20.09. und waehrend der Anforderungsaenderung 21.-23.09. entscheidet ein Mensch.
+# Die Arbeit macht scripts/deploy-vm.sh — dasselbe Skript laeuft von Hand, wenn GitLab klemmt.
+# Voraussetzungen (Settings -> CI/CD -> Variables): SSH_PRIVATE_KEY (protected, Deploy-Key ohne
+# Passphrase), SSH_KNOWN_HOSTS (aus `ssh-keyscan -p 1522 134.245.1.240`). Siehe deployment/README-VM.md.
+#
+# NIE AUSGEFUEHRT. Der VM-Zugang wird erst in der ersten Woche eingerichtet (Karte T-702).
+deploy:vm:
+  stage: deploy
+  image: alpine:3.20
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      # Ohne allow_failure gilt ein manueller Job in `rules` als blockierend: die main-Pipeline bleibt
+      # dann auf „blocked" stehen und wird nie gruen — die Vorbedingung „Pipeline auf main gruen" aus
+      # README-VM waere nie erfuellt (Befund BETRIEB-8, 05.09.). Manuell bleibt der Job trotzdem.
+      allow_failure: true
+  variables:
+    # ABSICHTLICH LEER. Leer heisst: die VM baut selbst (`docker compose up -d --build`) — der Weg,
+    # der ohne Registry funktioniert. Sobald image:build einmal durchgelaufen ist und Abbilder in der
+    # Registry liegen, hier `$CI_REGISTRY_IMAGE` eintragen; dann holt die VM sie nur noch
+    # (`docker compose pull`) und baut gar nicht mehr. Waere der Wert schon jetzt gesetzt, suchte der
+    # erste Deploy ein Abbild, das es nicht gibt, und braeche ab.
+    REGISTRY_IMAGE: ""
+    IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  environment:
+    name: vm-gruppe-5
+    url: http://134.245.1.240:1500
+  before_script:
+    - apk add --no-cache openssh-client rsync bash
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+  script:
+    - ./scripts/deploy-vm.sh

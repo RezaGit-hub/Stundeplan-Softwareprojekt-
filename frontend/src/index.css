@@ -1,1 +1,291 @@
+/* src/index.css — Stundenplanung. Einzige Stelle für Farben, Schriftgrößen, Radien, Schatten, Bewegungskurven.
+   Reihenfolge der drei @import ist Pflicht. Inter wird in src/main.tsx importiert (eine Stelle, nicht hier). */
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* Tailwind v4 schaltet dark: sonst nur per prefers-color-scheme — diese Zeile macht den Toggle (Klasse .dark am <html>) möglich */
+@custom-variant dark (&:is(.dark *));
+
+/* ============================ LIGHT ============================ */
+/* .light setzt die hellen Werte auch unter einem .dark-Vorfahren zurück (helles Telefon in der App-Vorschau) */
+:root, .light {
+  --radius: 0.625rem;            /* 10 px — Karte, Dialog, Popover; md 8 px Knopf/Eingabe; sm 6 px Kachel/Badge */
+
+  /* Hintergrund-Stufen (Zinc) */
+  --background:        #FAFAFA;  /* Seitengrund */
+  --surface:           #FFFFFF;  /* Karten, Raster, Sidebar */
+  --surface-elevated:  #FFFFFF;  /* Popover, Dropdown, Dialog */
+  --surface-sunken:    #F4F4F5;  /* Tabellenkopf, leere Rasterzelle, Skeleton */
+
+  /* Text-Stufen */
+  --foreground:        #09090B;  /* 19.9:1 auf Weiß */
+  --foreground-muted:  #52525B;
+  --foreground-subtle: #71717A;  /* Labels, Hilfetext — 4.83:1 auf Weiß */
+
+  /* Rand */
+  --border:            #E4E4E7;
+  --border-strong:     #D4D4D8;
+  --grid-line:         #E0E0E0;  /* Rasterlinien, ui.md */
+
+  /* shadcn-Pflichttokens */
+  --card: var(--surface);              --card-foreground: var(--foreground);
+  --popover: var(--surface-elevated);  --popover-foreground: var(--foreground);
+  --primary: #6E56CF;                  --primary-foreground: #FFFFFF;   /* Violett — 5.39:1 */
+  --primary-soft: #EDE9FE;             --primary-soft-foreground: #4C3AA8;
+  --secondary: #F4F4F5;                --secondary-foreground: #27272A;
+  --muted: #F4F4F5;                    --muted-foreground: var(--foreground-subtle);
+  --accent: #F4F4F5;                   --accent-foreground: #18181B;
+  --destructive: #D32F2F;              --destructive-foreground: #FFFFFF; /* 4.98:1 */
+  --input: #E4E4E7;
+  --ring: #6E56CF;
+
+  /* Sidebar */
+  --sidebar: #FFFFFF;                  --sidebar-foreground: #3F3F46;
+  --sidebar-primary: #6E56CF;          --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F4F4F5;           --sidebar-accent-foreground: #18181B;
+  --sidebar-border: #E4E4E7;           --sidebar-ring: #6E56CF;
+
+  /* Charts (nur damit shadcn-`chart` später ohne Nacharbeit läuft; im Kern keine Charts) */
+  --chart-1: #6E56CF; --chart-2: #0097A7; --chart-3: #388E3C; --chart-4: #F57C00; --chart-5: #C2185B;
+
+  /* Status */
+  --success: #2E7D32;   --success-foreground: #FFFFFF;  --success-soft: #E8F5E9;   /* 5.13:1 */
+  --warning: #B45309;   --warning-foreground: #FFFFFF;  --warning-soft: #FEF3C7;   /* 5.02:1 */
+  --warning-surface: #F9A825;                          /* Grunddaten-Warnung: nur Chip-Fläche mit dunklem Text, NIE Textfarbe (1.97:1) */
+
+  /* ---------- Fach-Semantik, verbindlich aus backbone/ui.md ---------- */
+  --substitution:       #EF6C00;  /* Rahmen + Badge V / ! / + — 3.08:1, reicht für Grafik, NICHT für Text */
+  --substitution-fg:    #A64B00;  /* geänderter Wert fett als TEXT — 5.79:1 auf Weiß */
+  --substitution-soft:  #FFF3E8;  /* Zeilentönung Vertretungsliste */
+  --conflict:           #D32F2F;  /* Rahmen, Badge ⚠ und Text — 4.98:1 */
+  --conflict-soft:      #FDECEA;
+  --draft-bg:           #FFF3CD;  --draft-fg: #856404;  /* Entwurfsbanner — 4.96:1 */
+  --draft-border:       #FFECB5;  --draft-tint: #FFFDF5; /* getönte Rasterfläche im Entwurf */
+  --pinned:             #424242;  /* festgelegt — 10.05:1 */
+  --given-away:         #757575;  /* abgegeben */
+  --cancelled:          #9E9E9E;  /* entfällt */
+  --today:              #E3F2FD;  /* Spaltenhintergrund heutiger Tag */
+  --break-row:          #F5F5F5;  --break-foreground: #757575;
+  --offline:            #ECEFF1;  --offline-foreground: #37474F;   /* Offline-Banner (App-Vorschau) */
+
+  /* 12 Standard-Fachfarben (Seed für subject.color, Index 0..11; Legende, Farbwähler) */
+  --subject-1:  #1976D2; --subject-2:  #388E3C; --subject-3:  #F57C00; --subject-4:  #7B1FA2;
+  --subject-5:  #0097A7; --subject-6:  #C2185B; --subject-7:  #5D4037; --subject-8:  #455A64;
+  --subject-9:  #AFB42B; --subject-10: #E64A19; --subject-11: #00796B; --subject-12: #303F9F;
+  --tile-mix: 22%;                /* Anteil Fachfarbe in der Kachelfläche (gemessen: Mindestkontrast 10.6:1) */
+
+  /* Schatten — sehr subtil; Ebene entsteht durch Rand + hellere Fläche */
+  --shadow-xs: 0 1px 2px 0 rgb(9 9 11 / .04);
+  --shadow-sm: 0 1px 3px 0 rgb(9 9 11 / .06), 0 1px 2px -1px rgb(9 9 11 / .05);
+  --shadow-md: 0 4px 12px -2px rgb(9 9 11 / .08), 0 2px 4px -2px rgb(9 9 11 / .05);
+  --shadow-lg: 0 12px 32px -8px rgb(9 9 11 / .12), 0 4px 8px -4px rgb(9 9 11 / .06);
+  --ring-inset: none;
+  color-scheme: light;
+}
+
+/* ============================ DARK ============================= */
+.dark {
+  color-scheme: dark;
+  --background:        #09090B;
+  --surface:           #18181B;
+  --surface-elevated:  #1F1F23;
+  --surface-sunken:    #131316;
+
+  --foreground:        #FAFAFA;  /* 19.1:1 */
+  --foreground-muted:  #D4D4D8;
+  --foreground-subtle: #A1A1AA;  /* 7.76:1 */
+
+  --border:            #2A2A32;
+  --border-strong:     #3F3F46;
+  --grid-line:         #2E2E36;
+
+  --card: var(--surface);              --card-foreground: var(--foreground);
+  --popover: var(--surface-elevated);  --popover-foreground: var(--foreground);
+  --primary: #6E56CF;                  --primary-foreground: #FAFAFA;   /* 5.17:1 */
+  --primary-soft: #2E1F5E;             --primary-soft-foreground: #C9BDF5;
+  --secondary: #27272A;                --secondary-foreground: #FAFAFA;
+  --muted: #27272A;                    --muted-foreground: var(--foreground-subtle);
+  --accent: #27272A;                   --accent-foreground: #FAFAFA;
+  --destructive: #EF5350;              --destructive-foreground: #09090B; /* 5.71:1 — dunkler Text auf hellem Rot */
+  --input: #2A2A32;
+  --ring: #8B78E6;                     /* 5.62:1 auf Grund */
+
+  --sidebar: #131316;                  --sidebar-foreground: #A1A1AA;
+  --sidebar-primary: #6E56CF;          --sidebar-primary-foreground: #FAFAFA;
+  --sidebar-accent: #27272A;           --sidebar-accent-foreground: #FAFAFA;
+  --sidebar-border: #2A2A32;           --sidebar-ring: #8B78E6;
+
+  --chart-1: #8B78E6; --chart-2: #4DD0E1; --chart-3: #66BB6A; --chart-4: #FFA726; --chart-5: #EC407A;
+
+  --success: #4CAF50;   --success-foreground: #09090B;  --success-soft: #14251A;  /* 7.16:1 */
+  --warning: #FFB300;   --warning-foreground: #09090B;  --warning-soft: #2A2007;  /* 11.08:1 */
+  --warning-surface: #FFB300;
+
+  /* Fach-Semantik: gleiche Bedeutung, aufgehellte Töne */
+  --substitution:       #FF9800;  /* 8.22:1 auf Karte */
+  --substitution-fg:    #FFB74D;  /* 10.24:1 */
+  --substitution-soft:  #2B1C05;
+  --conflict:           #EF5350;  /* 5.08:1 */
+  --conflict-soft:      #2A1211;
+  --draft-bg:           #3A2E0B;  --draft-fg: #FFD54F;  /* 9.45:1 */
+  --draft-border:       #5C4A12;  --draft-tint: #1C1809;
+  --pinned:             #A1A1AA;  /* 6.91:1 */
+  --given-away:         #8A8A93;
+  --cancelled:          #6B6B73;
+  --today:              #141B2E;
+  --break-row:          #131316;  --break-foreground: #A1A1AA;
+  --offline:            #1B2126;  --offline-foreground: #CFD8DC;
+
+  /* Fachfarben bleiben identisch — die Kachel mischt sie (.lesson-tile) */
+  --tile-mix: 26%;
+
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / .40);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / .50), 0 1px 2px -1px rgb(0 0 0 / .40);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / .55), 0 2px 4px -2px rgb(0 0 0 / .40);
+  --shadow-lg: 0 12px 32px -8px rgb(0 0 0 / .65), 0 4px 8px -4px rgb(0 0 0 / .45);
+  --ring-inset: inset 0 1px 0 0 rgb(255 255 255 / .04); /* Lichtkante statt Schatten */
+}
+
+/* ======================= TAILWIND-MAPPING ====================== */
+@theme inline {
+  /* Farben → Utilities: bg-surface, text-foreground-subtle, border-grid-line, text-substitution-fg, … */
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-subtle: var(--foreground-subtle);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-grid-line: var(--grid-line);
+  --color-card: var(--card);                       --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);                 --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);                 --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);       --color-primary-soft-foreground: var(--primary-soft-foreground);
+  --color-secondary: var(--secondary);             --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);                     --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);                   --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);         --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);                 --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary); --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);   --color-sidebar-ring: var(--sidebar-ring);
+  --color-chart-1: var(--chart-1); --color-chart-2: var(--chart-2); --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4); --color-chart-5: var(--chart-5);
+  --color-success: var(--success);                 --color-success-foreground: var(--success-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);                 --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);       --color-warning-surface: var(--warning-surface);
+  --color-substitution: var(--substitution);       --color-substitution-fg: var(--substitution-fg);
+  --color-substitution-soft: var(--substitution-soft);
+  --color-conflict: var(--conflict);               --color-conflict-soft: var(--conflict-soft);
+  --color-draft-bg: var(--draft-bg);               --color-draft-fg: var(--draft-fg);
+  --color-draft-border: var(--draft-border);       --color-draft-tint: var(--draft-tint);
+  --color-pinned: var(--pinned);
+  --color-given-away: var(--given-away);
+  --color-cancelled: var(--cancelled);
+  --color-today: var(--today);
+  --color-break-row: var(--break-row);             --color-break-foreground: var(--break-foreground);
+  --color-offline: var(--offline);                 --color-offline-foreground: var(--offline-foreground);
+  --color-subject-1: var(--subject-1);   --color-subject-2: var(--subject-2);   --color-subject-3: var(--subject-3);
+  --color-subject-4: var(--subject-4);   --color-subject-5: var(--subject-5);   --color-subject-6: var(--subject-6);
+  --color-subject-7: var(--subject-7);   --color-subject-8: var(--subject-8);   --color-subject-9: var(--subject-9);
+  --color-subject-10: var(--subject-10); --color-subject-11: var(--subject-11); --color-subject-12: var(--subject-12);
+
+  /* Schrift */
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Größenstufen: 13 px Grundschrift, 14 px Bedienelemente, 11–12 px Nebenangaben */
+  --text-2xs:  0.6875rem;  --text-2xs--line-height: 1rem;      /* 11 px — Uhrzeit, Badge, Fußnote */
+  --text-xs:   0.75rem;    --text-xs--line-height: 1.125rem;   /* 12 px — Kachelzeile 2/3, Tabellenkopf, Legende */
+  --text-sm:   0.8125rem;  --text-sm--line-height: 1.25rem;    /* 13 px — Grundschrift (shadcn-Komponenten sind text-sm) */
+  --text-base: 0.875rem;   --text-base--line-height: 1.25rem;  /* 14 px — Knöpfe, Eingaben, Fachkürzel fett */
+  --text-lg:   1rem;       --text-lg--line-height: 1.5rem;     /* 16 px — Stundennummer, Abschnittstitel */
+  --text-xl:   1.25rem;    --text-xl--line-height: 1.75rem;    /* 20 px — Seitentitel */
+  --text-2xl:  1.5rem;     --text-2xl--line-height: 2rem;      /* 24 px — Login-Headline, StatTile-Zahl */
+
+  /* Radius */
+  --radius-sm: calc(var(--radius) - 4px);  /*  6 px — Kachel, Badge, Chip */
+  --radius-md: calc(var(--radius) - 2px);  /*  8 px — Knopf, Eingabe, Select */
+  --radius-lg: var(--radius);              /* 10 px — Karte, Dialog, Popover */
+  --radius-xl: calc(var(--radius) + 4px);  /* 14 px — Login-Karte, PhoneFrame */
+
+  /* Schatten (shadow-xs … shadow-lg) */
+  --shadow-xs: var(--shadow-xs);  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);  --shadow-lg: var(--shadow-lg);
+
+  /* Bewegung (Zeiten stehen in lib/motion.ts) */
+  --ease-out-quart: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-soft: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ========================= BASISREGELN ========================= */
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { @apply font-sans; -webkit-text-size-adjust: 100%; }
+  body {
+    @apply bg-background text-foreground text-sm antialiased;
+    font-feature-settings: "cv05" 1, "cv08" 1, "ss03" 1; /* Inter: echtes l/I, offenes a */
+  }
+  /* Zahlen fluchten überall dort, wo sie gezählt oder verglichen werden; sonst Utility `tabular-nums` */
+  /* Überschriften erben die Textfarbe der Fläche (Karte, Popover, Seite) — schützt vor fremden Host-Resets, die h1–h6 eine feste Farbe geben (gesehen im Artifact-Viewer, Dark Mode) */
+  h1, h2, h3, h4, h5, h6 { color: inherit; }
+  table, .week-grid, .stat-tile { font-variant-numeric: tabular-nums; }
+  /* Fokus ist Pflicht (gilt für alles ohne eigenen Fokusstil — shadcn-Komponenten bringen ihren Ring mit) */
+  :focus-visible { @apply outline-2 outline-offset-2 outline-ring; }
+  ::selection { background: color-mix(in oklab, var(--primary) 28%, transparent); }
+
+  /* Fachfarbe aus der Datenbank: Kachel bekommt --subject inline, Fläche und Balken mischen sich gegen die Karte.
+     oklab, nicht oklch: oklch dreht den Farbton (Orange → Violett), belegt per Screenshot 08-Build/probe-shadcn/screenshots/01-light-BUG-oklch-hue.png */
+  .lesson-tile {
+    background: color-mix(in oklab, var(--subject) var(--tile-mix), var(--card));
+    border-left: 4px solid var(--subject);
+    color: var(--card-foreground);
+  }
+  .dark .lesson-tile {
+    border-left-color: color-mix(in oklab, var(--subject) 62%, #ffffff);
+  }
+
+  /* Login-Hintergrund (Clerk-Vorbild): weicher Gradient rein per CSS, kein Bild */
+  .auth-bg {
+    background:
+      radial-gradient(60rem 40rem at 15% -10%, color-mix(in oklab, var(--primary) 22%, transparent), transparent 60%),
+      radial-gradient(50rem 35rem at 95% 110%, color-mix(in oklab, #0097A7 16%, transparent), transparent 60%),
+      var(--background);
+  }
+
+}
+
+/* UNGESCHICHTET (kein @layer), absichtlich: Einbettende Hosts (z. B. der Artifact-Viewer von claude.ai) setzen
+   ungeschichtet body{color;background} und :root{color-scheme:light}. Ungeschichtetes CSS schlaegt jede @layer-Regel,
+   also wuerden alle Elemente, die ihre Farbe nur erben (h1-h6, td, deaktivierte Eingaben), im Dark Mode dunkel auf dunkel.
+   Diese drei Regeln halten Fläche, Textfarbe und color-scheme der App auf der Ebene des Hosts. */
+body { background: var(--background); color: var(--foreground); color-scheme: light; }
+.dark body { color-scheme: dark; }
+
+/* Bewegung respektiert die Systemeinstellung */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* Druckansicht (Soll, W-4 Alternative 1): nur Kopfzeile und Raster.
+   Ebenfalls UNGESCHICHTET, aus demselben Grund wie die drei Regeln oben: geschichtet verliert `body { color: #000 }`
+   gegen das ungeschichtete `body { color: var(--foreground) }` — ein Ausdruck im Dark Mode kaeme hellgrau auf Weiss. */
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  /* `print-hide` sitzt an der <Sidebar>, landet aber am INNEREN [data-slot="sidebar-container"];
+     der aeussere Wrapper haelt die 240-px-Luecke offen und muss selbst weg. */
+  .print-hide,
+  [data-slot="sidebar"] { display: none !important; }
+  body { background: #fff; color: #000; }
+  /* Das Raster fuellt die Seite. Ohne diese zwei Zeilen ragen die fuenf Tagesspalten (je min. 140 px)
+     ueber die Seitenbreite hinaus, und der Druck schneidet Do/Fr ab. */
+  .week-grid-scroll { overflow: visible !important; }
+  .week-grid { width: 100%; min-width: 0 !important; --col-min: 0px; }
+}

@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Agenten-Builds und Demo
+.demo-dist/
+.agent-out/
+*.tsbuildinfo
+
+# Playwright (scripts/abnahme.spec.ts)
+test-results/

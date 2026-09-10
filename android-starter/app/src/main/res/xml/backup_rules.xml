@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 (minSdk 30) kennt android:dataExtractionRules noch nicht; dort gilt diese Datei.
+  Ausgenommen sind dieselben zwei Ordner wie in data_extraction_rules.xml: der DataStore
+  (Serveradresse, Token, Anzeigename) und der Offline-Stand (Stundenplan der Lehrkraft).
+
+  android:allowBackup="false" schaltet die Sicherung ohnehin ab. Beide Regeldateien stehen
+  trotzdem da: wer allowBackup spaeter einschaltet, soll Token und Plan nicht ungewollt
+  mitkopieren - und Lint verlangt zu Recht eine Regel fuer jede unterstuetzte Android-Fassung.
+-->
+<full-backup-content>
+    <exclude domain="file" path="datastore" />
+    <exclude domain="file" path="offline" />
+</full-backup-content>

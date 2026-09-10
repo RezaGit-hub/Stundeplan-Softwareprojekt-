@@ -1,0 +1,146 @@
+# Stundenplanung — Laufzeit-Stack (Produktion und VM).
+#
+# Drei Container: db (PostgreSQL), backend (Spring Boot), web (nginx mit dem gebauten Frontend).
+# Nach aussen sichtbar ist nur web.
+#
+#   cd deployment && cp -n .env.example .env && docker compose up -d --build
+#
+# Fuer die Entwicklung zusaetzlich docker-compose.dev.yml legen (veroeffentlicht db und backend und
+# bringt die Prism-Attrappe `mock` mit):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Alle Adressen und Ports stehen in .env — Umzug heisst .env aendern und `docker compose up -d`,
+# kein Neubau. Zur Laufzeit laedt nichts aus dem Internet.
+
+name: stundenplan
+
+# Protokollgroesse begrenzen (Befund BETRIEB-9, 05.09.): der Standardtreiber json-file waechst ohne
+# Obergrenze. Auf einer 50-GB-VM, die drei Wochen lauft und bei jedem Solver-Lauf protokolliert, ist
+# das der wahrscheinlichste Grund fuer „kein Platz mehr". Drei Dateien a 10 MB je Container reichen,
+# um einen Fehler vom Vortag noch zu lesen.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # PostgreSQL. Nicht veroeffentlicht; das Backend erreicht sie unter dem Dienstnamen `db`.
+  db:
+    image: postgres:16-alpine
+    logging: *logging
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-timetable}
+      POSTGRES_USER: ${DB_USER:-tt}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tt}
+    command: postgres -c shared_buffers=128MB
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-tt} -d ${DB_NAME:-timetable}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 512m
+
+  # Spring Boot. Flyway migriert beim Start. Kein `ports`: erreichbar nur ueber nginx.
+  backend:
+    # Name des Abbilds. Ohne REGISTRY_IMAGE heisst es lokal `stundenplan/backend:latest` und wird
+    # aus dem Dockerfile gebaut. Mit REGISTRY_IMAGE (CI-Job `image:build` und der Deploy auf der VM)
+    # zeigt derselbe Name auf die GitLab-Registry — dann kann `docker compose pull` es holen,
+    # statt es auf der 4-GB-VM zu bauen. Siehe README-VM.md, Abschnitt 4.
+    image: ${REGISTRY_IMAGE:-stundenplan}/backend:${IMAGE_TAG:-latest}
+    logging: *logging
+    build:
+      context: ../backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${DB_NAME:-timetable}
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-tt}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-tt}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:?ADMIN_INITIAL_PASSWORD fehlt in deployment/.env}
+      # Ohne diese Zeile laeuft der Container in UTC (gemessen 05.09.). Alles Datierte haengt am
+      # Kalendertag: der Verlaufseintrag beim Annehmen, „n Vertretungen ab heute verfallen", die
+      # laufende Woche in „Mein Plan". Zwischen 00:00 und 02:00 Uhr Berliner Zeit laege das Datum
+      # sonst einen Tag daneben. Das Abbild setzt denselben Wert; hier steht er noch einmal, damit
+      # ein Umzug in eine andere Zeitzone eine Zeile in dieser Datei ist und kein Neubau.
+      TZ: ${TZ:-Europe/Berlin}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70
+    depends_on:
+      db:
+        condition: service_healthy
+    # Ohne diese Pruefung antwortet nginx nach `up -d` rund zehn Sekunden mit 502, weil `web` startet,
+    # sobald der Backend-Container laeuft — nicht, sobald die Anwendung antwortet (gemessen 05.09.).
+    # `curl` liegt im Abbild eclipse-temurin:21-jre bereits vor (geprueft).
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    mem_limit: 1536m
+
+  # nginx mit dem gebauten Frontend; reicht /api/ an das Backend weiter (gleicher Ursprung, kein CORS).
+  web:
+    image: ${REGISTRY_IMAGE:-stundenplan}/web:${IMAGE_TAG:-latest}
+    logging: *logging
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-1500}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Ohne diese Pruefung meldet `docker compose ps` fuer web nur „Up", auch wenn nginx die Seite gar
+    # nicht mehr ausliefert. Gefragt wird nginx selbst (Port 8080 im Container), nicht das Backend —
+    # sonst haenge die Gesundheit von web an einem fremden Dienst (Befund BETRIEB-9, 05.09.).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    mem_limit: 64m
+
+  # Die Prism-Attrappe stand bis zum 05.09. hier und laeuft seitdem nur noch mit
+  # docker-compose.dev.yml (Befund 05.09.): sie gehoert nicht zum Produkt, und bei der Abnahme soll
+  # kein fuenfter Container mit einer API-Attrappe auf einem oeffentlichen Port stehen.
+  #
+  #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d mock
+  #
+  # Beispieldaten laden — laeuft NUR mit dem Profil, sonst nie:
+  #
+  #   docker compose --profile beispieldaten up -d --build
+  #
+  # Der Container meldet sich als `admin` an, ruft POST /api/sample-data und endet. Danach zeigt die
+  # Web-App 12 Klassen, 24 Lehrkraefte, 18 Raeume und einen fertig gerechneten Plan — ein Befehl,
+  # danach im Browser benutzbar. Ohne `--profile` startet er nicht: eine Schule, die den Stack in
+  # Betrieb nimmt, soll ihre leere Datenbank behalten.
+  #
+  # Idempotent: auf einer gefuellten Datenbank antwortet die API 409 `data-exists`, das Skript wertet
+  # das als „schon geladen" und endet mit 0. `restart: "no"` haelt den beendeten Container liegen —
+  # `docker compose logs seed` zeigt, was er geladen hat.
+  seed:
+    profiles: ["beispieldaten"]
+    image: curlimages/curl:8.11.1
+    logging: *logging
+    restart: "no"
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      SEED_BASE: http://backend:8080
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:?ADMIN_INITIAL_PASSWORD fehlt in deployment/.env}
+    volumes:
+      - ./beispieldaten.sh:/beispieldaten.sh:ro
+    entrypoint: ["sh", "/beispieldaten.sh"]
+    mem_limit: 64m
+
+volumes:
+  pgdata:

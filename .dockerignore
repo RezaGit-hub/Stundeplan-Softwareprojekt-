@@ -1,0 +1,25 @@
+# Der Build-Kontext des Web-Containers ist die Repo-Wurzel (frontend/Dockerfile).
+# Was hier steht, wird nicht an den Docker-Daemon geschickt — das haelt den Build schnell
+# und verhindert, dass lokale Artefakte ins Image geraten.
+.git
+**/node_modules
+**/dist
+**/build
+**/.gradle
+**/.npm
+.agent-out
+demo
+# Abgabe-APK (33 MB), Abnahmeunterlagen und die Android-Quellen gehoeren in keinen Web-Build (BETRIEB-7).
+app
+docs
+android-starter
+deployment/.env
+deployment/backups
+**/.DS_Store
+
+# Lokale Env-Dateien. Vite liest .env.local in JEDEM Modus, auch bei `npm run build` — waere sie im
+# Kontext, baute `docker compose up --build` bei jedem, der VITE_MOCK=true lokal gesetzt hat, ein
+# Web-Abbild mit Attrappe statt echtem Client. Sie stehen im .gitignore, aber COPY liest das nicht.
+**/.env.local
+**/.env.*.local
+**/*.local

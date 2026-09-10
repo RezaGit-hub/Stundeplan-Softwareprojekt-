@@ -1,0 +1,14 @@
+{
+  "name": "stundenplanung-api-contract",
+  "version": "0.1.0",
+  "private": true,
+  "description": "API-Vertrag der Stundenplanung (OpenAPI 3.1) mit Prism-Mock und Redocly-Lint",
+  "scripts": {
+    "mock": "prism mock -p 1501 -h 0.0.0.0 openapi.yaml",
+    "lint": "redocly lint openapi.yaml"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.51.1",
+    "@stoplight/prism-cli": "5.14.2"
+  }
+}

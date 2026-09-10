@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Stundenplan</string>
+
+    <!-- Einstellungen: Serveradresse (A-3, T-A3.1) -->
+    <string name="setup_title">Einstellungen</string>
+    <string name="setup_server_label">Serveradresse</string>
+    <string name="setup_server_hint">Nur Rechner und Port eintragen, ohne /api am Ende. Emulator: http://10.0.2.2:1500 (= der Rechner, auf dem der Emulator läuft). Projekt-VM: http://134.245.1.240:1500. Echtes Gerät im WLAN: http://&lt;IP des Rechners&gt;:1500.</string>
+    <string name="setup_check">Verbindung prüfen</string>
+    <string name="setup_checking">Verbindung wird geprüft …</string>
+    <string name="setup_save">Speichern</string>
+    <string name="setup_save_anyway">Trotzdem speichern</string>
+    <string name="setup_saved">Serveradresse gespeichert.</string>
+    <string name="setup_reachable">Erreichbar: %1$s</string>
+    <string name="setup_reachable_unnamed">Erreichbar (Schulname noch nicht gesetzt).</string>
+    <string name="setup_unreachable">Server nicht erreichbar. Adresse trotzdem speichern?</string>
+    <string name="setup_url_invalid">Die Adresse muss mit http:// oder https:// beginnen.</string>
+    <string name="setup_current_server">Gespeicherte Adresse: %1$s</string>
+    <string name="setup_no_server">Noch keine Serveradresse gespeichert.</string>
+    <string name="setup_version">Version %1$s</string>
+    <string name="setup_back_to_plan">Zum Plan</string>
+
+    <!-- Einstellungen: Anmeldung -->
+    <string name="login_title">Anmeldung</string>
+    <string name="login_username">Benutzername</string>
+    <string name="login_password">Passwort</string>
+    <string name="login_button">Anmelden</string>
+    <string name="login_running">Anmeldung läuft …</string>
+    <string name="login_wrong">Benutzername oder Passwort ist falsch.</string>
+    <string name="login_unreachable">Server nicht erreichbar. Bitte die Serveradresse prüfen.</string>
+    <string name="login_no_server">Bitte zuerst eine Serveradresse speichern.</string>
+    <string name="login_empty">Bitte Benutzername und Passwort eingeben.</string>
+    <string name="login_server_error">Anmeldung nicht möglich: %1$s</string>
+    <string name="login_server_error_generic">Anmeldung nicht möglich. Der Server hat einen Fehler gemeldet.</string>
+    <string name="login_session_expired">Sitzung abgelaufen, bitte neu anmelden.</string>
+    <string name="login_required">Bitte anmelden, um den eigenen Plan zu sehen.</string>
+    <string name="logged_in_as">Angemeldet als %1$s</string>
+    <string name="logout">Abmelden</string>
+
+    <!-- Tagesansicht (A-1, T-A1.1) -->
+    <string name="day_today">Heute</string>
+    <string name="day_week">Woche</string>
+    <string name="day_prev">Vorheriger Tag</string>
+    <string name="day_next">Nächster Tag</string>
+    <string name="day_empty">Keine Stunden an diesem Tag</string>
+    <string name="day_no_school">Unterrichtsfrei</string>
+    <string name="day_pick_title">Tag auswählen</string>
+    <string name="day_pick_ok">Anzeigen</string>
+    <string name="day_pick_cancel">Abbrechen</string>
+    <string name="position_format">%1$d.</string>
+    <string name="time_unknown">–</string>
+
+    <!-- Wochenansicht -->
+    <string name="week_title">Woche ab %1$s</string>
+    <string name="week_prev">Vorherige Woche</string>
+    <string name="week_next">Nächste Woche</string>
+    <string name="week_day">Tag</string>
+    <string name="week_break">Pause</string>
+
+    <!-- Banner -->
+    <!-- Schulsprache statt Fachjargon (backbone/android.md A-1, SPEZIFIKATION 5.2). -->
+    <string name="banner_offline">Keine Verbindung — Stand: %1$s</string>
+    <plurals name="banner_changed_today">
+        <item quantity="one">Heute geändert: %d Stunde</item>
+        <item quantity="other">Heute geändert: %d Stunden</item>
+    </plurals>
+
+    <!-- Fehler -->
+    <string name="error_unreachable_no_cache">Server nicht erreichbar und kein gespeicherter Stand.</string>
+    <string name="error_not_teacher">Dieses Konto ist keiner Lehrkraft zugeordnet. Bitte mit einem Lehrkraft-Konto anmelden.</string>
+    <string name="error_server">Der Server meldet: %1$s</string>
+    <string name="error_server_generic">Der Server hat einen Fehler gemeldet. Bitte später erneut versuchen.</string>
+    <string name="error_retry">Erneut versuchen</string>
+    <string name="error_settings">Einstellungen</string>
+    <string name="loading">Wird geladen …</string>
+
+    <!-- Textlabel je Art (Farbe ist nie der einzige Traeger) -->
+    <string name="label_substitution">Vertretung</string>
+    <string name="label_room_change">Raumwechsel</string>
+    <string name="label_needs_substitution">noch nicht vertreten</string>
+    <string name="label_given_away">abgegeben an %1$s</string>
+    <string name="label_given_away_plain">abgegeben</string>
+    <string name="label_cancelled">entfällt</string>
+    <string name="label_moved">verlegt</string>
+    <string name="label_moved_from">verlegt von %1$s</string>
+    <string name="label_added">Zusatzstunde</string>
+    <string name="label_regular">Regulär</string>
+
+    <!-- Stundendetail (A-2, T-A2.1) -->
+    <string name="detail_subject">Fach</string>
+    <string name="detail_class">Klasse</string>
+    <string name="detail_room">Raum</string>
+    <string name="detail_time">Zeit</string>
+    <string name="detail_teacher">Lehrkraft</string>
+    <string name="detail_kind">Art der Änderung</string>
+    <string name="detail_reasons">Anlässe</string>
+    <string name="detail_no_reasons">Kein Anlass angegeben.</string>
+    <string name="detail_original">Original</string>
+    <string name="detail_original_teacher">Vertretene Lehrkraft: %1$s</string>
+    <string name="detail_you_substitute">Sie vertreten %1$s.</string>
+    <string name="detail_given_to">Übernommen von %1$s.</string>
+    <string name="detail_original_room">Raum vorher: %1$s</string>
+    <string name="detail_original_slot">Termin vorher: %1$s</string>
+    <string name="detail_close">Schließen</string>
+
+    <!-- Bedienhilfen -->
+    <string name="cd_settings">Einstellungen öffnen</string>
+</resources>

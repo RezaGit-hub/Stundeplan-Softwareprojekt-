@@ -1,0 +1,103 @@
+package de.wsp3_1.planning.api;
+
+import de.wsp3_1.planning.api.PlanningDtos.AcceptDraftInput;
+import de.wsp3_1.planning.api.PlanningDtos.AcceptDraftResponse;
+import de.wsp3_1.planning.api.PlanningDtos.AddLessonInput;
+import de.wsp3_1.planning.api.PlanningDtos.CreateDraft;
+import de.wsp3_1.planning.api.PlanningDtos.DraftDto;
+import de.wsp3_1.planning.api.PlanningDtos.PatchLessonInput;
+import de.wsp3_1.planning.api.PlanningDtos.StartSolveInput;
+import de.wsp3_1.planning.domain.DraftService;
+import de.wsp3_1.planning.domain.SolveService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * {@code /api/draft**} — der eine Entwurf (Vertrag v1, Rolle PLANNING).
+ *
+ * <p>Zwei Dinge gelten fuer alle Aenderungen: die Antwort ist <b>immer der ganze Entwurf</b> (die
+ * Oberflaeche muss nichts zusammensetzen), und waehrend einer Berechnung wird nichts geaendert
+ * (409 {@code solving}).</p>
+ */
+@RestController
+@RequestMapping("/api/draft")
+public class DraftController {
+
+    private final DraftService draftService;
+    private final SolveService solveService;
+
+    public DraftController(DraftService draftService, SolveService solveService) {
+        this.draftService = draftService;
+        this.solveService = solveService;
+    }
+
+    // ------------------------------------------------------------------ Entwurf
+
+    @GetMapping
+    public DraftDto get() {
+        return DraftDto.of(draftService.get());
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public DraftDto create(@Valid @RequestBody CreateDraft input) {
+        return DraftDto.of(draftService.create(input.source()));
+    }
+
+    @DeleteMapping
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void discard() {
+        draftService.discard();
+    }
+
+    // ------------------------------------------------------------------ Stunden (W-3, W-9)
+
+    @PostMapping("/lessons")
+    @ResponseStatus(HttpStatus.CREATED)
+    public DraftDto addLesson(@Valid @RequestBody AddLessonInput input) {
+        return DraftDto.of(draftService.addLesson(input.classId(), input.subjectId(), input.timeslotId(),
+                input.roomId()));
+    }
+
+    @PatchMapping("/lessons/{id}")
+    public DraftDto patchLesson(@PathVariable Long id, @RequestBody PatchLessonInput input) {
+        return DraftDto.of(draftService.patchLesson(id, input.timeslotId(), input.roomId(), input.pinned()));
+    }
+
+    @DeleteMapping("/lessons/{id}")
+    public DraftDto removeLesson(@PathVariable Long id) {
+        return DraftDto.of(draftService.removeLesson(id));
+    }
+
+    // ------------------------------------------------------------------ Berechnung (W-8)
+
+    /** 202 und sofort zurueck; den Stand liefert {@code GET /api/draft} (Web fragt alle 2 s). */
+    @PostMapping("/solve")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void startSolve(@RequestBody(required = false) StartSolveInput input) {
+        solveService.start(input == null ? null : input.classId());
+    }
+
+    /** 202 auch dann, wenn gerade nichts laeuft — Abbrechen ist nie ein Fehler. */
+    @DeleteMapping("/solve")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void cancelSolve() {
+        solveService.cancel();
+    }
+
+    // ------------------------------------------------------------------ Annehmen (W-8)
+
+    @PostMapping("/accept")
+    public AcceptDraftResponse accept(@RequestBody(required = false) AcceptDraftInput input) {
+        return AcceptDraftResponse.of(draftService.accept(input == null ? null : input.validFrom()));
+    }
+}
