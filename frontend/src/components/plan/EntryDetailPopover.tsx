@@ -84,7 +84,15 @@ export function EntryDetailPopover({ entry, anchor, onClose, slots, lookup = tru
   return (
     <Popover open onOpenChange={(o) => !o && onClose()}>
       <PopoverAnchor virtualRef={{ current: anchor }} />
-      <PopoverContent align="start" side="right" sideOffset={8} className="w-80 gap-3" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent align="start" side="right" sideOffset={8} className="w-80 gap-3" onOpenAutoFocus={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => {
+        const target = e.target as HTMLElement | null
+        // Klick kommt aus einem anderen Popover (unser "+n"-Popover)?
+        if (target?.closest('[data-list-popover]')) {
+            e.preventDefault()
+        }
+    }}
+>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="text-base font-semibold">{subjectName}</div>

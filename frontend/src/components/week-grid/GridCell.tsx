@@ -81,8 +81,8 @@ export function GridCell(p: GridCellProps) {
               <PopoverTrigger asChild>
                 <button type="button" className="h-[18px] w-fit rounded-sm bg-surface-sunken px-1.5 text-2xs font-medium text-foreground-muted hover:bg-accent">+{rest.length}</button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-64 gap-1">
-                {rest.map((e) => <MiniTile key={e.key} {...tileProps(e)} onClick={(entry, anchor) => { setMoreOpen(false); onEntryClick?.(entry, anchor) }} />)}
+              <PopoverContent align="start" className="w-64 gap-1" data-list-popover="true">
+                {rest.map((e) => <MiniTile key={e.key} {...tileProps(e)} onClick={(entry, anchor) => {onEntryClick?.(entry, anchor) }} />)}
               </PopoverContent>
             </Popover>
           )}
