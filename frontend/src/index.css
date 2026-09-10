@@ -262,6 +262,114 @@
 
 }
 
+/* ===================== MODERNE SCROLLBAR =====================
+   Ersetzt die Standard-Scrollbar des Browsers durch eine schlanke,
+   minimalistische Variante, die zum Theme passt.
+   - Firefox: scrollbar-width + scrollbar-color
+   - Chrome/Edge/Safari: ::-webkit-scrollbar
+   Der Daumen wird erst bei Hover sichtbar (fast unsichtbar wenn inaktiv),
+   was dem "minimalistischen" Look entspricht. */
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 20%, transparent) transparent;
+}
+
+/* Chromium (Chrome, Edge, Brave, Opera) und Safari */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--foreground) 18%, transparent);
+  border-radius: 999px;
+  /* Der transparente Rand "schrumpft" den Daumen optisch auf ~6 px —
+     so wirkt die Leiste schlanker, ohne dass man sie schwerer greifen kann. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.15s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--foreground) 35%, transparent);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: color-mix(in oklab, var(--foreground) 50%, transparent);
+  background-clip: padding-box;
+}
+
+/* Die Ecken, wo horizontale und vertikale Scrollbar zusammentreffen */
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Wenn der Nutzer nicht scrollt, blenden wir die Scrollbar sanft aus.
+   Das ist rein dekorativ — funktioniert nur in Chromium. */
+*::-webkit-scrollbar-thumb {
+  background-clip: padding-box;
+  opacity: 0.9;
+}
+
+/* ===================== MODERNE SCROLLBAR (Dialoge mit Puffer) =====================
+   In Dialogen bekommt der Daumen zusätzlich Abstand:
+   - oben und unten 6 px (Track-Margin)
+   - rechts 5 px (Thumb-Border mit transparentem Anteil)
+   Nur wirksam, wenn das DialogContent tatsächlich overflow hat. */
+
+[data-slot="dialog-content"]::-webkit-scrollbar {
+  width: 16px;   /* breiterer Bereich, damit der Puffer Platz hat */
+  height: 16px;
+}
+
+[data-slot="dialog-content"]::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;   /* Puffer oben und unten */
+}
+
+[data-slot="dialog-content"]::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--foreground) 22%, transparent);
+  border-radius: 999px;
+  border: 5px solid transparent;   /* optisch schlanker + eingerückt */
+  background-clip: padding-box;
+  transition: background-color 0.15s ease;
+}
+
+[data-slot="dialog-content"]::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--foreground) 42%, transparent);
+  border: 5px solid transparent;
+  background-clip: padding-box;
+}
+
+[data-slot="dialog-content"]::-webkit-scrollbar-thumb:active {
+  background: color-mix(in oklab, var(--foreground) 58%, transparent);
+  border: 5px solid transparent;
+  background-clip: padding-box;
+}
+
+[data-slot="dialog-content"]::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Für horizontale Scrollbars im Dialog: gleicher Puffer links/rechts */
+[data-slot="dialog-content"]::-webkit-scrollbar-track:horizontal {
+  margin: 0 6px;
+}
+
+/* Firefox im Dialog: leider ohne Puffer, aber dünn und dezent */
+[data-slot="dialog-content"] {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+}
+
+
 /* UNGESCHICHTET (kein @layer), absichtlich: Einbettende Hosts (z. B. der Artifact-Viewer von claude.ai) setzen
    ungeschichtet body{color;background} und :root{color-scheme:light}. Ungeschichtetes CSS schlaegt jede @layer-Regel,
    also wuerden alle Elemente, die ihre Farbe nur erben (h1-h6, td, deaktivierte Eingaben), im Dark Mode dunkel auf dunkel.
