@@ -2,6 +2,7 @@ package de.wsp3_1.stundenplan.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,8 +29,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.paint
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -41,6 +47,8 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 private val shortDate: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.")
+
+private val SWIPE_THRESHOLD_DP = 80.dp
 
 /**
  * Wochenansicht: Matrix Tage x Positionen als LazyVerticalGrid (erste Spalte Position + Uhrzeit,
@@ -109,7 +117,9 @@ fun WeekScreen(
                         onRefresh = onRefresh,
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        WeekGrid(uiState, today, onDay, onEntry)
+                        SwipeableWeek(onPrev = onPrev, onNext = onNext) {
+                            WeekGrid(uiState, today, onDay, onEntry)
+                        }
                     }
                 }
 
@@ -218,5 +228,34 @@ private fun WeekGrid(
                 }
             }
         }
+    }
+}
+
+/*
+* Funktion, um auch in Wochenansicht wischen zu können
+*
+*/
+@Composable
+private fun SwipeableWeek(onPrev: () -> Unit, onNext: () -> Unit, content: @Composable () -> Unit) {
+    val threshold = with(LocalDensity.current) { SWIPE_THRESHOLD_DP.toPx() }
+    val prev by rememberUpdatedState(onPrev)
+    val next by rememberUpdatedState(onNext)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                var dragged = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = {dragged = 0f},
+                    onDragCancel = {dragged = 0f},
+                    onDragEnd = {
+                        val total = dragged
+                        dragged = 0f
+                        if (total <= -threshold) next() else if (total >= threshold) prev()
+                    },
+                ) { _, amount -> dragged += amount}
+            }
+    ) {
+        content()
     }
 }
