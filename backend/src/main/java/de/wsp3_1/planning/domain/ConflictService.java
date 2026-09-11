@@ -94,7 +94,8 @@ public class ConflictService {
                 index(subjects.findAllByOrderByIdAsc(), Subject::getId,
                         s -> new SubjectInfo(s.getId(), s.getName(), s.getShortName(), s.getRequiredRoomType())),
                 index(rooms.findAllByOrderByIdAsc(), Room::getId,
-                        r -> new RoomInfo(r.getId(), r.getName(), r.getRoomType())),
+                        r -> new RoomInfo(r.getId(), r.getName(), r.getRoomType(),
+                                Set.copyOf(r.getBlockedTimeslotIds()))),
                 ruleResolver.resolve(classRefs, teacherIds));
     }
 

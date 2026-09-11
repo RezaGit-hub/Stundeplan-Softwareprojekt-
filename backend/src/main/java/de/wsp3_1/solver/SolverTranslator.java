@@ -88,7 +88,7 @@ public final class SolverTranslator {
         }
 
         return new SolverTimetable(valueRangeTimeslots, valueRangeRooms, input.rules(), input.blockedTimes(),
-                input.preferredTimes(), lessons);
+                input.preferredTimes(), input.roomBlockedTimes(), lessons);
     }
 
     /**

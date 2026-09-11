@@ -45,6 +45,7 @@ public record CheckContext(Map<Long, SlotInfo> timeslots,
     public record SubjectInfo(Long id, String name, String shortName, String requiredRoomType) {
     }
 
-    public record RoomInfo(Long id, String name, String roomType) {
+    /** {@code blockedTimeslotIds}: woechentliche Sperrzeiten des Raums (#133), wie bei der Lehrkraft. */
+    public record RoomInfo(Long id, String name, String roomType, java.util.Set<Long> blockedTimeslotIds) {
     }
 }

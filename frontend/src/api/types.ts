@@ -16,7 +16,8 @@ export const VIEWS: readonly View[] = ['SCHOOL', 'CLASS', 'TEACHER', 'ROOM'] as 
 export type EntryKind = 'REGULAR' | 'NEEDS_SUBSTITUTION' | 'SUBSTITUTED' | 'GIVEN_AWAY' | 'MOVED' | 'CANCELLED' | 'ADDED'
 export const ENTRY_KINDS: readonly EntryKind[] = ['REGULAR', 'NEEDS_SUBSTITUTION', 'SUBSTITUTED', 'GIVEN_AWAY', 'MOVED', 'CANCELLED', 'ADDED'] as const
 
-export type ConflictType = 'ROOM_DOUBLE_BOOKED' | 'TEACHER_DOUBLE_BOOKED' | 'CLASS_DOUBLE_BOOKED' | 'TEACHER_BLOCKED_TIME' | 'ROOM_TYPE_MISMATCH' | 'RULE_VIOLATION'
+/** ROOM_BLOCKED_TIME seit v1.1.0 (#133): Stunde in einer wöchentlichen Sperrzeit des Raums */
+export type ConflictType = 'ROOM_DOUBLE_BOOKED' | 'TEACHER_DOUBLE_BOOKED' | 'CLASS_DOUBLE_BOOKED' | 'TEACHER_BLOCKED_TIME' | 'ROOM_TYPE_MISMATCH' | 'RULE_VIOLATION' | 'ROOM_BLOCKED_TIME'
 export type Severity = 'HARD' | 'SOFT'
 export type ObjectKind = 'CLASS' | 'TEACHER' | 'ROOM'
 
@@ -74,7 +75,8 @@ export interface TeacherInput {
 export interface SubjectDto { id: number; name: string; shortName: string; requiredRoomType: string | null; color: string }
 export type SubjectInput = Omit<SubjectDto, 'id'>
 
-export interface RoomDto { id: number; name: string; roomType: string; active: boolean }
+/** blockedTimeslotIds: wöchentliche Sperrzeiten (hart), optional seit v1.1.0 (#133); der Server liefert immer eine Liste, fehlend beim Senden = keine Sperre */
+export interface RoomDto { id: number; name: string; roomType: string; active: boolean; blockedTimeslotIds?: number[] }
 export type RoomInput = Omit<RoomDto, 'id'>
 
 export interface ClassSubjectDto { subjectId: number; subjectShort: string; weeklyHours: number; teacherId: number; teacherShort: string }

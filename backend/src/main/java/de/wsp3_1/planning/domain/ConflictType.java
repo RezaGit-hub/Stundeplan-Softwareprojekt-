@@ -18,6 +18,8 @@ public enum ConflictType {
     TEACHER_BLOCKED_TIME,
     /** Das Fach braucht eine andere Raumart, als der Raum hat. */
     ROOM_TYPE_MISMATCH,
+    /** Der Raum hat dieses Zeitfenster gesperrt (#133, Vertrag 1.1.0). */
+    ROOM_BLOCKED_TIME,
     /** Eine Zeile des Regelwerks ist ueberschritten. */
     RULE_VIOLATION
 }

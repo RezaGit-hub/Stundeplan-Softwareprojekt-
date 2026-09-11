@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Stundenplanung — REST-API
-  version: 1.0.0
+  version: 1.1.0
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -744,9 +744,9 @@ paths:
                 items:
                   $ref: '#/components/schemas/RoomDto'
               example:
-                - { id: 1, name: R101, roomType: Klassenraum, active: true }
-                - { id: 2, name: R204, roomType: Klassenraum, active: true }
-                - { id: 3, name: P1, roomType: Fachraum Physik, active: true }
+                - { id: 1, name: R101, roomType: Klassenraum, active: true, blockedTimeslotIds: [] }
+                - { id: 2, name: R204, roomType: Klassenraum, active: true, blockedTimeslotIds: [] }
+                - { id: 3, name: P1, roomType: Fachraum Physik, active: true, blockedTimeslotIds: [34, 35] }
         '401':
           $ref: '#/components/responses/Unauthenticated401'
         '403':
@@ -762,7 +762,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RoomInput'
-            example: { name: P1, roomType: Fachraum Physik, active: true }
+            example: { name: P1, roomType: Fachraum Physik, active: true, blockedTimeslotIds: [34, 35] }
       responses:
         '201':
           description: Raum angelegt
@@ -770,7 +770,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RoomDto'
-              example: { id: 3, name: P1, roomType: Fachraum Physik, active: true }
+              example: { id: 3, name: P1, roomType: Fachraum Physik, active: true, blockedTimeslotIds: [34, 35] }
         '400':
           $ref: '#/components/responses/Validation400'
         '401':
@@ -793,7 +793,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RoomDto'
-              example: { id: 1, name: R101, roomType: Klassenraum, active: true }
+              example: { id: 1, name: R101, roomType: Klassenraum, active: true, blockedTimeslotIds: [] }
         '401':
           $ref: '#/components/responses/Unauthenticated401'
         '403':
@@ -811,7 +811,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RoomInput'
-            example: { name: R101, roomType: Klassenraum, active: true }
+            example: { name: R101, roomType: Klassenraum, active: true, blockedTimeslotIds: [] }
       responses:
         '200':
           description: Raum geändert
@@ -819,7 +819,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RoomDto'
-              example: { id: 1, name: R101, roomType: Klassenraum, active: true }
+              example: { id: 1, name: R101, roomType: Klassenraum, active: true, blockedTimeslotIds: [] }
         '400':
           $ref: '#/components/responses/Validation400'
         '401':
@@ -832,7 +832,7 @@ paths:
       tags: [Räume]
       operationId: deleteRoom
       summary: Raum löschen
-      description: 409 `in-use`, solange der Raum in einem Plan belegt ist. Sperrzeiten eines Raums stehen ab v1 unter `GET /api/events?roomId=`.
+      description: 409 `in-use`, solange der Raum in einem Plan belegt ist. Datierte Sperrungen eines Raums stehen ab v1 unter `GET /api/events?roomId=`; die wöchentlichen Sperrzeiten (`blockedTimeslotIds`, v1.1.0) fallen mit dem Raum weg.
       x-role: PLANNING
       responses:
         '204':
@@ -2701,7 +2701,8 @@ components:
 
     ConflictType:
       type: string
-      enum: [ROOM_DOUBLE_BOOKED, TEACHER_DOUBLE_BOOKED, CLASS_DOUBLE_BOOKED, TEACHER_BLOCKED_TIME, ROOM_TYPE_MISMATCH, RULE_VIOLATION]
+      enum: [ROOM_DOUBLE_BOOKED, TEACHER_DOUBLE_BOOKED, CLASS_DOUBLE_BOOKED, TEACHER_BLOCKED_TIME, ROOM_TYPE_MISMATCH, RULE_VIOLATION, ROOM_BLOCKED_TIME]
+      description: ROOM_BLOCKED_TIME seit v1.1.0 (#133) — Stunde in einer wöchentlichen Sperrzeit des Raums (`RoomDto.blockedTimeslotIds`), immer hart
 
     ObjectKind:
       type: string
@@ -2937,6 +2938,10 @@ components:
         name: { type: string, examples: [R101] }
         roomType: { type: string, description: Raumart; muss zur geforderten Raumart des Fachs passen, examples: [Klassenraum] }
         active: { type: boolean }
+        blockedTimeslotIds:
+          type: array
+          items: { type: integer, format: int64 }
+          description: 'Wöchentliche Sperrzeiten des Raums (hart, wie bei der Lehrkraft); seit v1.1.0 (#133). Der Server liefert das Feld immer, Standard leer'
 
     RoomInput:
       type: object
@@ -2945,6 +2950,10 @@ components:
         name: { type: string, minLength: 1 }
         roomType: { type: string, minLength: 1 }
         active: { type: boolean }
+        blockedTimeslotIds:
+          type: array
+          items: { type: integer, format: int64 }
+          description: 'Wöchentliche Sperrzeiten (hart); optional seit v1.1.0 (#133), fehlend = keine Sperre. Jede Kennung muss ein Zeitfenster sein, sonst 400 `validation`'
 
     ClassSubjectDto:
       type: object

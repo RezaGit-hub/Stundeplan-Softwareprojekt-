@@ -40,6 +40,9 @@ public class SolverTimetable {
     @ProblemFactCollectionProperty
     private List<PreferredTimeFact> preferredTimes = new ArrayList<>();
 
+    @ProblemFactCollectionProperty
+    private List<RoomBlockedTimeFact> roomBlockedTimes = new ArrayList<>();
+
     @PlanningEntityCollectionProperty
     private List<SolverLesson> lessons = new ArrayList<>();
 
@@ -54,14 +57,22 @@ public class SolverTimetable {
         this(timeslots, rooms, List.of(), List.of(), List.of(), lessons);
     }
 
+    /** Ohne Raumsperren — fuer Tests und Aufrufer aus der Zeit vor #133. */
     public SolverTimetable(List<TimeslotFact> timeslots, List<RoomFact> rooms, List<RuleFact> rules,
                            List<BlockedTimeFact> blockedTimes, List<PreferredTimeFact> preferredTimes,
                            List<SolverLesson> lessons) {
+        this(timeslots, rooms, rules, blockedTimes, preferredTimes, List.of(), lessons);
+    }
+
+    public SolverTimetable(List<TimeslotFact> timeslots, List<RoomFact> rooms, List<RuleFact> rules,
+                           List<BlockedTimeFact> blockedTimes, List<PreferredTimeFact> preferredTimes,
+                           List<RoomBlockedTimeFact> roomBlockedTimes, List<SolverLesson> lessons) {
         this.timeslots = timeslots;
         this.rooms = rooms;
         this.rules = rules;
         this.blockedTimes = blockedTimes;
         this.preferredTimes = preferredTimes;
+        this.roomBlockedTimes = roomBlockedTimes;
         this.lessons = lessons;
     }
 
@@ -103,6 +114,14 @@ public class SolverTimetable {
 
     public void setPreferredTimes(List<PreferredTimeFact> preferredTimes) {
         this.preferredTimes = preferredTimes;
+    }
+
+    public List<RoomBlockedTimeFact> getRoomBlockedTimes() {
+        return roomBlockedTimes;
+    }
+
+    public void setRoomBlockedTimes(List<RoomBlockedTimeFact> roomBlockedTimes) {
+        this.roomBlockedTimes = roomBlockedTimes;
     }
 
     public List<SolverLesson> getLessons() {

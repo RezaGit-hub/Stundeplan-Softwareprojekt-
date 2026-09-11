@@ -149,6 +149,26 @@ class TimetableConstraintProviderTest {
                 .penalizesBy(0);
     }
 
+    // ---------------------------------------------------------------- H8 roomBlockedTime
+
+    @Test
+    @DisplayName("H8 (#133): R101 ist Montag 1. Stunde gesperrt — eine Stunde dort ist genau ein Konflikt")
+    void roomBlockedTime_r101Monday1_penalizesOnce() {
+        verifier.verifyThat(TimetableConstraintProvider::roomBlockedTime)
+                .given(lesson(1L, CLASS_7A, MATHEMATIK, MEYER, null, MO_1, R101),
+                        lesson(2L, CLASS_8B, DEUTSCH, WEBER, null, MO_2, R101),
+                        new RoomBlockedTimeFact(R101.id(), MO_1.id()))
+                .penalizesBy(1);
+    }
+
+    @Test
+    void roomBlockedTime_otherRoomBlocked_noPenalty() {
+        verifier.verifyThat(TimetableConstraintProvider::roomBlockedTime)
+                .given(lesson(1L, CLASS_7A, MATHEMATIK, MEYER, null, MO_1, R101),
+                        new RoomBlockedTimeFact(R204.id(), MO_1.id()))
+                .penalizesBy(0);
+    }
+
     // ---------------------------------------------------------------- M1 unassignedLesson
 
     @Test

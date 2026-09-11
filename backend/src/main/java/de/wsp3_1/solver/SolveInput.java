@@ -15,13 +15,22 @@ import java.util.List;
  * @param rules          aufgeloeste, aktive Regeln je Objekt (RuleResolver)
  * @param blockedTimes   gesperrte Zeiten aller Lehrkraefte, die in {@code lessons} vorkommen
  * @param preferredTimes bevorzugte Zeiten, analog
+ * @param roomBlockedTimes gesperrte Zeiten aller Raeume (#133, H8)
  */
 public record SolveInput(List<LessonInput> lessons,
                          List<TimeslotFact> timeslots,
                          List<RoomFact> rooms,
                          List<RuleFact> rules,
                          List<BlockedTimeFact> blockedTimes,
-                         List<PreferredTimeFact> preferredTimes) {
+                         List<PreferredTimeFact> preferredTimes,
+                         List<RoomBlockedTimeFact> roomBlockedTimes) {
+
+    /** Ohne Raumsperren — fuer Tests und Aufrufer aus der Zeit vor #133. */
+    public SolveInput(List<LessonInput> lessons, List<TimeslotFact> timeslots, List<RoomFact> rooms,
+                      List<RuleFact> rules, List<BlockedTimeFact> blockedTimes,
+                      List<PreferredTimeFact> preferredTimes) {
+        this(lessons, timeslots, rooms, rules, blockedTimes, preferredTimes, List.of());
+    }
 
     /**
      * Eine Stunde, wie sie gespeichert ist. {@code timeslotId} und {@code roomId} sind beide gesetzt
