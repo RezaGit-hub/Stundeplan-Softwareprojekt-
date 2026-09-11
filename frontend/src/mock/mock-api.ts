@@ -727,6 +727,27 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       if (s.solveTimer) clearTimeout(s.solveTimer)
       finishSolve(d, s)
     },
+    async repairDraft(body) {
+      await planning()
+      const d = draftOr404()
+      notSolving(d)
+      const l = d.lessons.find((x) => x.id === body.lessonId)
+      if (!l) throw notFound(`Stunde ${body.lessonId} nicht im Entwurf`)
+      if (!checkConflicts(d.lessons, s).some((c) => c.lessonIds.includes(l.id))) throw validation([{ field: 'lessonId', message: 'Die Stunde steht in keinem Konflikt' }])
+      // Nur Stufe 1 (nur diese Stunde wandert): das Zeitfenster und der Raum mit den wenigsten harten Konflikten.
+      // Der Server rechnet drei Stufen mit dem Solver; die Attrappe zeigt den Weg, nicht die Güte.
+      const hardCount = (lessons: MockLesson[]) => checkConflicts(lessons, s).filter((c) => c.severity === 'HARD').length
+      let best: { timeslotId: number; roomId: number; hard: number } | null = null
+      for (const t of s.timeslots.filter((x) => !x.isBreak)) {
+        for (const r of s.rooms.filter((x) => x.active)) {
+          if (t.id === l.timeslotId && r.id === l.roomId) continue
+          const hard = hardCount(d.lessons.map((x) => (x.id === l.id ? { ...x, timeslotId: t.id, roomId: r.id } : x)))
+          if (!best || hard < best.hard) best = { timeslotId: t.id, roomId: r.id, hard }
+        }
+      }
+      if (!best) return { proposals: [] }
+      return { proposals: [{ level: 1, label: 'Nur diese Stunde verschieben', moves: [{ lessonId: l.id, timeslotId: best.timeslotId, roomId: best.roomId }], hardConflictsAfter: best.hard, score: null }] }
+    },
     async acceptDraft(body) {
       await planning()
       const d = draftOr404()

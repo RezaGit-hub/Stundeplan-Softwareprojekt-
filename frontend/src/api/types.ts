@@ -188,6 +188,21 @@ export interface DraftDto {
 export interface AddLessonInput { classId: number; subjectId: number; timeslotId: number; roomId: number }
 export interface PatchLessonInput { timeslotId?: number; roomId?: number; pinned?: boolean }
 
+// Konflikt per Knopf lösen (#110, seit 1.2.0): POST /api/draft/repair rechnet Vorschläge, speichert nichts.
+export interface RepairInput { lessonId: number }
+/** Eine Stunde wandert in dieses Zeitfenster und diesen Raum; übernommen per PATCH /draft/lessons/{lessonId} mit pinned:false */
+export interface RepairMove { lessonId: number; timeslotId: number; roomId: number }
+export interface RepairProposal {
+  /** 1 = nur die Konfliktstunde, 2 = dazu die Stunden derselben Klasse am selben Tag, 3 = dazu Lehrkraft und Raum an diesem Tag */
+  level: number
+  label: string
+  moves: RepairMove[]
+  /** harte Konflikte im ganzen Entwurf, wenn der Vorschlag übernommen ist */
+  hardConflictsAfter: number
+  score: string | null
+}
+export interface RepairResponse { proposals: RepairProposal[] }
+
 // ------------------------------------------------------------------ Aufgelöste Woche
 /** Nur die geänderten Werte sind gesetzt (Vertretung: teacher/room; verlegt: date/position) */
 export interface EntryOriginal {
@@ -416,6 +431,8 @@ export interface Api {
   startSolve(body?: { classId?: number }): Promise<void>
   cancelSolve(): Promise<void>
   acceptDraft(body?: { validFrom?: string }): Promise<AcceptDraftResponse>
+  /** Vorschläge zum Auflösen eines Konflikts (#110); synchron bis zu 15 s, speichert nichts */
+  repairDraft(body: RepairInput): Promise<RepairResponse>
 
   listEvents(q?: EventQuery): Promise<EventDto[]>
   createEvent(body: EventInput): Promise<EventDto>

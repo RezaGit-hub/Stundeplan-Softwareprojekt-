@@ -141,6 +141,7 @@ deleteUser: (id) => request('DELETE', `/users/${id}`),
   startSolve: (body) => request('POST', '/draft/solve', { body: body ?? {} }),
   cancelSolve: () => request('DELETE', '/draft/solve'),
   acceptDraft: (body) => request('POST', '/draft/accept', { body: body ?? {} }),
+  repairDraft: (body) => request('POST', '/draft/repair', { body }),
 
   listEvents: (q) => request('GET', '/events', { query: q }),
   createEvent: (body) => request('POST', '/events', { body }),

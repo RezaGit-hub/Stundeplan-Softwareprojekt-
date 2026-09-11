@@ -11,6 +11,7 @@ import de.wsp3_1.planning.domain.PlanViews.LessonView;
 import de.wsp3_1.planning.domain.PlanViews.OpenLessonView;
 import de.wsp3_1.planning.domain.PlanViews.PlanView;
 import de.wsp3_1.planning.domain.PlanViews.SolveInfoView;
+import de.wsp3_1.planning.domain.RepairProposal;
 import de.wsp3_1.shared.Severity;
 import de.wsp3_1.shared.Weekday;
 import jakarta.validation.constraints.NotNull;
@@ -125,9 +126,39 @@ public final class PlanningDtos {
         }
     }
 
+    // ------------------------------------------------------------------ Konflikt loesen (#110)
+
+    public record RepairMoveDto(Long lessonId, Long timeslotId, Long roomId) {
+    }
+
+    /** Ein Vorschlag — eine Vorschau, nichts davon ist gespeichert (E-53). */
+    public record RepairProposalDto(int level, String label, List<RepairMoveDto> moves, int hardConflictsAfter,
+                                    String score) {
+
+        public static RepairProposalDto of(RepairProposal proposal) {
+            return new RepairProposalDto(proposal.level(), proposal.label(),
+                    proposal.moves().stream()
+                            .map(move -> new RepairMoveDto(move.lessonId(), move.timeslotId(), move.roomId()))
+                            .toList(),
+                    proposal.hardConflictsAfter(), proposal.score());
+        }
+    }
+
+    /** Antwort auf {@code POST /api/draft/repair}; leer, wenn kein Lauf eine Stunde bewegt hat. */
+    public record RepairResponse(List<RepairProposalDto> proposals) {
+
+        public static RepairResponse of(List<RepairProposal> proposals) {
+            return new RepairResponse(proposals.stream().map(RepairProposalDto::of).toList());
+        }
+    }
+
     // ------------------------------------------------------------------ Eingaben
 
     public record CreateDraft(@NotNull(message = "darf nicht leer sein") DraftSource source) {
+    }
+
+    /** Die Konfliktstunde, fuer die Vorschlaege gerechnet werden (#110). */
+    public record RepairInput(@NotNull(message = "darf nicht leer sein") Long lessonId) {
     }
 
     /** Handaufbau (W-3) — keine Lehrkraft im Rumpf, sie folgt aus der Fachzuordnung der Klasse (E-18). */
