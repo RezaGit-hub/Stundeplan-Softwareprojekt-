@@ -56,6 +56,16 @@ export function DraftPage() {
   const [detail, setDetail] = useState<{ lesson: LessonDto; anchor: HTMLElement } | null>(null)
   const [moving, setMoving] = useState<number | null>(null)
 
+  const [leftEl, setLeftEl] = useState<HTMLDivElement | null>(null)
+  const [leftHeight, setLeftHeight] = useState<number>()
+
+  useEffect(() => {
+    if (!leftEl) return
+    const observer = new ResizeObserver(([entry]) => setLeftHeight(entry.contentRect.height))
+    observer.observe(leftEl)
+    return () => observer.disconnect()
+  }, [leftEl])
+
   // Esc hebt den Klick-Klick-Modus auf
   useEffect(() => {
     if (moving == null) return
@@ -165,7 +175,7 @@ export function DraftPage() {
         </div>
       )}
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
-        <div className="min-w-0 flex-1 space-y-3">
+        <div ref={setLeftEl} className="min-w-0 flex-1 space-y-3">
           {objects.isError ? (
             // Die Liste der Klassen/Lehrkräfte/Räume fehlt — ohne sie ist unbekannt, ob es Grunddaten gibt.
             <ErrorState problem={objects.error} retry={objects.refetch} />
@@ -190,8 +200,15 @@ export function DraftPage() {
           )}
           <Legend />
         </div>
-        <aside className="w-full shrink-0 space-y-4 xl:w-80">
-          <OpenLessonsPanel open={d.openLessons} onPick={(classId) => set({ sicht: 'CLASS', id: String(classId) })} />
+        <aside
+          className="flex min-h-0 w-full shrink-0 flex-col gap-4 xl:w-80 max-xl:h-auto!"
+          style={leftHeight ? { height: leftHeight } : undefined}
+        >
+          <OpenLessonsPanel
+            open={d.openLessons}
+            onPick={(classId) => set({ sicht: 'CLASS', id: String(classId) })}
+            className="min-h-0 flex-1"
+          />
           <ConflictList conflicts={d.conflicts} onJump={jump} />
         </aside>
       </div>
