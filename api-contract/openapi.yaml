@@ -42,7 +42,7 @@ info:
     Lehrkraft-Endpunkte, `STUDENT` = Klassenkonto. Serverseitig gilt: `GET /api/health` und
     `POST /api/auth/login` ohne Token; `DELETE /api/auth/token`, `GET /api/me`, `GET /api/timegrid`
     und `GET /api/me/class-week` für jedes angemeldete Konto; das übrige `/api/me/**`
-    (`PUT /api/me/password`, `GET /api/me/timetable/week`) für `PLANNING` und `TEACHER`; alles
+    (`PUT /api/me/password`, `PUT /api/me/tour`, `GET /api/me/timetable/week`) für `PLANNING` und `TEACHER`; alles
     Übrige unter `/api/**` verlangt die Rolle `PLANNING` (E-45) — eine Lehrkraft bekommt dort 403,
     auch bei direkter Anfrage.
 
@@ -181,7 +181,10 @@ paths:
       tags: [Anmeldung]
       operationId: me
       summary: Eigene Identität
-      description: Liefert das angemeldete Konto. `teacherId` ist gesetzt, wenn das Konto zu einer Lehrkraft gehört.
+      description: |
+        Liefert das angemeldete Konto. `teacherId` ist gesetzt, wenn das Konto zu einer Lehrkraft gehört.
+        `tourCompletedAt` (seit 1.2.0, #139): wann das Konto den Rundgang durch die Webanwendung beendet
+        oder übersprungen hat; `null` = noch nie — das Web zeigt den Rundgang dann beim nächsten Start.
       x-role: ANY
       responses:
         '200':
@@ -196,6 +199,7 @@ paths:
                 role: PLANNING
                 displayName: admin
                 teacherId: null
+                tourCompletedAt: null
         '401':
           $ref: '#/components/responses/Unauthenticated401'
 
@@ -217,6 +221,33 @@ paths:
       responses:
         '204':
           description: Passwort geändert
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+
+  /api/me/tour:
+    put:
+      tags: [Anmeldung]
+      operationId: markMyTour
+      summary: Rundgang durch die Webanwendung beendet oder erneut zeigen (#139, seit 1.2.0)
+      description: |
+        `completed: true` merkt den Rundgang als beendet (`MeDto.tourCompletedAt` = jetzt) — „Überspringen"
+        und „Fertig" im Rundgang. `completed: false` löscht den Zeitpunkt wieder („Rundgang erneut zeigen"
+        in den Einstellungen). Am Konto, nicht im Browser: ein zweiter Rechner zeigt den Rundgang nicht
+        noch einmal. Wie `PUT /api/me/password` für `PLANNING` und `TEACHER`; ein Klassenkonto bekommt 403.
+      x-role: ANY
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TourFlag'
+            example:
+              completed: true
+      responses:
+        '204':
+          description: gemerkt
         '400':
           $ref: '#/components/responses/Validation400'
         '401':
@@ -2832,6 +2863,17 @@ components:
         teacherId:
           type: [integer, 'null']
           format: int64
+        tourCompletedAt:
+          type: [string, 'null']
+          format: date-time
+          description: seit 1.2.0 (#139) — wann der Rundgang beendet oder übersprungen wurde; `null` = noch nie
+
+    TourFlag:
+      type: object
+      description: Body von PUT /api/me/tour (#139) — true = Rundgang beendet, false = erneut zeigen.
+      required: [completed]
+      properties:
+        completed: { type: boolean }
 
     PasswordChange:
       type: object

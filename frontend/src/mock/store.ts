@@ -19,7 +19,11 @@ export interface MockTeacher {
 export interface MockClassSubject { subjectId: number; weeklyHours: number; teacherId: number }
 export interface MockClass { id: number; name: string; grade: number; active: boolean; subjects: MockClassSubject[] }
 /** classId nur bei der Rolle STUDENT (Klassenkonto, E-50) — wie user_account.class_id in V1 */
-export interface MockUser { id: number; username: string; password: string; role: Role; teacherId: number | null; classId: number | null }
+export interface MockUser {
+  id: number; username: string; password: string; role: Role; teacherId: number | null; classId: number | null
+  /** Rundgang beendet (#139); fehlt oder null = noch nie — wie `user_account.tour_completed_at` */
+  tourCompletedAt?: string | null
+}
 
 export type TimetableStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
 export interface MockLesson {

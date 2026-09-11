@@ -10,7 +10,7 @@ import {
   ApiError, type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput, type ConfigDto, type CreateUser,
   type DraftDto, type DraftSource, type EventInput, type EventQuery, type ExceptionInput, type HolidayInput,
   type HolidayPresetInput, type PasswordChange,
-  type PatchLessonInput, type RepairInput, type RoomInput, type RuleInput, type SubjectInput, type TeacherInput, type TimegridInput, type View,
+  type PatchLessonInput, type RepairInput, type RoomInput, type RuleInput, type SubjectInput, type TeacherInput, type TimegridInput, type TourFlag, type View,
 } from './types'
 
 export const queryClient = new QueryClient({
@@ -225,3 +225,6 @@ export const useSetUserPassword = () => useApiMutation((v: { id: number; body: {
 export const useChangeMyPassword = () => useApiMutation((body: PasswordChange) => api.changeMyPassword(body), () => {})
 
 export const useDeleteUser = (opts?: MutationOpts) => useApiMutation((id: number) => api.deleteUser(id), (qc) => invalidate(qc, qk.users), opts)
+
+// Rundgang (#139): danach /me neu laden — daran hängt, ob das Overlay in der Shell erscheint.
+export const useSetTour = () => useApiMutation((body: TourFlag) => api.setTour(body), (qc) => invalidate(qc, qk.me))

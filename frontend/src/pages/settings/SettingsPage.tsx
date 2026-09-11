@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { CalendarOff, Database, KeyRound, Plus, Save, School, UserRound, Users, Trash2 } from 'lucide-react'
-import { useConfig, useLoadHolidayPreset, usePutConfig, useTeachers, useUsers } from '@/api/hooks'
+import { CalendarOff, Compass, Database, KeyRound, Plus, Save, School, UserRound, Users, Trash2 } from 'lucide-react'
+import { useConfig, useLoadHolidayPreset, usePutConfig, useSetTour, useTeachers, useUsers } from '@/api/hooks'
 import type { ConfigDto } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -54,7 +54,7 @@ export function SettingsPage() {
             <TabsTrigger key={t.id} value={t.id} className="gap-1.5"><t.icon className="size-3.5" aria-hidden />{t.label}</TabsTrigger>
           ))}
         </TabsList>
-        <TabsContent value="schule"><SchoolTab /></TabsContent>
+        <TabsContent value="schule" className="space-y-4"><SchoolTab /><TourCard /></TabsContent>
         <TabsContent value="beispieldaten" className="space-y-4"><SampleDataCard /><EmptyActivePlanCard /></TabsContent>
         <TabsContent value="konten"><AccountsTab /></TabsContent>
         <TabsContent value="passwort"><PasswordTab /></TabsContent>
@@ -154,6 +154,28 @@ function SchoolForm({ config }: { config: ConfigDto }) {
         onConfirm={uebernehmen}
       />
     </form>
+  )
+}
+
+// ------------------------------------------------------------------ Rundgang
+// „Rundgang erneut zeigen" (#139): löscht tourCompletedAt am Konto (PUT /api/me/tour {completed: false});
+// die Shell lädt /me neu und blendet den Rundgang unten rechts wieder ein.
+function TourCard() {
+  const setTour = useSetTour()
+  const zeigen = async () => {
+    try {
+      await setTour.mutateAsync({ completed: false })
+      toast.success('Der Rundgang erscheint jetzt unten rechts.')
+    } catch { /* Toast aus dem Hook */ }
+  }
+  return (
+    <SectionCard
+      title="Rundgang"
+      description="Sechs Schritte von den Grunddaten bis zur Vertretung. Erscheint beim ersten Anmelden der Planung und lässt sich hier jederzeit neu starten."
+      actions={<Button variant="outline" onClick={() => void zeigen()} disabled={setTour.isPending}><Compass /> Rundgang erneut zeigen</Button>}
+    >
+      <p className="text-sm text-foreground-subtle">Der Stand ist am Konto gespeichert, nicht im Browser: an einem anderen Rechner erscheint der Rundgang nicht noch einmal.</p>
+    </SectionCard>
   )
 }
 

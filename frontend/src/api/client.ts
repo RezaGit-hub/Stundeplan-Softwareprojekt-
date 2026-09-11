@@ -81,6 +81,7 @@ export const httpApi: Api = {
   logout: () => request('DELETE', '/auth/token'),
   me: () => request('GET', '/me'),
   changeMyPassword: (body) => request('PUT', '/me/password', { body }),
+  setTour: (body) => request('PUT', '/me/tour', { body }),
 
   listUsers: () => request('GET', '/users'),
   createUser: (body) => request('POST', '/users', { body }),

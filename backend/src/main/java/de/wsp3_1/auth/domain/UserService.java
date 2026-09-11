@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -223,6 +224,26 @@ public class UserService {
         }
         tokens.deleteByUser(account);
         users.delete(account);
+    }
+
+    /** Wann das eigene Konto den Rundgang beendet hat; {@code null} = noch nicht (#139). */
+    @Transactional(readOnly = true)
+    public Instant tourCompletedAt(CurrentUser user) {
+        return users.findById(user.id())
+                .map(UserAccount::getTourCompletedAt)
+                .orElse(null);
+    }
+
+    /**
+     * Rundgang durch die Webanwendung als beendet merken ({@code completed = true}, Zeitpunkt jetzt)
+     * oder wieder freigeben ({@code false}, Spalte leer — „Rundgang erneut zeigen" in den
+     * Einstellungen). Keine Sperre wie bei den Passwoertern: hier haengt keine Sitzung dran.
+     */
+    @Transactional
+    public void markTour(CurrentUser user, boolean completed) {
+        UserAccount account = users.findById(user.id())
+                .orElseThrow(() -> new NotFoundException("Dieses Konto gibt es nicht."));
+        account.setTourCompletedAt(completed ? Instant.now() : null);
     }
 
     /** Klassennamen zu den Kennungen; leer, wenn kein Konto zu einer Klasse gehoert. */

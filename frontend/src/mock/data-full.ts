@@ -82,7 +82,8 @@ export function loadFull(s: Store = store): void {
   })
 
   s.users = [
-    { id: 1, username: 'admin', password: 'admin', role: 'PLANNING', teacherId: null, classId: null },
+    // Rundgang schon gesehen: die Demo und die Screenshots sollen ohne Overlay starten (Einstellungen → „Rundgang erneut zeigen").
+    { id: 1, username: 'admin', password: 'admin', role: 'PLANNING', teacherId: null, classId: null, tourCompletedAt: '2026-09-01T08:00:00Z' },
     ...s.teachers.map((t, i) => ({ id: 2 + i, username: t.shortName.toLowerCase(), password: t.shortName.toLowerCase(), role: 'TEACHER' as const, teacherId: t.id, classId: null })),
   ]
   s.holidays = [{ id: 1, name: 'Herbstferien', dateFrom: '2026-10-19', dateTo: '2026-10-31', kind: 'VACATION' }]

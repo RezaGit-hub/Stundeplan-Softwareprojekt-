@@ -39,8 +39,11 @@ export type WarningCode = 'SUBJECT_NOT_TAUGHT' | 'QUOTA_EXCEEDED'
 export interface HealthDto { status: string; schoolName: string }
 export interface LoginRequest { username: string; password: string }
 export interface LoginResponse { token: string; role: Role; displayName: string; teacherId: number | null }
-export interface MeDto { id: number; username: string; role: Role; displayName: string; teacherId: number | null }
+/** tourCompletedAt (seit 1.2.0, #139): wann der Rundgang beendet/übersprungen wurde; null = noch nie → Web zeigt ihn */
+export interface MeDto { id: number; username: string; role: Role; displayName: string; teacherId: number | null; tourCompletedAt: string | null }
 export interface PasswordChange { oldPassword: string; newPassword: string }
+/** Body von PUT /api/me/tour (#139): true = Rundgang beendet, false = erneut zeigen */
+export interface TourFlag { completed: boolean }
 export interface UserDto { id: number; username: string; role: Role; teacherId: number | null; classId: number | null; classShort: string | null }
 export interface CreateUser { username: string; password: string; role: Role; teacherId?: number | null; classId?: number | null }
 /** Antwortzeile von POST /users/class-accounts — das Passwort kommt genau einmal im Klartext (E-50) */
@@ -369,6 +372,8 @@ export interface Api {
   logout(): Promise<void>
   me(): Promise<MeDto>
   changeMyPassword(body: PasswordChange): Promise<void>
+  /** Rundgang beendet (true) oder erneut zeigen (false) — PUT /api/me/tour (#139) */
+  setTour(body: TourFlag): Promise<void>
 
   listUsers(): Promise<UserDto[]>
   createUser(body: CreateUser): Promise<UserDto>
