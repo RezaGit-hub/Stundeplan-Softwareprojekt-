@@ -176,6 +176,7 @@ class TimetableViewModel(
 
     // ---------------------------------------------------------------- Navigation
 
+    // DayScreen
     fun showDay(date: LocalDate) {
         val crossesWeek = PlanDates.mondayOf(date) != PlanDates.mondayOf(dayDate) || !hasWeek(date)
         dayDate = date
@@ -189,6 +190,8 @@ class TimetableViewModel(
 
     fun showToday() = showDay(today())
 
+
+    // WeekScreen
     fun showWeek() {
         _screen.value = Screen.Week(PlanDates.mondayOf(dayDate))
     }
@@ -196,6 +199,13 @@ class TimetableViewModel(
     fun nextWeek() = shiftWeek(7)
 
     fun previousWeek() = shiftWeek(-7)
+
+    fun selectWeek(date: LocalDate) {
+        val crossesWeek = PlanDates.mondayOf(date) != PlanDates.mondayOf(dayDate)
+        dayDate = date
+        _screen.value = Screen.Week(PlanDates.mondayOf(date))
+        if (crossesWeek) refresh()
+    }
 
     private fun shiftWeek(days: Long) {
         val monday = PlanDates.mondayOf(dayDate).plusDays(days)

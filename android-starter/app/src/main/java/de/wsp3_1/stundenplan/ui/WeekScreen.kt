@@ -19,6 +19,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,12 +30,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.paint
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -44,7 +49,9 @@ import de.wsp3_1.stundenplan.R
 import de.wsp3_1.stundenplan.data.EntryDto
 import de.wsp3_1.stundenplan.data.PlanDates
 import java.time.LocalDate
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.time.temporal.WeekFields
 
 private val shortDate: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.")
 
@@ -68,12 +75,26 @@ fun WeekScreen(
     onRefresh: () -> Unit,
     onEntry: (EntryDto) -> Unit,
     onSettings: () -> Unit,
+    onPickDate: (LocalDate) -> Unit,
 ) {
+    var pickerOpen by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.week_title, monday.format(shortDate))) },
-                actions = {
+                title = {
+                    Text(
+                        text = "KW ${monday.get(WeekFields.ISO.weekOfWeekBasedYear())}: ${
+                            monday.format(
+                                shortDate
+                            )
+                        } - ${monday.plusDays(4).format(shortDate)}",
+                        modifier = Modifier
+                            .clickable { pickerOpen = true }
+                            .padding(vertical = 4.dp),
+                    )
+                },
+                        actions = {
                     TextButton(onClick = { onDay(if (PlanDates.mondayOf(today) == monday) today else monday) }) {
                         Text(stringResource(R.string.week_day))
                     }
@@ -93,10 +114,9 @@ fun WeekScreen(
                 IconButton(onClick = onPrev) {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = stringResource(R.string.week_prev))
                 }
-                Text(
-                    text = "${monday.format(shortDate)} – ${monday.plusDays(4).format(shortDate)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                TextButton( onClick = { onPickDate(today) }, enabled = PlanDates.mondayOf(today) != monday) {
+                    Text(stringResource(R.string.week_today))
+                }
                 IconButton(onClick = onNext) {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = stringResource(R.string.week_next))
                 }
@@ -129,6 +149,17 @@ fun WeekScreen(
                     ErrorBlock(Message.UnreachableNoCache, onRetry = onRefresh, onSettings = onSettings)
             }
         }
+    }
+
+    if (pickerOpen) {
+        DatePickerSheet(
+            date = if (PlanDates.mondayOf(today) == monday) today else monday,
+            onDismiss = { pickerOpen = false },
+            onPick = { picked ->
+                pickerOpen = false
+                onPickDate(picked)
+            }
+        )
     }
 }
 
@@ -174,7 +205,9 @@ private fun WeekGrid(
                             fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
                             color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         )
-                        Text(text = date.format(shortDate), style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            text = date.format(shortDate),
+                            style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
@@ -222,12 +255,43 @@ private fun WeekGrid(
                             )
                         }
                         entries.forEach { entry ->
-                            EntryTile(entry = entry, onClick = { onEntry(entry) }, modifier = Modifier.fillMaxWidth())
+                            EntryTile(
+                                entry = entry,
+                                onClick = { onEntry(entry) },
+                                modifier = Modifier.fillMaxWidth())
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DatePickerSheet(date: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val millis = state.selectedDateMillis
+                    if (millis != null) {
+                        onPick(java.time.Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate())
+                    } else {
+                        onDismiss()
+                    }
+                }
+            ) { Text(stringResource(R.string.day_pick_ok)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.day_pick_cancel)) }
+        },
+    ) {
+        DatePicker(state = state, title = { Text(stringResource(R.string.day_pick_title), modifier = Modifier.padding(16.dp)) })
     }
 }
 

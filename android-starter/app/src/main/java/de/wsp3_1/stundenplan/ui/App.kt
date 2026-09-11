@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.time.LocalDate
@@ -57,6 +58,7 @@ fun App(viewModel: TimetableViewModel) {
             onEntry = viewModel::openDetail,
             onSettings = viewModel::openSettings,
             onPickDate = viewModel::showDay,
+
         )
 
         is Screen.Week -> WeekScreen(
@@ -70,6 +72,7 @@ fun App(viewModel: TimetableViewModel) {
             onRefresh = viewModel::refresh,
             onEntry = viewModel::openDetail,
             onSettings = viewModel::openSettings,
+            onPickDate = viewModel::selectWeek,
         )
 
         is Screen.Detail -> Unit // kommt nicht vor: base ist nie ein Detail

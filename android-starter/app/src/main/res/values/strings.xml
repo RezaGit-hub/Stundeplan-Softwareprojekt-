@@ -52,6 +52,7 @@
 
     <!-- Wochenansicht -->
     <string name="week_title">Woche ab %1$s</string>
+    <string name="week_today">heutige Woche</string>
     <string name="week_prev">Vorherige Woche</string>
     <string name="week_next">Nächste Woche</string>
     <string name="week_day">Tag</string>
