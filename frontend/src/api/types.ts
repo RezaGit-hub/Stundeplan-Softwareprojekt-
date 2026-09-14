@@ -358,7 +358,8 @@ export interface Api {
   /** ein Konto je aktiver Klasse ohne Konto; idempotent, Passwörter nur in dieser Antwort (E-50) */
   createClassAccounts(): Promise<ClassAccountDto[]>
   setUserPassword(id: number, body: { password: string }): Promise<void>
-
+  deleteUser(id: number): Promise<void>
+  
   listTeachers(): Promise<TeacherDto[]>
   getTeacher(id: number): Promise<TeacherDto>
   createTeacher(body: TeacherInput): Promise<TeacherDto>

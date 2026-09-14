@@ -1,15 +1,16 @@
-// Benutzerkonten: Benutzername · Kontotyp · Lehrkraft oder Klasse; Zeilenaktion „Passwort setzen“ (PUT /users/{id}/password).
-// Ein Klassenkonto (Rolle STUDENT, E-50) steht mit seiner Klasse in derselben Spalte wie die Lehrkraft — beide sagen,
-// wozu das Konto gehört, und nur eines von beiden ist je Zeile gesetzt.
+// Benutzerkonten: Benutzername · Kontotyp · Lehrkraft oder Klasse; Zeilenaktionen „Passwort setzen“ und
+// „Nutzer löschen“ (PUT/DELETE /users/{id}). Das Konto "admin" ist geschützt (Backend: 409 protected-account) —
+// wir bieten die Löschen-Aktion für dieses Konto deshalb gar nicht erst an.
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { KeyRound, UserRound } from 'lucide-react'
-import { useSetUserPassword } from '@/api/hooks'
+import { KeyRound, Trash2, UserRound } from 'lucide-react'
+import { useDeleteUser, useSetUserPassword } from '@/api/hooks'
 import type { TeacherDto, UserDto } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/states/EmptyState'
 import { DataTable } from '@/components/table/DataTable'
+import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { FormDialog } from '@/components/dialogs/FormDialog'
 import { useFieldErrors } from '@/lib/form-errors'
 import { ROLE_LABEL } from './helpers'
@@ -17,6 +18,8 @@ import { Field, RowMenu } from './shared'
 
 export function UsersTable({ users, teachers }: { users: UserDto[]; teachers: TeacherDto[] }) {
   const [target, setTarget] = useState<{ user: UserDto; key: number } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<UserDto | null>(null)
+  const deleteUser = useDeleteUser()
   const teacherById = new Map(teachers.map((t) => [t.id, t]))
   const ORDER: Record<UserDto['role'], number> = { PLANNING: 0, TEACHER: 1, STUDENT: 2 }
   const rows = [...users].sort((a, b) => (a.role === b.role ? a.username.localeCompare(b.username, 'de') : ORDER[a.role] - ORDER[b.role]))
@@ -48,12 +51,35 @@ export function UsersTable({ users, teachers }: { users: UserDto[]; teachers: Te
           },
           {
             key: 'actions', header: <span className="sr-only">Aktionen</span>, className: 'w-10 text-right',
-            cell: (u) => <RowMenu items={[{ label: 'Passwort setzen', icon: KeyRound, onClick: () => setTarget((t) => ({ user: u, key: (t?.key ?? 0) + 1 })) }]} />,
+            cell: (u) => (
+              <RowMenu
+                items={[
+                  { label: 'Passwort setzen', icon: KeyRound, onClick: () => setTarget((t) => ({ user: u, key: (t?.key ?? 0) + 1 })) },
+                  ...(u.username !== 'admin'
+                    ? [{ label: 'Nutzer löschen', icon: Trash2, destructive: true, separatorBefore: true, onClick: () => setDeleteTarget(u) }]
+                    : []),
+                ]}
+              />
+            ),
           },
         ]}
         empty={<EmptyState icon={UserRound} title="Noch keine Benutzerkonten" description="Konten für die Planung, für Lehrkräfte (nur eigener Plan, lesend) und je Klasse (nur eigener Klassenplan)." />}
       />
       {target && <SetPasswordDialog key={target.key} user={target.user} onClose={() => setTarget(null)} />}
+      <ConfirmDialog
+        open={deleteTarget != null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={`Konto "${deleteTarget?.username}" löschen?`}
+        description="Das Konto wird endgültig entfernt. Diese Aktion kann nicht rückgängig gemacht werden."
+        confirmLabel="Löschen"
+        destructive
+        onConfirm={async () => {
+          if (!deleteTarget) return
+          await deleteUser.mutateAsync(deleteTarget.id)
+          toast.success(`Konto "${deleteTarget.username}" gelöscht`)
+          setDeleteTarget(null)
+        }}
+      />
     </>
   )
 }

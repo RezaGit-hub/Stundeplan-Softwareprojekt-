@@ -23,7 +23,7 @@ const sig = (r: RuleInput) => `${r.value}|${r.severity}|${r.weight}|${r.active}`
 export function RulesTable({ rules }: { rules: RuleDto[] }) {
   const sorted = [...rules].sort((a, b) => (a.grade ?? 0) - (b.grade ?? 0) || (a.scope ?? 'Z').localeCompare(b.scope ?? 'Z') || a.id - b.id)
   return (
-    <div className="overflow-x-auto rounded-lg border bg-card">
+    <div className="overflow-x-auto overflow-y-visible rounded-lg border bg-card">
       <Table>
         <TableHeader>
           <TableRow>
