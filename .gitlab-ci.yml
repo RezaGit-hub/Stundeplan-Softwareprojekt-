@@ -243,7 +243,7 @@ deploy:vm:
   environment:
     name: vm-gruppe-5
     url: http://134.245.1.240:1500
-    before_script:
+  before_script:
     - apk add --no-cache rsync bash curl
     - |
       if [ ! -d /deploy-target ]; then
