@@ -183,6 +183,28 @@ public class UserService {
         tokens.deleteByUser(account);
     }
 
+    /**
+     * Entfernt ein Konto (Planung). Das Konto "admin" kann nicht entfernt werden, damit die Planung
+     * sich nicht selbst aus dem System aussperrt (Systemregel, kein Berechtigungsproblem — daher 409,
+     * nicht 403).
+     *
+     * <p>Bestehende Sitzungen dieses Kontos werden mitgeloescht — sonst bliebe ein altes Token trotz
+     * geloeschtem Konto gueltig.</p>
+     *
+     * @throws NotFoundException wenn es kein Konto mit dieser ID gibt
+     * @throws ConflictException {@code protected-account}, wenn versucht wird, das Konto "admin" zu loeschen
+     */
+    @Transactional
+    public void deleteAccount(Long userId) {
+        UserAccount account = users.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Dieses Konto gibt es nicht."));
+        if ("admin".equals(account.getUsername())) {
+            throw new ConflictException("protected-account", "Das Konto \"admin\" kann nicht entfernt werden.");
+        }
+        tokens.deleteByUser(account);
+        users.delete(account);
+    }
+
     /** Klassennamen zu den Kennungen; leer, wenn kein Konto zu einer Klasse gehoert. */
     private Map<Long, String> classNames(List<Long> classIds) {
         Map<Long, String> namen = new HashMap<>();

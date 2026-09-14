@@ -13,6 +13,7 @@ import tools.jackson.databind.ObjectMapper;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,6 +50,11 @@ class UserControllerIT extends IntegrationTestBase {
         return jdbc.queryForObject("""
                 INSERT INTO teacher (name, short_name, weekly_hours_quota, active)
                 VALUES ('Meyer', 'MEY-IT', 25, true) RETURNING id""", Long.class);
+    }
+
+    private long adminId() {
+        return jdbc.queryForObject(
+                "SELECT id FROM user_account WHERE username = 'admin'", Long.class);
     }
 
     @Test
@@ -322,5 +328,58 @@ class UserControllerIT extends IntegrationTestBase {
                         .content("""
                                 {"username":"admin","password":"neues-passwort"}"""))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("Das Konto admin kann nicht geloescht werden")
+    void deleteAdmin_isConflict() throws Exception {
+        String token = planungsToken();
+        long admin = adminId();
+
+        mvc.perform(delete("/api/users/" + admin)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("urn:pushnpull:problem:protected-account"));
+    }
+
+    @Test
+    @DisplayName("Ein unbekanntes Konto zu loeschen ergibt 404")
+    void deleteUnknownUser_isNotFound() throws Exception {
+        String token = planungsToken();
+
+        mvc.perform(delete("/api/users/999999")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("urn:pushnpull:problem:not-found"));
+    }
+
+    @Test
+    @DisplayName("Ein normales Konto laesst sich loeschen; danach ist sein Token wertlos")
+    void deleteAccount_removesItAndInvalidatesItsSessions() throws Exception {
+        String token = planungsToken();
+        long meyer = lehrkraftMeyer();
+
+        String angelegt = mvc.perform(post("/api/users")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            {"username":"meyer5","password":"start-passwort","role":"TEACHER","teacherId":%d}"""
+                                .formatted(meyer)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = objectMapper.readTree(angelegt).get("id").asLong();
+        String meyerToken = meyerToken("meyer5", "start-passwort");
+
+        mvc.perform(delete("/api/users/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        // Konto ist weg
+        mvc.perform(get("/api/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(jsonPath("$[?(@.username == 'meyer5')]").doesNotExist());
+
+        // seine Sitzung ist es auch
+        mvc.perform(get("/api/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + meyerToken))
+                .andExpect(status().isUnauthorized());
     }
 }
