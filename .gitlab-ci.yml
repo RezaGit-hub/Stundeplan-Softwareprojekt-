@@ -315,18 +315,23 @@ deploy:vm:
 
     # ---- 4. Pruefen --------------------------------------------------------
     # Der Job laeuft in einem Runner-Container, der nur den Docker-Socket sieht. Sein
-    # `localhost` ist nicht die VM — ein `curl localhost:$PORT` aus dem Job heraus erreicht
-    # den Stack also nicht. Die Pruefung laeuft deshalb INNERHALB des Web-Containers, wo
-    # nginx /api/ ans Backend weiterleitet. Damit ist der geprueften Pfad genau das, was
-    # ein Nutzer von aussen auch sieht.
+    # `localhost` ist NICHT die VM. Ein `curl localhost:$PORT` aus dem Job heraus erreicht
+    # den Stack also nie.
     #
-    # Frueher (bis 14.09.) stand hier ein `curl localhost:$PORT` mit dem aus Compose
-    # abgefragten Port. Das ist der Grund, warum der Job damals rot blieb, obwohl der Stack
-    # lief (Befund BETRIEB-11).
+    # Wir starten stattdessen einen kleinen curl-Container und geben ihm denselben
+    # Netzwerk-Namespace wie dem Web-Container (`--net container:<id>`). Dort ist
+    # `localhost:80` immer nginx, und /api/health wird ans Backend weitergereicht — also
+    # genau der Pfad, den ein Nutzer von aussen auch trifft.
+    #
+    # Vorherige Versuche (bis 14.09.): `curl localhost:$PORT` (falscher Host), dann
+    # `docker compose exec -T web wget` (Befehl landet nicht zuverlaessig im Container,
+    # nginx-Log zeigt kein /api/health). Befund BETRIEB-11.
     - echo "==> Health-Pruefung"
     - |
+      WEB_ID=$(docker compose ps -q web)
       for i in $(seq 1 30); do
-        if docker compose exec -T web wget -qO- http://127.0.0.1/api/health; then
+        if docker run --rm --net "container:${WEB_ID}" curlimages/curl \
+             -sf http://localhost/api/health; then
           echo
           echo "==> OK"
           exit 0
