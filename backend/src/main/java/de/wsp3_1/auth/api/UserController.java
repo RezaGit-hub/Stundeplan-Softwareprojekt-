@@ -8,12 +8,7 @@ import de.wsp3_1.auth.domain.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -62,6 +57,12 @@ public class UserController {
     @PutMapping("/api/users/{id}/password")
     public ResponseEntity<Void> setPassword(@PathVariable Long id, @Valid @RequestBody PasswordSet request) {
         userService.setPassword(id, request.password());
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/api/users/{id}")
+    public ResponseEntity<Void> deleteAccount(@PathVariable Long id) {
+        userService.deleteAccount(id);
         return ResponseEntity.noContent().build();
     }
 }

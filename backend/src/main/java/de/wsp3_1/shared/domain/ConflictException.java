@@ -7,7 +7,7 @@ import java.util.Map;
  * Der {@code slug} landet im {@code type} des ProblemDetail, die {@code extras} als zusaetzliche Felder
  * (etwa {@code missing[]} bei {@code master-data-incomplete} oder {@code conflicts[]} bei {@code pinned-contradiction}).
  * Erlaubte Slugs laut api.md: in-use, draft-exists, solving, master-data-incomplete, pinned-contradiction, data-exists,
- * exception-exists; dazu preset-missing (POST /api/holidays/preset ohne Vorlage zu Land und Schuljahr, E-51).
+ * exception-exists, protected-account; dazu preset-missing (POST /api/holidays/preset ohne Vorlage zu Land und Schuljahr, E-51).
  */
 public class ConflictException extends RuntimeException {
 
