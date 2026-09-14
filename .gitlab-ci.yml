@@ -243,10 +243,18 @@ deploy:vm:
   environment:
     name: vm-gruppe-5
     url: http://134.245.1.240:1500
-  before_script:
+    before_script:
     - apk add --no-cache rsync bash curl
-    - test -d /deploy-target || (echo "FEHLER: /deploy-target fehlt — Volume-Mount im Runner pruefen." && exit 1)
-    - docker version --format '{{.Server.Version}}' || (echo "FEHLER: kein Docker-Zugriff." && exit 1)
+    - |
+      if [ ! -d /deploy-target ]; then
+        echo "FEHLER: /deploy-target fehlt — Volume-Mount im Runner pruefen."
+        exit 1
+      fi
+    - |
+      if ! docker version > /dev/null 2>&1; then
+        echo "FEHLER: kein Docker-Zugriff auf sopro005."
+        exit 1
+      fi
   script:
     # ---- 1. Repo nach /deploy-target spiegeln --------------------------------
     # Die Ausschluesse sind dieselben wie in scripts/deploy-vm.sh: .env (Passwoerter) und
