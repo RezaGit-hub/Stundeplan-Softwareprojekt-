@@ -2792,17 +2792,6 @@ components:
         classShort: { type: string, examples: ['7a'] }
         password: { type: string, format: password, examples: [kfr7t2mqbd] }
 
-    TeacherAccountDto:
-      type: object
-      description: |
-        Eine Zeile der Antwort von POST /api/users/teacher-accounts. `password` steht hier **einmal**
-        im Klartext — der Server speichert nur den BCrypt-Hash und gibt es nie wieder heraus. Wer es
-        verliert, setzt über PUT /api/users/{id}/password ein neues.
-      required: [username, password]
-      properties:
-        username: { type: string, examples: ['alb'] }
-        password: { type: string, format: password, examples: [hg17ho1gad] }
-
     WarningDto:
       type: object
       description: Hinweis in einer 200-Antwort — nie ein Fehler
