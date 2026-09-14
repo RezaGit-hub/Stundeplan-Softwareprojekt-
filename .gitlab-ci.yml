@@ -315,23 +315,26 @@ deploy:vm:
 
     # ---- 4. Pruefen --------------------------------------------------------
     # Der Job laeuft in einem Runner-Container, der nur den Docker-Socket sieht. Sein
-    # `localhost` ist NICHT die VM. Ein `curl localhost:$PORT` aus dem Job heraus erreicht
-    # den Stack also nie.
+    # `localhost` ist NICHT die VM. Loesungen ueber `localhost` scheitern deshalb alle —
+    # egal ob per curl, wget, `docker compose exec` oder `--net container:`.
     #
-    # Wir starten stattdessen einen kleinen curl-Container und geben ihm denselben
-    # Netzwerk-Namespace wie dem Web-Container (`--net container:<id>`). Dort ist
-    # `localhost:80` immer nginx, und /api/health wird ans Backend weitergereicht — also
-    # genau der Pfad, den ein Nutzer von aussen auch trifft.
+    # Wir starten stattdessen einen curl-Container IM selben Docker-Netz wie der Stack und
+    # sprechen den Web-Service ueber seinen Compose-Service-Namen an ("web"). Die
+    # eingebaute DNS-Aufloesung des Compose-Netzes macht daraus die richtige Container-IP,
+    # und der Port ist der, auf dem nginx im Container lauscht (8080 — siehe
+    # `docker compose ps` -> `0.0.0.0:8089->8080/tcp`).
     #
-    # Vorherige Versuche (bis 14.09.): `curl localhost:$PORT` (falscher Host), dann
-    # `docker compose exec -T web wget` (Befehl landet nicht zuverlaessig im Container,
-    # nginx-Log zeigt kein /api/health). Befund BETRIEB-11.
+    # Vorherige Versuche (bis 14.09.): `curl localhost:$PORT` (falscher Host),
+    # `docker compose exec -T web wget` (nginx-Log zeigt kein /api/health),
+    # `docker run --net container:$WEB_ID` (Verbindung schlaegt fehl). Befund BETRIEB-11.
     - echo "==> Health-Pruefung"
     - |
       WEB_ID=$(docker compose ps -q web)
+      NET=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$WEB_ID")
+      echo "    Netzwerk: $NET"
       for i in $(seq 1 30); do
-        if docker run --rm --net "container:${WEB_ID}" curlimages/curl \
-             -sf http://localhost/api/health; then
+        if docker run --rm --network "$NET" curlimages/curl \
+             -sf http://web:8080/api/health; then
           echo
           echo "==> OK"
           exit 0
@@ -339,6 +342,6 @@ deploy:vm:
         sleep 1
       done
       echo "FEHLER: /api/health antwortet nach 30 s nicht."
-      docker compose logs --tail 40 backend || true
-      docker compose logs --tail 40 web || true
+      docker compose logs --tail 100 backend || true
+      docker compose logs --tail 100 web || true
       exit 1
