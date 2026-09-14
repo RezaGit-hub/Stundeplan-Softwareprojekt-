@@ -21,3 +21,7 @@ deployment/backups/
 Thumbs.db
 .idea/
 .vscode/
+sammler.py
+zentrale_sammlung.md
+frontend/zentrale_sammlung_frontend.md
+backend/zentrale_sammlung_backend.md
