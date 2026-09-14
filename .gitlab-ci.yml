@@ -218,38 +218,91 @@ image:build:
 
 # ---------------------------------------------------------------- deploy
 
+
+# ---------------------------------------------------------------- deploy
+
 # Bewusst manuell: vor dem 20.09. und waehrend der Anforderungsaenderung 21.-23.09. entscheidet ein Mensch.
-# Die Arbeit macht scripts/deploy-vm.sh — dasselbe Skript laeuft von Hand, wenn GitLab klemmt.
-# Voraussetzungen (Settings -> CI/CD -> Variables): SSH_PRIVATE_KEY (protected, Deploy-Key ohne
-# Passphrase), SSH_KNOWN_HOSTS (aus `ssh-keyscan -p 1522 134.245.1.240`). Siehe deployment/README-VM.md.
-#
-# NIE AUSGEFUEHRT. Der VM-Zugang wird erst in der ersten Woche eingerichtet (Karte T-702).
+# Der Runner laeuft auf derselben Maschine wie der Stack (sopro005 / 134.245.1.240). Der Job kopiert
+# den Stand nach /deploy-target (das ist /home/stu250483/timetable auf sopro005) und baut dort —
+# kein SSH, kein eigener deploy-Benutzer, kein Registry-Zugriff.
 deploy:vm:
   stage: deploy
-  image: alpine:3.20
+  # docker:cli statt alpine: Der Job braucht die Docker-Befehlszeile, um mit dem Daemon auf
+  # sopro005 zu sprechen. Der Socket ist ueber die Runner-Konfiguration in den Job-Container
+  # gemountet — ohne ihn gaebe es keinen Docker-Zugang.
+  image: docker:27-cli
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       when: manual
-      # Ohne allow_failure gilt ein manueller Job in `rules` als blockierend: die main-Pipeline bleibt
-      # dann auf „blocked" stehen und wird nie gruen — die Vorbedingung „Pipeline auf main gruen" aus
-      # README-VM waere nie erfuellt (Befund BETRIEB-8, 05.09.). Manuell bleibt der Job trotzdem.
+      # allow_failure: true ist Pflicht. Ohne dieses Flag gilt ein manueller Job in `rules` als
+      # blockierend: die main-Pipeline bleibt auf "blocked" und wird nie gruen.
       allow_failure: true
   variables:
-    # ABSICHTLICH LEER. Leer heisst: die VM baut selbst (`docker compose up -d --build`) — der Weg,
-    # der ohne Registry funktioniert. Sobald image:build einmal durchgelaufen ist und Abbilder in der
-    # Registry liegen, hier `$CI_REGISTRY_IMAGE` eintragen; dann holt die VM sie nur noch
-    # (`docker compose pull`) und baut gar nicht mehr. Waere der Wert schon jetzt gesetzt, suchte der
-    # erste Deploy ein Abbild, das es nicht gibt, und braeche ab.
-    REGISTRY_IMAGE: ""
-    IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+    # Der Job laeuft auf demselben Rechner wie der Stack. Der Docker-Socket ist durchgereicht.
+    DOCKER_HOST: "unix:///var/run/docker.sock"
   environment:
     name: vm-gruppe-5
     url: http://134.245.1.240:1500
   before_script:
-    - apk add --no-cache openssh-client rsync bash
-    - eval $(ssh-agent -s)
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+    - apk add --no-cache rsync bash curl
+    - test -d /deploy-target || (echo "FEHLER: /deploy-target fehlt — Volume-Mount im Runner pruefen." && exit 1)
+    - docker version --format '{{.Server.Version}}' || (echo "FEHLER: kein Docker-Zugriff." && exit 1)
   script:
-    - ./scripts/deploy-vm.sh
+    # ---- 1. Repo nach /deploy-target spiegeln --------------------------------
+    # Die Ausschluesse sind dieselben wie in scripts/deploy-vm.sh: .env (Passwoerter) und
+    # backups/ liegen nur auf der VM, nicht im Checkout, und duerfen nicht durch --delete
+    # verlorengehen. app/, docs/ und android-starter/ braucht der Stack nicht — das spart rund
+    # 130 MB pro Deploy.
+    - echo "==> Repo nach /deploy-target spiegeln"
+    - rsync -a --delete
+        --exclude .git --exclude node_modules
+        --exclude deployment/.env --exclude deployment/backups
+        --exclude app --exclude docs --exclude android-starter
+        --exclude "**/build" --exclude "**/.gradle" --exclude "**/.demo-dist"
+        ./ /deploy-target/
+
+    # ---- 2. .env anlegen oder auffuellen -------------------------------------
+    # Beim ersten Lauf existiert .env nicht — dann aus .env.example erzeugen und die beiden
+    # Geheimnisse aus den CI-Variablen eintragen. Bei spaeteren Laeufen bleibt die .env
+    # unangetastet, damit ein Passwortwechsel auf der VM erhalten bleibt.
+    - echo "==> deployment/.env vorbereiten"
+    - |
+      if [ ! -f /deploy-target/deployment/.env ]; then
+        cp /deploy-target/deployment/.env.example /deploy-target/deployment/.env
+        sed -i "s|^ADMIN_INITIAL_PASSWORD=.*|ADMIN_INITIAL_PASSWORD=${ADMIN_INITIAL_PASSWORD}|" /deploy-target/deployment/.env
+        sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=${DB_PASSWORD}|" /deploy-target/deployment/.env
+        echo "    .env neu angelegt — Passwoerter aus CI-Variablen eingetragen."
+      else
+        echo "    .env vorhanden — unveraendert gelassen."
+      fi
+
+    # ---- 3. Stack neu bauen und starten --------------------------------------
+    # Nacheinander statt `up -d --build`: BuildKit baut sonst Backend und Frontend gleichzeitig,
+    # waehrend der alte Stack mit 512 + 1536 MB weiterlaeuft — auf einer 4-GB-VM der
+    # wahrscheinlichste Grund fuer einen abgebrochenen Deploy.
+    - echo "==> Backend bauen"
+    - cd /deploy-target/deployment && docker compose build backend
+    - echo "==> Frontend bauen"
+    - docker compose build web
+    - echo "==> Stack starten"
+    - docker compose up -d
+    - docker compose ps
+
+    # ---- 4. Pruefen --------------------------------------------------------
+    # Den veroeffentlichten Port fragt Compose selbst ab (WEB_PORT aus der .env der VM). Fest
+    # verdrahtete 8080 hiessen: steht dort etwas anderes, endet der Job rot, obwohl der Stack
+    # laeuft.
+    - echo "==> Health-Pruefung"
+    - |
+      PORT=$(docker compose port web 8080 | cut -d: -f2)
+      for i in $(seq 1 30); do
+        if curl -sf "http://localhost:${PORT}/api/health"; then
+          echo
+          echo "==> OK"
+          exit 0
+        fi
+        sleep 1
+      done
+      echo "FEHLER: /api/health antwortet nach 30 s nicht."
+      docker compose logs --tail 40 backend || true
+      exit 1
