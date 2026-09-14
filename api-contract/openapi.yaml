@@ -355,6 +355,27 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
 
+  /api/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    delete:
+      tags: [Konten]
+      operationId: deleteUserAccount
+      summary: Löschen eines Kontos
+      description: Die Planung kann ein Konto entfernen. Das "admin" Konto kann nicht entfernt werden.
+      x-role: PLANNING
+      responses:
+        '204':
+          description: Konto gelöscht.
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/ProtectedAccount409'
+
   /api/teachers:
     get:
       tags: [Lehrkräfte]
@@ -2586,7 +2607,17 @@ components:
             title: Konflikt
             status: 409
             detail: 'Fuer SH und das Schuljahr 2030/31 gibt es keine Vorlage. Vorhanden: 2026/27, 2027/28.'
-
+    ProtectedAccount409:
+      description: Das Konto "admin" kann nicht entfernt werden.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: urn:pushnpull:problem:protected-account
+            title: Konflikt
+            status: 409
+            detail: Das Konto "admin" kann nicht entfernt werden.
     Solving409:
       description: Der Entwurf wird gerade berechnet; erst abwarten oder abbrechen (DELETE /api/draft/solve).
       content:
