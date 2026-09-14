@@ -36,6 +36,8 @@
     <string name="login_required">Bitte anmelden, um den eigenen Plan zu sehen.</string>
     <string name="logged_in_as">Angemeldet als %1$s</string>
     <string name="logout">Abmelden</string>
+    <string name="show_password">Passwort anzeigen</string>
+    <string name="hide_password">Passwort verstecken</string>
 
     <!-- Tagesansicht (A-1, T-A1.1) -->
     <string name="day_today">Heute</string>
