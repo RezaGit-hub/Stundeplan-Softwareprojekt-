@@ -24,7 +24,7 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, empty, animate
   if (rows.length === 0) return <>{empty}</>
   const Row = animate ? motion.tr : 'tr'
   return (
-    <div className={cn('overflow-x-auto rounded-lg border bg-card', className)}>
+    <div className={cn('overflow-x-auto overflow-y-visible rounded-lg border bg-card', className)}>
       <Table>
         <TableHeader>
           <TableRow>

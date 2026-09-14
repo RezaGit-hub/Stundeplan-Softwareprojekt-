@@ -325,6 +325,14 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       u.password = body.password
     },
 
+    async deleteUser(id) {
+      await planning()
+      const u = s.users.find((x) => x.id === id)
+      if (!u) throw notFound(`Konto ${id} nicht gefunden`)
+      if (u.username === 'admin') throw conflict409('protected-account', 'Konto geschützt', 'Das Konto "admin" kann nicht entfernt werden.')
+      s.users = s.users.filter((x) => x.id !== id)
+    },
+
     // ---------------- Lehrkräfte
     async listTeachers() { await planning(); return s.teachers.map((t) => teacherDto(t, s)) },
     async getTeacher(id) {

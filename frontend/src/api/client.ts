@@ -86,6 +86,7 @@ export const httpApi: Api = {
   createUser: (body) => request('POST', '/users', { body }),
   createClassAccounts: () => request('POST', '/users/class-accounts', { body: {} }),
   setUserPassword: (id, body) => request('PUT', `/users/${id}/password`, { body }),
+deleteUser: (id) => request('DELETE', `/users/${id}`),
 
   listTeachers: () => request('GET', '/teachers'),
   getTeacher: (id) => request('GET', `/teachers/${id}`),

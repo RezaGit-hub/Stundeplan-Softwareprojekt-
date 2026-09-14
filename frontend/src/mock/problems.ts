@@ -12,7 +12,7 @@ export function notFound(detail: string): ApiError {
 }
 
 export function conflict409(
-  suffix: 'in-use' | 'draft-exists' | 'solving' | 'master-data-incomplete' | 'pinned-contradiction' | 'data-exists' | 'exception-exists' | 'preset-missing',
+  suffix: 'in-use' | 'draft-exists' | 'solving' | 'master-data-incomplete' | 'pinned-contradiction' | 'data-exists' | 'exception-exists' | 'preset-missing' | 'protected-account',
   title: string,
   detail: string,
   extra?: { missing?: string[]; conflicts?: ConflictDto[] },
