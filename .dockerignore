@@ -10,7 +10,7 @@
 .agent-out
 demo
 # Abgabe-APK (33 MB), Abnahmeunterlagen und die Android-Quellen gehoeren in keinen Web-Build (BETRIEB-7).
-app
+/app
 docs
 android-starter
 deployment/.env
