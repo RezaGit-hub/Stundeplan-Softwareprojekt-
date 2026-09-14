@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+import android.util.Log
+
 /**
  * Das eine ViewModel der App (backbone/android.md). Haelt drei Zustaende: den Bildschirm
  * ([Screen]), den Datenzustand ([UiState]) und das Formular der Einstellungen ([SettingsUiState]).
@@ -316,7 +318,13 @@ class TimetableViewModel(
     }
 
     fun onUsernameChange(value: String) {
-        _settingsState.update { it.copy(username = value, loginError = null) }
+        Log.d("LOGIN", "Username: $value")
+        _settingsState.update {
+            it.copy(
+                username = value,
+                loginError = null
+            )
+        }
     }
 
     fun onPasswordChange(value: String) {
