@@ -15,6 +15,7 @@ import { PageSkeleton } from '@/components/states/PageSkeleton'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { FormDialog } from '@/components/dialogs/FormDialog'
 import { RulesTable, SeveritySwitch } from '@/components/masterdata/RulesTable'
+import { RulesMatrix } from '@/components/masterdata/RulesMatrix'
 import { RULE_TYPE_LABEL, STATE_LABEL } from '@/components/masterdata/helpers'
 import { Field } from '@/components/masterdata/shared'
 import { useFieldErrors } from '@/lib/form-errors'
@@ -55,7 +56,10 @@ export function RulesPage() {
           action={<Button onClick={() => setConfirmReset(true)}><RotateCcw /> Beispielsatz {stateName} laden</Button>}
         />
       ) : (
-        <RulesTable rules={rules.data} />
+        <>
+          <RulesMatrix rules={rules.data} />
+          <RulesTable rules={rules.data} />
+        </>  
       )}
 
       <p className="mt-4 flex items-start gap-2 text-xs text-foreground-subtle">
