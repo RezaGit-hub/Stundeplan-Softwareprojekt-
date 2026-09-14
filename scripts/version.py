@@ -4,7 +4,7 @@
 Aufruf aus dem Repo-Wurzelverzeichnis:
     python scripts/version.py            # aktuelle Version anzeigen
     python scripts/version.py next       # naechste Version vorschlagen
-    python scripts/version.py release    # Release anlegen (fragt nach Version)
+    python scripts/version.py release    # Release anlegen (fragt nach Version, pusht)
 
 Das Skript wechselt selbst ins Repo-Wurzelverzeichnis, egal von wo es
 aufgerufen wird.
@@ -77,6 +77,15 @@ def run(*args: str) -> None:
     subprocess.run(args, cwd=ROOT, check=True)
 
 
+def current_branch() -> str:
+    """Name des aktuell ausgecheckten Branches."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    return result.stdout.strip()
+
+
 def cmd_show() -> None:
     print(current_version())
 
@@ -93,21 +102,44 @@ def cmd_release() -> None:
         print("Abgebrochen. Nichts geaendert.")
         return
 
+    branch = current_branch()
+
     print()
-    answer = input(f"Release v{new} anlegen? [j/N] ").strip().lower()
+    print("Geplant:")
+    print(f"  Branch:   {branch}")
+    print(f"  Version:  {new}  (Tag: v{new})")
+    print()
+
+    answer = input(f"Release v{new} anlegen und pushen? [j/N] ").strip().lower()
     if answer not in ("j", "ja", "y", "yes"):
         print("Abgebrochen. Nichts geaendert.")
         return
 
+    # 1. VERSION-Datei schreiben
     VERSION_FILE.write_text(new + "\n")
+
+    # 2. Commit und Tag anlegen
     run("git", "add", "VERSION")
     run("git", "commit", "-m", f"Release {new}")
     run("git", "tag", "-a", f"v{new}", "-m", f"Release {new}")
 
+    # 3. Branch pushen
     print()
-    print("Fertig. Jetzt pushen mit:")
-    print("  git push")
-    print(f"  git push origin v{new}")
+    print(f"Pushe {branch} nach origin …")
+    run("git", "push", "origin", branch)
+
+    # 4. Tag pushen — erst danach startet die Tag-Pipeline in GitLab.
+    print()
+    print(f"Pushe Tag v{new} nach origin …")
+    run("git", "push", "origin", f"v{new}")
+
+    print()
+    print("Fertig.")
+    print()
+    print("Naechster Schritt in GitLab:")
+    print("  CI/CD -> Pipelines -> Filter auf 'Tag' stellen.")
+    print(f"  Die Tag-Pipeline v{new} laeuft jetzt automatisch durch.")
+    print("  Der Deploy-Job startet von selbst, sobald die Tests gruen sind.")
 
 
 def main() -> None:
