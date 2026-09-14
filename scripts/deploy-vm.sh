@@ -56,7 +56,7 @@ RSYNC=(rsync -az --delete -e "ssh -p $VM_PORT"
        --exclude deployment/.env --exclude deployment/backups
        # Nichts uebertragen, was auf der VM niemand braucht (BETRIEB-7): das 33-MB-APK, die
        # Abnahme-Bildschirmfotos, die Android-Quellen und lokale Baustaende — zusammen rund 130 MB.
-       --exclude app --exclude docs --exclude android-starter
+       --exclude /app --exclude /docs --exclude /android-starter
        --exclude "**/build" --exclude "**/.gradle" --exclude "**/.demo-dist"
        ./ "$VM_USER@$VM_HOST:$VM_PATH/")
 

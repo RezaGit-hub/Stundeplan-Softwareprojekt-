@@ -154,7 +154,9 @@ runner:check:
     DOCKER_TLS_VERIFY: "1"
     DOCKER_CERT_PATH: "/certs/client"
   rules:
-    - when: manual
+    # Stillgelegt am 14.09.: Frage Q-B-09 / Karte T-703 ist beantwortet — der Runner
+    # kann kein Docker-in-Docker. Erkenntnisse siehe 07-Konzept/workflows/lernnotizen.md.
+    - when: never
   allow_failure: true
   script:
     - echo "--- docker ---"; docker info || echo "KEIN Docker-in-Docker in diesem Runner."
@@ -197,9 +199,14 @@ image:build:
     REGISTRY_IMAGE: "$CI_REGISTRY_IMAGE"
     IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
   rules:
+    # Stillgelegt am 14.09.: Der Runner ist nicht privilegiert (siehe
+    # `docker inspect 1c34e7b5fbf2` -> Privileged=false), DinD kann hier nicht laufen.
+    # Deploy laeuft ueber deploy:vm, das auf der VM selbst baut. Wenn der Runner
+    # spaeter privilegiert wird, die erste Regel wieder aktivieren.
     - if: '$CI_COMMIT_BRANCH == "main"'
       when: manual
       allow_failure: true
+    - when: never
   before_script:
     # Manche docker-Images bringen das compose-Plugin nicht mit.
     - docker compose version || apk add --no-cache docker-cli-compose
@@ -262,10 +269,10 @@ deploy:vm:
     # verlorengehen. app/, docs/ und android-starter/ braucht der Stack nicht — das spart rund
     # 130 MB pro Deploy.
     - echo "==> Repo nach /deploy-target spiegeln"
-    - rsync -a --delete
+      - rsync -a --delete
         --exclude .git --exclude node_modules
         --exclude deployment/.env --exclude deployment/backups
-        --exclude app --exclude docs --exclude android-starter
+        --exclude /app --exclude /docs --exclude /android-starter
         --exclude "**/build" --exclude "**/.gradle" --exclude "**/.demo-dist"
         ./ /deploy-target/
 
