@@ -314,14 +314,19 @@ deploy:vm:
     - docker compose ps
 
     # ---- 4. Pruefen --------------------------------------------------------
-    # Den veroeffentlichten Port fragt Compose selbst ab (WEB_PORT aus der .env der VM). Fest
-    # verdrahtete 8080 hiessen: steht dort etwas anderes, endet der Job rot, obwohl der Stack
-    # laeuft.
+    # Der Job laeuft in einem Runner-Container, der nur den Docker-Socket sieht. Sein
+    # `localhost` ist nicht die VM — ein `curl localhost:$PORT` aus dem Job heraus erreicht
+    # den Stack also nicht. Die Pruefung laeuft deshalb INNERHALB des Web-Containers, wo
+    # nginx /api/ ans Backend weiterleitet. Damit ist der geprueften Pfad genau das, was
+    # ein Nutzer von aussen auch sieht.
+    #
+    # Frueher (bis 14.09.) stand hier ein `curl localhost:$PORT` mit dem aus Compose
+    # abgefragten Port. Das ist der Grund, warum der Job damals rot blieb, obwohl der Stack
+    # lief (Befund BETRIEB-11).
     - echo "==> Health-Pruefung"
     - |
-      PORT=$(docker compose port web 8080 | cut -d: -f2)
       for i in $(seq 1 30); do
-        if curl -sf "http://localhost:${PORT}/api/health"; then
+        if docker compose exec -T web wget -qO- http://127.0.0.1/api/health; then
           echo
           echo "==> OK"
           exit 0
@@ -330,4 +335,5 @@ deploy:vm:
       done
       echo "FEHLER: /api/health antwortet nach 30 s nicht."
       docker compose logs --tail 40 backend || true
+      docker compose logs --tail 40 web || true
       exit 1
