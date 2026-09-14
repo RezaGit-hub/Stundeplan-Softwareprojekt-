@@ -201,11 +201,15 @@ image:build:
   rules:
     # Stillgelegt am 14.09.: Der Runner ist nicht privilegiert (siehe
     # `docker inspect 1c34e7b5fbf2` -> Privileged=false), DinD kann hier nicht laufen.
-    # Deploy laeuft ueber deploy:vm, das auf der VM selbst baut. Wenn der Runner
-    # spaeter privilegiert wird, die erste Regel wieder aktivieren.
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual
-      allow_failure: true
+    # Deploy laeuft ueber deploy:vm, das auf der VM selbst baut.
+    #
+    # Zum Reaktivieren (falls der Runner spaeter privilegiert wird) die drei Zeilen unten
+    # einkommentieren. Wichtig: die erste passende Regel gewinnt — solange `when: never`
+    # als einzige Regel dasteht, erscheint der Job gar nicht erst in der Pipeline.
+    #
+    # - if: '$CI_COMMIT_BRANCH == "main"'
+    #   when: manual
+    #   allow_failure: true
     - when: never
   before_script:
     # Manche docker-Images bringen das compose-Plugin nicht mit.
@@ -222,9 +226,6 @@ image:build:
     - docker tag "$REGISTRY_IMAGE/web:$IMAGE_TAG" "$REGISTRY_IMAGE/web:latest"
     - docker push "$REGISTRY_IMAGE/backend:latest"
     - docker push "$REGISTRY_IMAGE/web:latest"
-
-# ---------------------------------------------------------------- deploy
-
 
 # ---------------------------------------------------------------- deploy
 
@@ -268,12 +269,21 @@ deploy:vm:
     # backups/ liegen nur auf der VM, nicht im Checkout, und duerfen nicht durch --delete
     # verlorengehen. app/, docs/ und android-starter/ braucht der Stack nicht — das spart rund
     # 130 MB pro Deploy.
+    #
+    # Wichtig: die Ausschluesse haben einen fuehrenden Slash (/app, /docs, /android-starter).
+    # Ohne ihn trifft rsync JEDES Verzeichnis dieses Namens auf jeder Ebene — also auch
+    # frontend/src/app/, das der Web-Build zwingend braucht (TS2307, behoben 14.09.).
+    #
+    # Der rsync-Befehl steht in einem `|`-Block mit Backslash-Fortsetzung. Das ist robuster
+    # als ein YAML-Plain-Scalar ueber mehrere Zeilen: eine verrutschte Einrueckung hatte am
+    # 14.09. dafuer gesorgt, dass `rsync` als Argument von `echo` landete und gar nicht lief.
     - echo "==> Repo nach /deploy-target spiegeln"
-      - rsync -a --delete
-        --exclude .git --exclude node_modules
-        --exclude deployment/.env --exclude deployment/backups
-        --exclude /app --exclude /docs --exclude /android-starter
-        --exclude "**/build" --exclude "**/.gradle" --exclude "**/.demo-dist"
+    - |
+      rsync -a --delete \
+        --exclude .git --exclude node_modules \
+        --exclude deployment/.env --exclude deployment/backups \
+        --exclude /app --exclude /docs --exclude /android-starter \
+        --exclude "**/build" --exclude "**/.gradle" --exclude "**/.demo-dist" \
         ./ /deploy-target/
 
     # ---- 2. .env anlegen oder auffuellen -------------------------------------
