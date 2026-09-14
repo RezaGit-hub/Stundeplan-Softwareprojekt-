@@ -240,10 +240,17 @@ deploy:vm:
   # gemountet — ohne ihn gaebe es keinen Docker-Zugang.
   image: docker:27-cli
   rules:
+    # Automatischer Deploy bei Versions-Tags nach dem Muster vX.Y.Z
+    # (v1.0.0, v0.0.36, v2.3.14). Der Regex ist mit $ verankert, also matchen
+    # Pre-Release-Tags wie v1.0.0-rc1 NICHT — die bleiben ohne Deploy.
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+      when: on_success
+
+    # Notausgang: auf main weiterhin manuell deploybar.
+    # allow_failure: true ist Pflicht. Ohne dieses Flag gilt ein manueller Job in
+    # `rules` als blockierend: die main-Pipeline bliebe auf "blocked".
     - if: '$CI_COMMIT_BRANCH == "main"'
       when: manual
-      # allow_failure: true ist Pflicht. Ohne dieses Flag gilt ein manueller Job in `rules` als
-      # blockierend: die main-Pipeline bleibt auf "blocked" und wird nie gruen.
       allow_failure: true
   variables:
     # Der Job laeuft auf demselben Rechner wie der Stack. Der Docker-Socket ist durchgereicht.
