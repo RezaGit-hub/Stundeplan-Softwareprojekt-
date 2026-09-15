@@ -19,6 +19,7 @@ import { SampleDataCard } from '@/components/masterdata/SampleDataCard'
 import { ClassAccountsDialog } from '@/components/masterdata/ClassAccountsDialog'
 import { UserDialog } from '@/components/masterdata/UserDialog'
 import { UsersTable } from '@/components/masterdata/UsersTable'
+import { TeacherAccountsDialog } from '@/components/masterdata/TeacherAccountsDialog'
 import { DataDeletionTab } from '@/components/masterdata/DataDeletionTab'
 import { presetToast, SCHOOL_TYPE_LABEL, STATE_LABEL } from '@/components/masterdata/helpers'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
@@ -164,6 +165,8 @@ function AccountsTab() {
   const [key, setKey] = useState(0)
   const [classOpen, setClassOpen] = useState(false)
   const [classKey, setClassKey] = useState(0)
+  const [teacherOpen, setTeacherOpen] = useState(false)
+  const [teacherKey, setTeacherKey] = useState(0)
   if (users.isPending || teachers.isPending) return <PageSkeleton />
   if (users.isError) return <ErrorState problem={users.error} retry={() => void users.refetch()} />
   if (teachers.isError) return <ErrorState problem={teachers.error} retry={() => void teachers.refetch()} />
@@ -178,6 +181,7 @@ function AccountsTab() {
         <div className="flex flex-wrap gap-2">
           {/* Der Massenweg für die Schülersicht (E-50); der Dialog zeigt die Passwörter genau einmal. */}
           <Button variant="outline" onClick={() => { setClassKey((k) => k + 1); setClassOpen(true) }}><Users /> Konten für alle Klassen anlegen</Button>
+          <Button variant="outline" onClick={() => { setTeacherKey((k) => k + 1); setTeacherOpen(true) }}><Users /> Konten für alle Lehrkräfte anlegen</Button>
           <Button onClick={() => { setKey((k) => k + 1); setOpen(true) }}><Plus /> Neues Konto</Button>
         </div>
       }
@@ -185,6 +189,7 @@ function AccountsTab() {
       <UsersTable users={users.data} teachers={teachers.data} />
       <UserDialog key={key} open={open} onOpenChange={setOpen} users={users.data} teachers={teachers.data} />
       <ClassAccountsDialog key={classKey} open={classOpen} onOpenChange={setClassOpen} />
+      <TeacherAccountsDialog key={teacherKey} open={teacherOpen} onOpenChange={setTeacherOpen} />
     </SectionCard>
   )
 }

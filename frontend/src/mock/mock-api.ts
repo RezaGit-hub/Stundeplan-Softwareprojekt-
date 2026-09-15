@@ -1,7 +1,7 @@
 // Die Attrappe: implementiert Api vollständig gegen den In-Memory-Store, mit Kunstlatenz und Rollenprüfung
 // wie die Pfadregeln in api.md. Fachlogik in ./logic/*. Wo Mock und Backend abweichen, gewinnt das Backend.
 import type {
-  Api, ClassAccountDto, ClassDto, ClassSubjectInput, ConfigDto, CreateUser, DayDto, DraftDto, EntryDto, EventDto,
+  Api, ClassAccountDto, TeacherAccountDto, ClassDto, ClassSubjectInput, ConfigDto, CreateUser, DayDto, DraftDto, EntryDto, EventDto,
   EventInput, ExceptionDto, FieldErrorDto, LessonDto, PendingRow, RoomInput, RuleInput, SubjectInput, TeacherDto,
   TeacherInput, TimegridInput, TimetableDto, UserDto, WeekDto, ClassInput, HolidayInput, HolidayPresetInput,
 } from '@/api/types'
@@ -317,6 +317,22 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       }
       return angelegt
     },
+
+    // Ein Konto je aktiver Lehrkraft ohne Konto (analog E-50); idempotent, Passwörter nur in dieser Antwort.
+    async createTeacherAccounts(): Promise<TeacherAccountDto[]> {
+      await planning()
+      const angelegt: TeacherAccountDto[] = []
+      for (const t of s.teachers) {
+        if (!t.active || s.users.some((u) => u.teacherId === t.id)) continue
+        const username = t.shortName.trim().toLowerCase()
+        if (!username || s.users.some((u) => u.username === username)) continue
+        const password = generatedPassword()
+        s.users.push({ id: nextId(), username, password, role: 'TEACHER', teacherId: t.id, classId: null })
+        angelegt.push({ username, teacherName: t.name, teacherShort: t.shortName, password })
+      }
+      return angelegt
+    },
+
     async setUserPassword(id, body) {
       await planning()
       const u = s.users.find((x) => x.id === id)

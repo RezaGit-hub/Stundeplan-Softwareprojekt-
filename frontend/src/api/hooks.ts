@@ -216,6 +216,7 @@ export const useLoadHolidayPreset = () => useApiMutation((body: HolidayPresetInp
 // Konten
 export const useCreateUser = () => useApiMutation((body: CreateUser) => api.createUser(body), (qc) => invalidate(qc, qk.users))
 export const useCreateClassAccounts = () => useApiMutation(() => api.createClassAccounts(), (qc) => invalidate(qc, qk.users))
+export const useCreateTeacherAccounts = () => useApiMutation(() => api.createTeacherAccounts(), (qc) => invalidate(qc, qk.users))
 export const useSetUserPassword = () => useApiMutation((v: { id: number; body: { password: string } }) => api.setUserPassword(v.id, v.body), () => {})
 export const useChangeMyPassword = () => useApiMutation((body: PasswordChange) => api.changeMyPassword(body), () => {})
 
