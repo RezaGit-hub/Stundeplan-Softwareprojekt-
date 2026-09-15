@@ -76,7 +76,7 @@ export function TransferButtons({ scope }: { scope: TransferScope }) {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" disabled={exportMut.isPending || importMut.isPending}>
-            <HardDriveDownload data-icon="inline-start" /> {label.plural} sichern
+            <HardDriveDownload data-icon="inline-start" /> Import/Export {/**{label.plural} sichern */}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-80">
