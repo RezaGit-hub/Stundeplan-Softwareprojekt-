@@ -2834,7 +2834,7 @@ components:
         Eine Zeile der Antwort von POST /api/users/teacher-accounts. `password` steht hier **einmal**
         im Klartext — der Server speichert nur den BCrypt-Hash und gibt es nie wieder heraus. Wer es
         verliert, setzt über PUT /api/users/{id}/password ein neues.
-      required: [username, teacherShort, password]
+      required: [username, teacherName, teacherShort, password]
       properties:
         username: { type: string, examples: ['alb'] }
         teacherName: { type: string, examples: ['Albrecht'] }
