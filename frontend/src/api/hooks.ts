@@ -2,7 +2,7 @@
 // Kein Zustand außerhalb von Query + URL + lokalem useState. Fehler-Toasts kommen aus dem onError jeder Mutation (errors.ts);
 // 400-Feldfehler fängt die Seite mit useFieldErrors().handle(err) im catch. Fehler, die die Seite selbst darstellt
 // (409 in-use als Dialog, 409 data-exists als Rückfrage), schaltet sie mit { quiet: (err) => boolean } stumm.
-import { QueryClient, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query'
+import { QueryClient, useMutation, useQuery, useQueryClient, type QueryKey, type UseMutationResult } from '@tanstack/react-query'
 import { api } from './api'
 import { qk } from './query-keys'
 import { toastProblem } from './errors'
@@ -221,9 +221,14 @@ export const useCreateClassAccounts = () => useApiMutation(() => api.createClass
 export const useSetUserPassword = () => useApiMutation((v: { id: number; body: { password: string } }) => api.setUserPassword(v.id, v.body), () => {})
 export const useChangeMyPassword = () => useApiMutation((body: PasswordChange) => api.changeMyPassword(body), () => {})
 
-export const useExportMasterData = () =>
-  useApiMutation(() => api.exportMasterData(), () => {})
+export function useExportMasterData(): UseMutationResult<MasterDataExport, Error, void> {
+  return useApiMutation(() => api.exportMasterData(), () => {})
+}
 
-export const useImportMasterData = (opts?: MutationOpts) =>
-  useApiMutation((body: MasterDataImport) => api.importMasterData(body),
-    (qc) => void qc.invalidateQueries(), opts)
+export function useImportMasterData(opts?: MutationOpts): UseMutationResult<MasterDataImportResult, Error, MasterDataImport> {
+  return useApiMutation(
+    (body: MasterDataImport) => api.importMasterData(body),
+    (qc) => void qc.invalidateQueries(),
+    opts,
+  )
+}
