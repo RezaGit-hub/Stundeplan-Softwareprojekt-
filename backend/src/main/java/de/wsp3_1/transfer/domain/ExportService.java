@@ -22,6 +22,7 @@ import de.wsp3_1.transfer.api.TransferDtos.SectionRefs;
 import de.wsp3_1.transfer.api.TransferDtos.SubjectRef;
 import de.wsp3_1.transfer.api.TransferDtos.TeacherRef;
 import de.wsp3_1.transfer.api.TransferDtos.TimeslotRef;
+import de.wsp3_1.masterdata.MasterdataDtos.ClassDto;
 
 import java.util.HashSet;
 import java.util.List;
@@ -114,31 +115,31 @@ public class ExportService {
     }
 
     private MasterDataSection teachersSection(Instant now) {
-        List<TeacherDto> teachers = teachers.list();
+        List<TeacherDto> teacherRows = teachers.list();
         Set<Long> subjectIds = new HashSet<>();
         Set<Long> slotIds = new HashSet<>();
-        for (TeacherDto t : teachers) {
+        for (TeacherDto t : teacherRows) {
             subjectIds.addAll(t.subjectIds());
             slotIds.addAll(t.preferredTimeslotIds());
             slotIds.addAll(t.blockedTimeslotIds());
         }
         return new MasterDataSection(VERSION_2, "teachers", now,
-                null, teachers, null, null, null, null, null,
+                null, teacherRows, null, null, null, null, null,
                 new SectionRefs(subjectRefs(subjectIds), null, timeslotRefs(slotIds)));
     }
 
     private MasterDataSection classesSection(Instant now) {
-        List<ClassDto> classes = classes.list();
+        List<ClassDto> classRows = classes.list();
         Set<Long> subjectIds = new HashSet<>();
         Set<Long> teacherIds = new HashSet<>();
-        for (ClassDto c : classes) {
+        for (ClassDto c : classRows) {
             for (ClassSubjectDto row : c.subjects()) {
                 subjectIds.add(row.subjectId());
                 teacherIds.add(row.teacherId());
             }
         }
         return new MasterDataSection(VERSION_2, "classes", now,
-                null, null, null, classes, null, null, null,
+                null, null, null, classRows, null, null, null,
                 new SectionRefs(subjectRefs(subjectIds), teacherRefs(teacherIds), null));
     }
 

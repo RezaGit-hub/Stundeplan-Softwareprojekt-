@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import de.wsp3_1.transfer.api.TransferDtos.MasterDataSection;
 import de.wsp3_1.transfer.api.TransferDtos.SectionImportResult;
 import org.springframework.web.bind.annotation.PathVariable;
+import de.wsp3_1.shared.domain.ValidationException;
 /**
  * Sicherung der Grunddaten: {@code /api/masterdata/export} und {@code /api/masterdata/import}.
  *

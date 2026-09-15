@@ -1069,8 +1069,8 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       await planning()
       if (body.version !== '2') throw validation([{ field: 'version', message: 'wird nicht unterstützt (erwartet 2)' }])
       const fehler: FieldErrorDto[] = []
-      const resolve = (refs: { id: number; shortName?: string; day?: string; position?: number }[] | null | undefined,
-                       lookup: (r: any) => number | null): Map<number, number> => {
+      type Ref = { id: number; shortName?: string; day?: string; position?: number }
+      const resolve = (refs: Ref[] | null | undefined, lookup: (r: Ref) => number | null): Map<number, number> => {
         const map = new Map<number, number>()
         for (const r of refs ?? []) {
           const neu = lookup(r)
@@ -1104,7 +1104,7 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
           if (!alt) { s.holidays.push({ ...x, id: nextId() }); created++ }
         }
       } else if (body.scope === 'teachers') {
-        const subjMap = resolve(body.refs?.subjects, (r) => s.subjects.find((y) => y.shortName.toLowerCase() === r.shortName.toLowerCase())?.id ?? null)
+        const subjMap = resolve(body.refs?.subjects, (r) => s.subjects.find((y) => y.shortName.toLowerCase() === r.shortName!.toLowerCase())?.id ?? null)
         const slotMap = resolve(body.refs?.timeslots, (r) => s.timeslots.find((y) => y.day === r.day && y.position === r.position)?.id ?? null)
         for (let i = 0; i < (body.teachers ?? []).length; i++) {
           const t = body.teachers![i]
@@ -1118,8 +1118,8 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
           else { s.teachers.push({ id: nextId(), name: t.name, shortName: t.shortName, weeklyHoursQuota: t.weeklyHoursQuota, subjectIds: subjectIds as number[], preferredTimeslotIds: preferred as number[], blockedTimeslotIds: blocked as number[], active: t.active }); created++ }
         }
       } else if (body.scope === 'classes') {
-        const subjMap = resolve(body.refs?.subjects, (r) => s.subjects.find((y) => y.shortName.toLowerCase() === r.shortName.toLowerCase())?.id ?? null)
-        const teachMap = resolve(body.refs?.teachers, (r) => s.teachers.find((y) => y.shortName.toUpperCase() === r.shortName.toUpperCase())?.id ?? null)
+        const subjMap = resolve(body.refs?.subjects, (r) => s.subjects.find((y) => y.shortName.toLowerCase() === r.shortName!.toLowerCase())?.id ?? null)
+        const teachMap = resolve(body.refs?.teachers, (r) => s.teachers.find((y) => y.shortName.toUpperCase() === r.shortName!.toUpperCase())?.id ?? null)
         for (const c of body.classes ?? []) {
           const subjects = c.subjects.map((row) => ({
             subjectId: subjMap.get(row.subjectId)!, weeklyHours: row.weeklyHours, teacherId: teachMap.get(row.teacherId)!,
