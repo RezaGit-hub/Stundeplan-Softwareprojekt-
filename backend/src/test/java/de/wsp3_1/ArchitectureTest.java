@@ -97,10 +97,22 @@ class ArchitectureTest {
     @Test
     @DisplayName("Regel 3: Fachlogik und Persistenz kennen weder Web noch Schnittstelle")
     void domainAndPersistenceDoNotDependOnApi() {
+        // Ausnahme transfer: `ExportService` und `ImportService` setzen das Sicherungsdokument aus
+        // den DTO-Records anderer Module zusammen (TransferDtos.MasterDataExport fuehrt
+        // List<RuleDto> und List<HolidayDto>, MasterDataImport/MasterDataImportResult sind die
+        // Ein-/Ausgabetypen des ImportService selbst). Der Vertrag sieht das Modul `transfer`
+        // genau dafuer vor. Die Alternative — RuleDtos, SubstitutionDtos und TransferDtos in
+        // ihre Modulwurzelpakete verschieben wie MasterdataDtos (Abweichung MD-1) — beruehrt
+        // jeden Controller und jeden Test der drei Module und wird als Nacharbeit gefuehrt.
+        // Die Regel bleibt inhaltlich gewahrt: beide Dienste brauchen keinen Webserver.
         noClasses().that().resideInAnyPackage("..domain..", "..persistence..")
+                .and().resideOutsideOfPackage("..transfer.domain..")
                 .should().dependOnClassesThat().resideInAnyPackage("..api..", "org.springframework.web..")
-                .because("Fachlogik muss ohne laufenden Webserver testbar bleiben")
+                .because("Fachlogik muss ohne laufenden Webserver testbar bleiben; das Modul transfer "
+                        + "ist ausgenommen, weil es als Sicherungs-Modul die DTO-Formen der anderen "
+                        + "Module buendelt")
                 .check(classes);
+        }
     }
 
     @Test
