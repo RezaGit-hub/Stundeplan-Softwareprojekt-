@@ -112,7 +112,6 @@ class ArchitectureTest {
                         + "ist ausgenommen, weil es als Sicherungs-Modul die DTO-Formen der anderen "
                         + "Module buendelt")
                 .check(classes);
-        }
     }
 
     @Test
