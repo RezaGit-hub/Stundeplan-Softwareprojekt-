@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { CalendarOff, Database, KeyRound, Plus, Save, School, UserRound, Users } from 'lucide-react'
+import { CalendarOff, Database, KeyRound, Plus, Save, School, UserRound, Users, Trash2 } from 'lucide-react'
 import { useConfig, useLoadHolidayPreset, usePutConfig, useTeachers, useUsers } from '@/api/hooks'
 import type { ConfigDto } from '@/api/types'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,7 @@ import { SampleDataCard } from '@/components/masterdata/SampleDataCard'
 import { ClassAccountsDialog } from '@/components/masterdata/ClassAccountsDialog'
 import { UserDialog } from '@/components/masterdata/UserDialog'
 import { UsersTable } from '@/components/masterdata/UsersTable'
+import { DataDeletionTab } from '@/components/masterdata/DataDeletionTab'
 import { presetToast, SCHOOL_TYPE_LABEL, STATE_LABEL } from '@/components/masterdata/helpers'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { Field, SectionCard } from '@/components/masterdata/shared'
@@ -34,6 +35,7 @@ const TABS = [
   { id: 'konten', label: 'Benutzerkonten', icon: UserRound },
   { id: 'passwort', label: 'Eigenes Passwort', icon: KeyRound },
   { id: 'ferien', label: 'Unterrichtsfreie Zeiträume', icon: CalendarOff },
+  { id: 'loeschen', label: 'Grunddaten löschen', icon: Trash2 },
 ] as const
 type TabId = (typeof TABS)[number]['id']
 
@@ -56,6 +58,7 @@ export function SettingsPage() {
         <TabsContent value="konten"><AccountsTab /></TabsContent>
         <TabsContent value="passwort"><PasswordTab /></TabsContent>
         <TabsContent value="ferien"><SectionCard title="Unterrichtsfreie Zeiträume" description="Ferien und Feiertage (Kann-Anforderung). Für das eingestellte Bundesland liegt eine Vorlage bei."><HolidaysTable /></SectionCard></TabsContent>
+        <TabsContent value="loeschen"><DataDeletionTab /></TabsContent>
       </Tabs>
     </>
   )
