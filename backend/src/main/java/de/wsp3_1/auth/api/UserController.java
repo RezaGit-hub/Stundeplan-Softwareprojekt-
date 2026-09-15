@@ -1,6 +1,7 @@
 package de.wsp3_1.auth.api;
 
 import de.wsp3_1.auth.api.AuthDtos.ClassAccountDto;
+import de.wsp3_1.auth.api.AuthDtos.TeacherAccountDto;
 import de.wsp3_1.auth.api.AuthDtos.CreateUser;
 import de.wsp3_1.auth.api.AuthDtos.PasswordSet;
 import de.wsp3_1.auth.api.AuthDtos.UserDto;
@@ -51,6 +52,16 @@ public class UserController {
     public ResponseEntity<List<ClassAccountDto>> createClassAccounts() {
         List<ClassAccountDto> angelegt = userService.createClassAccounts().stream()
                 .map(ClassAccountDto::of).toList();
+        return ResponseEntity.status(HttpStatus.CREATED).body(angelegt);
+    }
+
+    /**
+     * Analog zu {@code POST /api/users/class-accounts}
+     */
+    @PostMapping("/api/users/teacher-accounts")
+    public ResponseEntity<List<TeacherAccountDto>> createTeacherAccounts() {
+        List<TeacherAccountDto> angelegt = userService.createTeacherAccounts().stream()
+                .map(TeacherAccountDto::of).toList();
         return ResponseEntity.status(HttpStatus.CREATED).body(angelegt);
     }
 

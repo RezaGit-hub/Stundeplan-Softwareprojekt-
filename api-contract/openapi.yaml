@@ -326,6 +326,42 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden403'
 
+  /api/users/teacher-accounts:
+    post:
+      tags: [Konten]
+      operationId: createTeacherAccounts
+      summary: Konten für alle Lehrkräfte anlegen
+      description: |
+        Legt für **jede aktive Lehrkraft ohne Konto** genau ein Lehrkraftkonto an (Rolle `TEACHER`).
+        Benutzername = Lehrkraftkürzel in Kleinbuchstaben („alb"), Passwort zufällig, zehn Zeichen.
+
+        **Die Passwörter stehen genau einmal in dieser Antwort im Klartext** — danach kennt der
+        Server nur den BCrypt-Hash. Die Oberfläche zeigt sie zum Abschreiben oder Ausdrucken an;
+        wer eines verliert, setzt über `PUT /api/users/{id}/password` ein neues.
+
+        Der Aufruf ist **idempotent**: bestehende Konten bleiben unberührt, ein zweiter Aufruf
+        liefert eine leere Liste. Eine Lehrkraft, dessen Kürzel schon als anderer Benutzername vergeben
+        ist, wird übersprungen (sie lässt sich mit `POST /api/users` unter eigenem Namen anlegen).
+        Kein Body nötig; `{}` genügt.
+      x-role: PLANNING
+      responses:
+        '201':
+          description: die neu angelegten Konten (leer, wenn jede Lehrkraft schon eines hatte)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TeacherAccountDto'
+              example:
+                - { username: alb, teacherName: Albrecht, teacherShort: alb, password: a13g8jadh1 }
+                - { username: mei, teacherName: Meier, teacherShort: mei, password: 18iadb1ad2 }
+                - { username: scz, teacherName: Schwanitz, teacherShort: scz, password: n2ab2c74ac }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
   /api/users/{id}/password:
     parameters:
       - $ref: '#/components/parameters/PathId'
@@ -2791,6 +2827,19 @@ components:
         username: { type: string, examples: ['7a'] }
         classShort: { type: string, examples: ['7a'] }
         password: { type: string, format: password, examples: [kfr7t2mqbd] }
+
+    TeacherAccountDto:
+      type: object
+      description: |
+        Eine Zeile der Antwort von POST /api/users/teacher-accounts. `password` steht hier **einmal**
+        im Klartext — der Server speichert nur den BCrypt-Hash und gibt es nie wieder heraus. Wer es
+        verliert, setzt über PUT /api/users/{id}/password ein neues.
+      required: [username, teacherShort, password]
+      properties:
+        username: { type: string, examples: ['alb'] }
+        teacherName: { type: string, examples: ['Albrecht'] }
+        teacherShort: { type: string, examples: ['alb'] }
+        password: { type: string, format: password, examples: [a13g8jadh1] }
 
     WarningDto:
       type: object
