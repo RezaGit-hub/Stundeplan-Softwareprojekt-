@@ -151,3 +151,65 @@ describe('Mock-Store (Datensatz FULL)', () => {
     expect(checkConflicts(active.lessons, s).filter((c) => c.type.endsWith('DOUBLE_BOOKED'))).toHaveLength(0)
   })
 })
+
+describe('Grunddaten-Sicherung (Transfer)', () => {
+  it('Roundtrip: exportieren und importieren erhält den Bestand, Konto admin bleibt', async () => {
+    const s = emptyStore()
+    loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+
+    const doc = await api.exportMasterData()
+    expect(doc.version).toBe('1')
+    expect(doc.subjects).toHaveLength(3)
+    expect(doc.teachers).toHaveLength(3)
+    expect(doc.rooms).toHaveLength(3)
+    expect(doc.classes).toHaveLength(3)
+    expect(doc.timeslots).toHaveLength(35)
+    expect(doc.rules).toHaveLength(5)
+    expect(doc.holidays).toHaveLength(1)
+
+    const ergebnis = await api.importMasterData({ ...doc, replace: true })
+    expect(ergebnis).toMatchObject({ subjects: 3, teachers: 3, rooms: 3, classes: 3, timeslots: 35, rules: 5, holidays: 1 })
+    expect(ergebnis.warnings).toEqual([])
+
+    // Konto admin lebt weiter.
+    expect(s.users.some((u) => u.username === 'admin' && u.role === 'PLANNING')).toBe(true)
+    // Die Lehrkraft-Konten sind weg — wie im Backend (sie verweisen auf geloeschte Stammdaten).
+    expect(s.users.filter((u) => u.role === 'TEACHER')).toHaveLength(0)
+  })
+
+  it('Ohne replace und bei vorhandenen Daten: 409 data-exists', async () => {
+    const s = emptyStore()
+    loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterData()
+
+    await expect(api.importMasterData({ ...doc, replace: false }))
+      .rejects.toMatchObject({ status: 409, problem: { type: 'urn:pushnpull:problem:data-exists' } })
+  })
+
+  it('Unbekannte Version: 400, Bestand bleibt', async () => {
+    const s = emptyStore()
+    loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterData()
+
+    await expect(api.importMasterData({ ...doc, version: '99' as never, replace: true }))
+      .rejects.toMatchObject({ status: 400 })
+    expect(s.teachers).toHaveLength(3)
+  })
+
+  it('Verweis ins Leere: 400, nichts geändert', async () => {
+    const s = emptyStore()
+    loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterData()
+    const kaputt = JSON.parse(JSON.stringify(doc)) as typeof doc
+    kaputt.classes[0].subjects[0].teacherId = 999_999
+
+    await expect(api.importMasterData({ ...kaputt, replace: true }))
+      .rejects.toMatchObject({ status: 400 })
+    expect(s.teachers).toHaveLength(3)
+    expect(s.classes).toHaveLength(3)
+  })
+})

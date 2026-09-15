@@ -13,6 +13,7 @@ import { TimegridEditor } from '@/components/masterdata/TimegridEditor'
 import { isInUse, normalize } from '@/components/masterdata/helpers'
 import { useFieldErrors } from '@/lib/form-errors'
 import { daysOf, DAY_SHORT } from '@/lib/timegrid'
+import { TransferButtons } from '@/components/masterdata/TransferButtons'
 
 const signature = (slots: TimeslotDto[]) => JSON.stringify(slots.map((s) => [s.day, s.position, s.startTime, s.endTime, s.isBreak]))
 
@@ -60,6 +61,7 @@ function TimegridForm({ slots }: { slots: TimeslotDto[] }) {
         description={`${summary} — gilt für alle Klassen; Stundennummern werden gezählt, nicht gespeichert.`}
         actions={
           <>
+            <TransferButtons />
             {dirty && <Button variant="ghost" onClick={() => { setDraft(normalize(slots)); fields.clear(); setInUse(null) }} disabled={put.isPending}><RotateCcw /> Verwerfen</Button>}
             <Button onClick={() => void save()} disabled={!dirty || put.isPending}><Save /> Speichern</Button>
           </>
