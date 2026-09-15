@@ -2,6 +2,7 @@ package de.wsp3_1.auth.api;
 
 import de.wsp3_1.auth.domain.Account;
 import de.wsp3_1.auth.domain.ClassAccount;
+import de.wsp3_1.auth.domain.TeacherAccount;
 import de.wsp3_1.shared.Role;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -78,6 +79,13 @@ public final class AuthDtos {
 
         static ClassAccountDto of(ClassAccount account) {
             return new ClassAccountDto(account.username(), account.classShort(), account.password());
+        }
+    }
+
+    public record TeacherAccountDto(String username, String teacherName, String teacherShort, String password) {
+
+        static TeacherAccountDto of(TeacherAccount account) {
+            return new TeacherAccountDto(account.username(), account.teacherName(), account.teacherShort(), account.password());
         }
     }
 }
