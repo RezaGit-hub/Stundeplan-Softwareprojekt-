@@ -27,6 +27,7 @@ import de.wsp3_1.shared.domain.ValidationException;
 import de.wsp3_1.shared.domain.ValidationException.FieldError;
 import de.wsp3_1.substitution.api.SubstitutionDtos.HolidayDto;
 import de.wsp3_1.substitution.api.SubstitutionDtos.HolidayInput;
+import de.wsp3_1.substitution.domain.SubstitutionViews.NewHoliday;
 import de.wsp3_1.substitution.domain.HolidayService;
 import de.wsp3_1.transfer.api.TransferDtos.MasterDataImport;
 import de.wsp3_1.transfer.api.TransferDtos.MasterDataImportResult;
@@ -319,9 +320,9 @@ public class ImportService {
         rules.replaceAll(views);
     }
 
-    private void importHolidays(List<HolidayDto> rows) {
+        private void importHolidays(List<HolidayDto> rows) {
         for (HolidayDto h : rows) {
-            holidays.create(new HolidayInput(h.name(), h.dateFrom(), h.dateTo(), h.kind()));
+            holidays.create(new NewHoliday(h.name(), h.dateFrom(), h.dateTo(), h.kind()));
         }
     }
 }
