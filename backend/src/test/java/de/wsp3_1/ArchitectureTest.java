@@ -60,13 +60,13 @@ class ArchitectureTest {
             // angenommenen Beispielplan (E-46) ruft SampleDataLoader.loadFull() seit der Nacharbeit
             // backend2 planning.DraftService und planning.SolveService.
             Map.entry("sampledata", Set.of("masterdata", "planning", "shared")),
-            Map.entry("shared", Set.of())));
+            Map.entry("shared", Set.of()),
 
         // Neu am 15.09.: das Modul transfer liest fuer den Export die bestehenden Lese-Dienste der
         // Module masterdata, rules, substitution und config und ruft beim Import deren Anlege-Methoden
         // auf. config wird nicht gebraucht (die Systemkonfiguration ist bewusst nicht Teil des
         // Dokuments), aber transfer haengt auch nicht an auth/planning/changelog/solver/sampledata.
-        Map.entry("transfer", Set.of("masterdata", "rules", "substitution", "shared")),
+        Map.entry("transfer", Set.of("masterdata", "rules", "substitution", "shared"))));
 
     private final JavaClasses classes = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
