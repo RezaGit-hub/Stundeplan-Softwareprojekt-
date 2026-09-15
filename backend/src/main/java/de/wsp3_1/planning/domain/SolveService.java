@@ -19,6 +19,7 @@ import de.wsp3_1.shared.domain.ConflictException;
 import de.wsp3_1.shared.domain.NotFoundException;
 import de.wsp3_1.solver.BlockedTimeFact;
 import de.wsp3_1.solver.PreferredTimeFact;
+import de.wsp3_1.solver.RoomBlockedTimeFact;
 import de.wsp3_1.solver.RoomFact;
 import de.wsp3_1.solver.RuleFact;
 import de.wsp3_1.solver.SolveInput;
@@ -238,9 +239,13 @@ public class SolveService {
                 .map(slot -> new TimeslotFact(slot.getId(), slot.getDay(), slot.getPosition(), slot.isBreak()))
                 .toList();
 
-        List<RoomFact> roomFacts = rooms.findAllByOrderByIdAsc().stream()
-                .map(room -> new RoomFact(room.getId(), room.getRoomType(), room.isActive()))
-                .toList();
+        List<RoomFact> roomFacts = new ArrayList<>();
+        List<RoomBlockedTimeFact> roomBlocked = new ArrayList<>();
+        for (Room room : rooms.findAllByOrderByIdAsc()) {
+            roomFacts.add(new RoomFact(room.getId(), room.getRoomType(), room.isActive()));
+            room.getBlockedTimeslotIds()
+                    .forEach(slotId -> roomBlocked.add(new RoomBlockedTimeFact(room.getId(), slotId)));
+        }
 
         List<Long> teacherIds = rows.stream()
                 .map(lesson -> lesson.getClassSubject().getTeacher().getId())
@@ -263,7 +268,7 @@ public class SolveService {
                     .forEach(slotId -> preferred.add(new PreferredTimeFact(teacher.getId(), slotId)));
         }
 
-        return new SolveInput(lessonInputs, slotFacts, roomFacts, ruleFacts, blocked, preferred);
+        return new SolveInput(lessonInputs, slotFacts, roomFacts, ruleFacts, blocked, preferred, roomBlocked);
     }
 
     /**

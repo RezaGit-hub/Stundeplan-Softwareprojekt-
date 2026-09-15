@@ -31,12 +31,12 @@ class ApplicationIT extends IntegrationTestBase {
     private ObjectMapper objectMapper;
 
     @Test
-    @DisplayName("Flyway hat V1 bis V8 angewendet")
+    @DisplayName("Flyway hat V1 bis V9 angewendet")
     void allMigrationsApplied() {
         List<String> versionen = jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
 
-        assertThat(versionen).containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
+        assertThat(versionen).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9");
     }
 
     /**

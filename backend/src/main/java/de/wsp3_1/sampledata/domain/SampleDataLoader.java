@@ -138,7 +138,7 @@ public class SampleDataLoader {
             "exception_event", "changelog_entry", "lesson_exception", "change_event",
             "lesson", "timetable",
             "class_subject", "teacher_subject", "teacher_preferred_timeslot", "teacher_blocked_timeslot",
-            "teacher", "subject", "room", "school_class", "timeslot", "holiday");
+            "teacher", "subject", "room_blocked_timeslot", "room", "school_class", "timeslot", "holiday");
 
     /** Tabellen mit {@code bigserial}: nach dem Leeren faengt die Nummerierung wieder bei 1 an. */
     private static final List<String> ZAEHLER = List.of(

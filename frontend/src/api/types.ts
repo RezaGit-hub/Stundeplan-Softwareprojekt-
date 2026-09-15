@@ -16,7 +16,8 @@ export const VIEWS: readonly View[] = ['SCHOOL', 'CLASS', 'TEACHER', 'ROOM'] as 
 export type EntryKind = 'REGULAR' | 'NEEDS_SUBSTITUTION' | 'SUBSTITUTED' | 'GIVEN_AWAY' | 'MOVED' | 'CANCELLED' | 'ADDED'
 export const ENTRY_KINDS: readonly EntryKind[] = ['REGULAR', 'NEEDS_SUBSTITUTION', 'SUBSTITUTED', 'GIVEN_AWAY', 'MOVED', 'CANCELLED', 'ADDED'] as const
 
-export type ConflictType = 'ROOM_DOUBLE_BOOKED' | 'TEACHER_DOUBLE_BOOKED' | 'CLASS_DOUBLE_BOOKED' | 'TEACHER_BLOCKED_TIME' | 'ROOM_TYPE_MISMATCH' | 'RULE_VIOLATION'
+/** ROOM_BLOCKED_TIME seit v1.1.0 (#133): Stunde in einer wöchentlichen Sperrzeit des Raums */
+export type ConflictType = 'ROOM_DOUBLE_BOOKED' | 'TEACHER_DOUBLE_BOOKED' | 'CLASS_DOUBLE_BOOKED' | 'TEACHER_BLOCKED_TIME' | 'ROOM_TYPE_MISMATCH' | 'RULE_VIOLATION' | 'ROOM_BLOCKED_TIME'
 export type Severity = 'HARD' | 'SOFT'
 export type ObjectKind = 'CLASS' | 'TEACHER' | 'ROOM'
 
@@ -74,7 +75,8 @@ export interface TeacherInput {
 export interface SubjectDto { id: number; name: string; shortName: string; requiredRoomType: string | null; color: string }
 export type SubjectInput = Omit<SubjectDto, 'id'>
 
-export interface RoomDto { id: number; name: string; roomType: string; active: boolean }
+/** blockedTimeslotIds: wöchentliche Sperrzeiten (hart), optional seit v1.1.0 (#133); der Server liefert immer eine Liste, fehlend beim Senden = keine Sperre */
+export interface RoomDto { id: number; name: string; roomType: string; active: boolean; blockedTimeslotIds?: number[] }
 export type RoomInput = Omit<RoomDto, 'id'>
 
 export interface ClassSubjectDto { subjectId: number; subjectShort: string; weeklyHours: number; teacherId: number; teacherShort: string }
@@ -185,6 +187,21 @@ export interface DraftDto {
 }
 export interface AddLessonInput { classId: number; subjectId: number; timeslotId: number; roomId: number }
 export interface PatchLessonInput { timeslotId?: number; roomId?: number; pinned?: boolean }
+
+// Konflikt per Knopf lösen (#110, seit 1.2.0): POST /api/draft/repair rechnet Vorschläge, speichert nichts.
+export interface RepairInput { lessonId: number }
+/** Eine Stunde wandert in dieses Zeitfenster und diesen Raum; übernommen per PATCH /draft/lessons/{lessonId} mit pinned:false */
+export interface RepairMove { lessonId: number; timeslotId: number; roomId: number }
+export interface RepairProposal {
+  /** 1 = nur die Konfliktstunde, 2 = dazu die Stunden derselben Klasse am selben Tag, 3 = dazu Lehrkraft und Raum an diesem Tag */
+  level: number
+  label: string
+  moves: RepairMove[]
+  /** harte Konflikte im ganzen Entwurf, wenn der Vorschlag übernommen ist */
+  hardConflictsAfter: number
+  score: string | null
+}
+export interface RepairResponse { proposals: RepairProposal[] }
 
 // ------------------------------------------------------------------ Aufgelöste Woche
 /** Nur die geänderten Werte sind gesetzt (Vertretung: teacher/room; verlegt: date/position) */
@@ -414,6 +431,8 @@ export interface Api {
   startSolve(body?: { classId?: number }): Promise<void>
   cancelSolve(): Promise<void>
   acceptDraft(body?: { validFrom?: string }): Promise<AcceptDraftResponse>
+  /** Vorschläge zum Auflösen eines Konflikts (#110); synchron bis zu 15 s, speichert nichts */
+  repairDraft(body: RepairInput): Promise<RepairResponse>
 
   listEvents(q?: EventQuery): Promise<EventDto[]>
   createEvent(body: EventInput): Promise<EventDto>

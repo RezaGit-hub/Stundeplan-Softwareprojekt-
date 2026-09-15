@@ -140,7 +140,7 @@ class MasterdataControllerTest {
     @Test
     @DisplayName("Ein Raum nennt Name, Raumart und ob er aktiv ist")
     void roomDtoHasContractFields() throws Exception {
-        given(roomService.list()).willReturn(List.of(new RoomDto(1L, "R101", "Klassenraum", true)));
+        given(roomService.list()).willReturn(List.of(new RoomDto(1L, "R101", "Klassenraum", true, List.of())));
 
         mvc.perform(get("/api/rooms"))
                 .andExpect(status().isOk())

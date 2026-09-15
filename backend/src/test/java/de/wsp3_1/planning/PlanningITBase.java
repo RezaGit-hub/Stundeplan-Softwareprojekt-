@@ -40,7 +40,7 @@ public abstract class PlanningITBase extends IntegrationTestBase {
             "exception_event", "lesson_exception", "change_event", "changelog_entry",
             "lesson", "timetable", "holiday",
             "class_subject", "teacher_subject", "teacher_preferred_timeslot", "teacher_blocked_timeslot",
-            "teacher", "subject", "room", "school_class", "timeslot");
+            "teacher", "subject", "room_blocked_timeslot", "room", "school_class", "timeslot");
 
     @Autowired
     protected ObjectMapper json;

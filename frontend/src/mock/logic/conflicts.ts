@@ -1,4 +1,4 @@
-// Port des ConflictChecker (solver.md): Doppelbelegung, gesperrte Zeit, Raumart, Regelverstöße.
+// Port des ConflictChecker (solver.md): Doppelbelegung, gesperrte Zeit, Raumart, Raumsperre (#133), Regelverstöße.
 // Läuft bei jedem Lesen von Entwurf/aktivem Plan und nach jeder Draft-Mutation. Konflikte sind Daten, nie Fehler.
 import type { ConflictDto, ConflictObject, RuleDto, RuleScope, RuleType, TimeslotDto } from '@/api/types'
 import { DAY_LABEL, lessonNumber } from '@/lib/timegrid'
@@ -79,7 +79,17 @@ export function checkConflicts(lessons: MockLesson[], s: Store): ConflictDto[] {
       message: `${subject.name} braucht ${subject.requiredRoomType}, ${room.name} ist ${room.roomType}` })
   }
 
-  // 4. Regelverstöße (nur aktive Regeln; Jahrgangsregel ersetzt die schulweite für diesen Jahrgang)
+  // 4. Gesperrte Zeit des Raums (#133, v1.1.0) — Wortlaut wie ConflictChecker.addRoomBlockedTimes
+  for (const l of placed) {
+    const room = roomOf(l)
+    if (!room || !(room.blockedTimeslotIds ?? []).includes(l.timeslotId)) continue
+    const slot = slotOf(l)!
+    out.push({ type: 'ROOM_BLOCKED_TIME', severity: 'HARD', ruleId: null, lessonIds: [l.id],
+      objects: [{ kind: 'ROOM', id: room.id, label: room.name }],
+      message: `Raum ${room.name} ist ${slotPhrase(slot, s.timeslots)} gesperrt.` })
+  }
+
+  // 5. Regelverstöße (nur aktive Regeln; Jahrgangsregel ersetzt die schulweite für diesen Jahrgang)
   const active = s.rules.filter((r) => r.active)
   const breakRule = active.find((r) => r.type === 'NO_LESSONS_IN_BREAKS')
   if (breakRule) {

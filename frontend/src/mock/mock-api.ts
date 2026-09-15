@@ -429,7 +429,7 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
     async createRoom(body: RoomInput) {
       await planning()
       validateRoom(body, null, s)
-      const r = { id: nextId(), name: body.name.trim(), roomType: body.roomType.trim(), active: body.active ?? true }
+      const r = { id: nextId(), name: body.name.trim(), roomType: body.roomType.trim(), active: body.active ?? true, blockedTimeslotIds: [...new Set(body.blockedTimeslotIds ?? [])] }
       s.rooms.push(r)
       return { ...r }
     },
@@ -438,7 +438,7 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       const r = s.rooms.find((x) => x.id === id)
       if (!r) throw notFound(`Raum ${id} nicht gefunden`)
       validateRoom(body, id, s)
-      Object.assign(r, { name: body.name.trim(), roomType: body.roomType.trim(), active: body.active })
+      Object.assign(r, { name: body.name.trim(), roomType: body.roomType.trim(), active: body.active, blockedTimeslotIds: [...new Set(body.blockedTimeslotIds ?? [])] })
       return { ...r }
     },
     async deleteRoom(id) {
@@ -538,6 +538,9 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       for (const t of s.teachers) {
         t.preferredTimeslotIds = t.preferredTimeslotIds.filter((id) => !removedIds.has(id))
         t.blockedTimeslotIds = t.blockedTimeslotIds.filter((id) => !removedIds.has(id))
+      }
+      for (const r of s.rooms) {
+        r.blockedTimeslotIds = (r.blockedTimeslotIds ?? []).filter((id) => !removedIds.has(id))
       }
       return { slots: s.timeslots.map((t) => ({ ...t })) }
     },
@@ -723,6 +726,27 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       if (d.draftStatus !== 'SOLVING') return
       if (s.solveTimer) clearTimeout(s.solveTimer)
       finishSolve(d, s)
+    },
+    async repairDraft(body) {
+      await planning()
+      const d = draftOr404()
+      notSolving(d)
+      const l = d.lessons.find((x) => x.id === body.lessonId)
+      if (!l) throw notFound(`Stunde ${body.lessonId} nicht im Entwurf`)
+      if (!checkConflicts(d.lessons, s).some((c) => c.lessonIds.includes(l.id))) throw validation([{ field: 'lessonId', message: 'Die Stunde steht in keinem Konflikt' }])
+      // Nur Stufe 1 (nur diese Stunde wandert): das Zeitfenster und der Raum mit den wenigsten harten Konflikten.
+      // Der Server rechnet drei Stufen mit dem Solver; die Attrappe zeigt den Weg, nicht die Güte.
+      const hardCount = (lessons: MockLesson[]) => checkConflicts(lessons, s).filter((c) => c.severity === 'HARD').length
+      let best: { timeslotId: number; roomId: number; hard: number } | null = null
+      for (const t of s.timeslots.filter((x) => !x.isBreak)) {
+        for (const r of s.rooms.filter((x) => x.active)) {
+          if (t.id === l.timeslotId && r.id === l.roomId) continue
+          const hard = hardCount(d.lessons.map((x) => (x.id === l.id ? { ...x, timeslotId: t.id, roomId: r.id } : x)))
+          if (!best || hard < best.hard) best = { timeslotId: t.id, roomId: r.id, hard }
+        }
+      }
+      if (!best) return { proposals: [] }
+      return { proposals: [{ level: 1, label: 'Nur diese Stunde verschieben', moves: [{ lessonId: l.id, timeslotId: best.timeslotId, roomId: best.roomId }], hardConflictsAfter: best.hard, score: null }] }
     },
     async acceptDraft(body) {
       await planning()
@@ -947,6 +971,11 @@ function validateRoom(body: RoomInput, selfId: number | null, s: Store) {
   req(errors, 'name', body.name)
   req(errors, 'roomType', body.roomType)
   unique(errors, 'name', s.rooms.some((r) => r.id !== selfId && r.name.toLowerCase() === body.name?.trim().toLowerCase()), 'Name ist bereits vergeben')
+  // Sperrzeiten (#133): jede Kennung muss ein Zeitfenster sein — wie beim Server 400 mit Feldliste.
+  for (const id of body.blockedTimeslotIds ?? []) {
+    if (id == null) errors.push({ field: 'blockedTimeslotIds', message: 'Es gibt einen leeren Eintrag in der Liste.' })
+    else if (!s.timeslots.some((t) => t.id === id)) errors.push({ field: 'blockedTimeslotIds', message: `Es gibt kein Zeitfenster mit der Nummer ${id}.` })
+  }
   throwIfErrors(errors)
 }
 function validateClass(body: ClassInput, selfId: number | null, s: Store) {

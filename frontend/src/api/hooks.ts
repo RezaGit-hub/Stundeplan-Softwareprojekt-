@@ -10,7 +10,7 @@ import {
   ApiError, type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput, type ConfigDto, type CreateUser,
   type DraftDto, type DraftSource, type EventInput, type EventQuery, type ExceptionInput, type HolidayInput,
   type HolidayPresetInput, type PasswordChange,
-  type PatchLessonInput, type RoomInput, type RuleInput, type SubjectInput, type TeacherInput, type TimegridInput, type View,
+  type PatchLessonInput, type RepairInput, type RoomInput, type RuleInput, type SubjectInput, type TeacherInput, type TimegridInput, type View,
 } from './types'
 
 export const queryClient = new QueryClient({
@@ -203,6 +203,10 @@ export const useAcceptDraft = () => useApiMutation((body?: { validFrom?: string 
   qc.setQueryData(qk.draft, null)
   invalidate(qc, qk.timetable, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.pendingAll, qk.optionsAll)
 }, DRAFT)
+// Konflikt lösen (#110): drei Solver-Läufe, bis zu 15 s, speichert nichts. Dieselben Entwurfs-Optionen wie die
+// übrigen Mutationen — während der Serie gilt der Entwurf serverseitig als SOLVING, weitere Entwurfs-Mutationen
+// warten (scope) statt mit 409 zu scheitern; danach den Entwurf neu laden, falls ein Poll SOLVING gesehen hat.
+export const useRepairDraft = () => useApiMutation((body: RepairInput) => api.repairDraft(body), (qc) => invalidate(qc, qk.draft), DRAFT)
 // Ereignisse, Vertretung
 const SUBSTITUTION_KEYS: QueryKey[] = [qk.pendingAll, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.optionsAll, qk.eventsAll, qk.exceptionsAll]
 export const useCreateEvent = () => useApiMutation((body: EventInput) => api.createEvent(body), (qc) => invalidate(qc, ...SUBSTITUTION_KEYS))

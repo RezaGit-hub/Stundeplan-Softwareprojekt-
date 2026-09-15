@@ -221,6 +221,25 @@ class ConflictCheckerTest {
     }
 
     @Test
+    @DisplayName("#133: Stunde in der gesperrten Zeit von R204 → genau ein Konflikt ROOM_BLOCKED_TIME")
+    void roomBlockedTime_namesRoomAndSlot() {
+        List<Assignment> plan = List.of(
+                lesson(14, KLASSE_8B, MATHE, MEYER, R204, slot("MO", 4)),
+                lesson(11, KLASSE_7A, MATHE, MEYER, R101, slot("MO", 2)));
+
+        List<ConflictView> conflicts = ConflictChecker.check(plan, context(List.of()));
+
+        assertThat(conflicts).hasSize(1);
+        ConflictView conflict = conflicts.getFirst();
+        assertThat(conflict.type()).isEqualTo(ConflictType.ROOM_BLOCKED_TIME);
+        assertThat(conflict.severity()).isEqualTo(Severity.HARD);
+        assertThat(conflict.lessonIds()).containsExactly(14L);
+        assertThat(conflict.message()).isEqualTo("Raum R204 ist am Montag in der 3. Stunde gesperrt.");
+        assertThat(conflict.objects()).containsExactly(
+                new ConflictView.ConflictObjectView(ObjectKind.ROOM, R204, "R204"));
+    }
+
+    @Test
     @DisplayName("Pausenregel: eine Stunde in der grossen Pause ist ein harter Verstoss")
     void breakRule_namesClassAndTime() {
         List<Assignment> plan = List.of(
@@ -268,9 +287,10 @@ class ConflictCheckerTest {
                 Map.of(MATHE, new SubjectInfo(MATHE, "Mathematik", "Ma", null),
                         DEUTSCH, new SubjectInfo(DEUTSCH, "Deutsch", "De", null),
                         PHYSIK, new SubjectInfo(PHYSIK, "Physik", "Ph", "Fachraum Physik")),
-                Map.of(R101, new RoomInfo(R101, "R101", "Klassenraum"),
-                        R204, new RoomInfo(R204, "R204", "Klassenraum"),
-                        P1, new RoomInfo(P1, "P1", "Fachraum Physik")),
+                // R204 ist Montag 3. Stunde (Position 4) gesperrt (#133).
+                Map.of(R101, new RoomInfo(R101, "R101", "Klassenraum", Set.of()),
+                        R204, new RoomInfo(R204, "R204", "Klassenraum", Set.of(slot("MO", 4))),
+                        P1, new RoomInfo(P1, "P1", "Fachraum Physik", Set.of())),
                 rules);
     }
 

@@ -77,13 +77,16 @@ public final class MasterdataDtos {
 
     // ------------------------------------------------------------------ Raeume
 
-    public record RoomDto(Long id, String name, String roomType, boolean active) {
+    /** {@code blockedTimeslotIds}: woechentliche Sperrzeiten des Raums (#133, V9), immer hart. */
+    public record RoomDto(Long id, String name, String roomType, boolean active, List<Long> blockedTimeslotIds) {
     }
 
+    /** {@code blockedTimeslotIds} darf fehlen (Vertrag 1.1.0, additiv): fehlend oder {@code null} = keine Sperre. */
     public record RoomInput(
             @NotBlank(message = "darf nicht leer sein") @Size(max = 60, message = "hoechstens 60 Zeichen") String name,
             @NotBlank(message = "darf nicht leer sein") @Size(max = 60, message = "hoechstens 60 Zeichen") String roomType,
-            @NotNull(message = "darf nicht leer sein") Boolean active) {
+            @NotNull(message = "darf nicht leer sein") Boolean active,
+            List<Long> blockedTimeslotIds) {
     }
 
     // ------------------------------------------------------------------ Klassen

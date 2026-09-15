@@ -33,6 +33,7 @@ import java.util.function.Function;
  *   <li>Doppelbelegung von Raum, Lehrkraft und Klasse — je Zeitfenster</li>
  *   <li>gesperrte Zeit der Lehrkraft</li>
  *   <li>Raumanforderung des Fachs</li>
+ *   <li>gesperrte Zeit des Raums (#133)</li>
  *   <li>Regelwerk: Pausenregel, Hoechststunden je Tag und je Woche</li>
  * </ol>
  *
@@ -55,6 +56,7 @@ public final class ConflictChecker {
         addDoubleBookings(placed, context, conflicts);
         addBlockedTimes(placed, context, conflicts);
         addRoomTypeMismatches(placed, context, conflicts);
+        addRoomBlockedTimes(placed, context, conflicts);
         addRuleViolations(placed, context, conflicts);
         return conflicts;
     }
@@ -150,7 +152,22 @@ public final class ConflictChecker {
         }
     }
 
-    // ------------------------------------------------------------------ 4. Regelwerk
+    // ------------------------------------------------------------------ 4. Gesperrte Zeit des Raums
+
+    private static void addRoomBlockedTimes(List<Assignment> placed, CheckContext context, List<ConflictView> out) {
+        for (Assignment assignment : placed) {
+            RoomInfo room = context.rooms().get(assignment.roomId());
+            if (room == null || !room.blockedTimeslotIds().contains(assignment.timeslotId())) {
+                continue;
+            }
+            out.add(new ConflictView(ConflictType.ROOM_BLOCKED_TIME, Severity.HARD,
+                    "Raum " + room.name() + " ist " + slotPhrase(assignment, context) + " gesperrt.",
+                    List.of(assignment.lessonId()), null,
+                    List.of(new ConflictObjectView(ObjectKind.ROOM, room.id(), room.name()))));
+        }
+    }
+
+    // ------------------------------------------------------------------ 5. Regelwerk
 
     private static void addRuleViolations(List<Assignment> placed, CheckContext context, List<ConflictView> out) {
         for (EffectiveRule rule : context.rules()) {

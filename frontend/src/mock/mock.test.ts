@@ -28,6 +28,20 @@ describe('Mock-Store (Testdaten SMALL)', () => {
     expect(conflicts[0].objects).toEqual([{ kind: 'ROOM', id: 1, label: 'R101' }])
   })
 
+  it('Stunde in der Sperrzeit eines Raums erzeugt genau einen ROOM_BLOCKED_TIME (#133)', () => {
+    const s = emptyStore()
+    loadSmall(s)
+    const active = s.timetables[0]
+    // 7a Mathematik liegt Montag 1. Stunde in R101 — R101 dort sperren.
+    const mo1 = s.timeslots.find((t) => t.day === 'MO' && t.position === 1)!.id
+    s.rooms[0].blockedTimeslotIds = [mo1]
+    const conflicts = checkConflicts(active.lessons, s)
+    expect(conflicts.map((c) => c.type)).toEqual(['ROOM_BLOCKED_TIME'])
+    expect(conflicts[0].severity).toBe('HARD')
+    expect(conflicts[0].message).toBe('Raum R101 ist am Montag in der 1. Stunde gesperrt.')
+    expect(conflicts[0].objects).toEqual([{ kind: 'ROOM', id: 1, label: 'R101' }])
+  })
+
   it('Deputat-Überschreitung erzeugt QUOTA_EXCEEDED (T-W1.5)', () => {
     const s = emptyStore()
     loadSmall(s)

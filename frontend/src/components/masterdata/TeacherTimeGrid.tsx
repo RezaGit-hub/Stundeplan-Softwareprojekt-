@@ -1,5 +1,6 @@
 // Klick-Matrix Tag × Stunde für bevorzugte und gesperrte Zeiten einer Lehrkraft.
 // Zustand je Zelle: leer → bevorzugt → gesperrt → leer. Pausen sind nicht klickbar.
+// Mit `withPreferred={false}` (Räume, #133) gibt es nur leer ↔ gesperrt — dieselbe Maske, ein Zustand weniger.
 import { useMemo } from 'react'
 import type { TimeslotDto, Weekday } from '@/api/types'
 import { DAY_SHORT, daysOf, lessonNumber, maxPositions, slotsOfDay } from '@/lib/timegrid'
@@ -7,11 +8,13 @@ import { cn } from '@/lib/utils'
 
 type CellState = 'none' | 'preferred' | 'blocked'
 
-export function TeacherTimeGrid({ slots, preferred, blocked, onChange }: {
+export function TeacherTimeGrid({ slots, preferred, blocked, onChange, withPreferred = true }: {
   slots: TimeslotDto[]
   preferred: number[]
   blocked: number[]
   onChange(next: { preferred: number[]; blocked: number[] }): void
+  /** false = nur gesperrt/leer (Räume kennen keine Wunschzeiten) */
+  withPreferred?: boolean
 }) {
   const days = useMemo(() => daysOf(slots), [slots])
   const rows = useMemo(() => maxPositions(slots), [slots])
@@ -24,8 +27,8 @@ export function TeacherTimeGrid({ slots, preferred, blocked, onChange }: {
     const state = stateOf(id)
     const nextPreferred = preferred.filter((x) => x !== id)
     const nextBlocked = blocked.filter((x) => x !== id)
-    if (state === 'none') nextPreferred.push(id)
-    else if (state === 'preferred') nextBlocked.push(id)
+    if (state === 'none' && withPreferred) nextPreferred.push(id)
+    else if (state === 'none' || state === 'preferred') nextBlocked.push(id)
     onChange({ preferred: nextPreferred, blocked: nextBlocked })
   }
 
@@ -51,7 +54,7 @@ export function TeacherTimeGrid({ slots, preferred, blocked, onChange }: {
         className="grid select-none gap-px overflow-hidden rounded-md border bg-border text-xs"
         style={{ gridTemplateColumns: `2.75rem repeat(${days.length}, minmax(0, 1fr))` }}
         role="grid"
-        aria-label="Bevorzugte und gesperrte Zeiten"
+        aria-label={withPreferred ? 'Bevorzugte und gesperrte Zeiten' : 'Gesperrte Zeiten'}
       >
         <div className="bg-surface-sunken" aria-hidden />
         {days.map((d) => (
@@ -99,10 +102,10 @@ export function TeacherTimeGrid({ slots, preferred, blocked, onChange }: {
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-2xs text-foreground-subtle">
         <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-xs border bg-card" aria-hidden />keine Angabe</span>
-        <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-xs border bg-primary/15" aria-hidden />bevorzugt</span>
+        {withPreferred && <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-xs border bg-primary/15" aria-hidden />bevorzugt</span>}
         <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-xs border bg-destructive/15" aria-hidden />gesperrt</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-xs border bg-break-row" aria-hidden />Pause</span>
-        <span className="ml-auto">Klick wechselt: keine Angabe → bevorzugt → gesperrt</span>
+        <span className="ml-auto">{withPreferred ? 'Klick wechselt: keine Angabe → bevorzugt → gesperrt' : 'Klick wechselt: keine Angabe ↔ gesperrt'}</span>
       </div>
     </div>
   )
