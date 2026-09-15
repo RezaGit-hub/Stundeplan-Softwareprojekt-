@@ -325,4 +325,237 @@ public class ImportService {
             holidays.create(new NewHoliday(h.name(), h.dateFrom(), h.dateTo(), h.kind()));
         }
     }
+        // ------------------------------------------------------------------ Bereichsweise Sicherung (Version 2)
+
+    @Transactional
+    public SectionImportResult importSection(MasterDataSection input) {
+        return switch (input.scope()) {
+            case "subjects" -> importSubjectsSection(input);
+            case "teachers" -> importTeachersSection(input);
+            case "rooms" -> importRoomsSection(input);
+            case "classes" -> importClassesSection(input);
+            case "timeslots" -> importTimeslotsSection(input);
+            case "rules" -> importRulesSection(input);
+            case "holidays" -> importHolidaysSection(input);
+            default -> throw new ValidationException("scope", "unbekannter Bereich");
+        };
+    }
+
+    private SectionImportResult importSubjectsSection(MasterDataSection in) {
+        int created = 0, updated = 0;
+        for (SubjectDto s : in.subjects()) {
+            Optional<SubjectDto> vorhanden = subjects.list().stream()
+                    .filter(x -> x.shortName().equalsIgnoreCase(s.shortName()))
+                    .findFirst();
+            if (vorhanden.isPresent()) {
+                subjects.update(vorhanden.get().id(),
+                        new SubjectInput(s.name(), s.shortName(), s.requiredRoomType(), s.color()));
+                updated++;
+            } else {
+                subjects.create(new SubjectInput(s.name(), s.shortName(), s.requiredRoomType(), s.color()));
+                created++;
+            }
+        }
+        return new SectionImportResult("subjects", created, updated, List.of());
+    }
+
+    private SectionImportResult importRoomsSection(MasterDataSection in) {
+        int created = 0, updated = 0;
+        for (RoomDto r : in.rooms()) {
+            Optional<RoomDto> vorhanden = rooms.list().stream()
+                    .filter(x -> x.name().equalsIgnoreCase(r.name()))
+                    .findFirst();
+            if (vorhanden.isPresent()) {
+                rooms.update(vorhanden.get().id(), new RoomInput(r.name(), r.roomType(), r.active()));
+                updated++;
+            } else {
+                rooms.create(new RoomInput(r.name(), r.roomType(), r.active()));
+                created++;
+            }
+        }
+        return new SectionImportResult("rooms", created, updated, List.of());
+    }
+
+    private SectionImportResult importTimeslotsSection(MasterDataSection in) {
+        // Ersetzt das ganze Raster — dieselbe Semantik wie PUT /api/timegrid.
+        timegrid.replace(new TimegridInput(in.timeslots().stream()
+                .map(s -> new TimeslotInput(null, s.day(), s.position(), s.startTime(), s.endTime(), s.isBreak()))
+                .toList()));
+        return new SectionImportResult("timeslots", in.timeslots().size(), 0, List.of());
+    }
+
+    private SectionImportResult importRulesSection(MasterDataSection in) {
+        List<RuleView> rows = in.rules().stream()
+                .map(r -> new RuleView(null, r.type(), r.scope(), r.grade(),
+                        r.value(), r.severity(), r.weight(), r.active(), r.label()))
+                .toList();
+        rules.replaceAll(rows);
+        return new SectionImportResult("rules", rows.size(), 0, List.of());
+    }
+
+    private SectionImportResult importHolidaysSection(MasterDataSection in) {
+        int created = 0, skipped = 0;
+        Set<String> vorhanden = holidays.list().stream()
+                .map(h -> key(h.name(), h.dateFrom().toString(), h.dateTo().toString()))
+                .collect(Collectors.toSet());
+        for (HolidayDto h : in.holidays()) {
+            if (vorhanden.add(key(h.name(), h.dateFrom().toString(), h.dateTo().toString()))) {
+                holidays.create(new NewHoliday(h.name(), h.dateFrom(), h.dateTo(), h.kind()));
+                created++;
+            } else {
+                skipped++;
+            }
+        }
+        return new SectionImportResult("holidays", created, 0,
+                skipped > 0 ? List.of(skipped + " Zeiträume standen schon") : List.of());
+    }
+
+    private SectionImportResult importTeachersSection(MasterDataSection in) {
+        if (in.teachers() == null) {
+            throw new ValidationException("teachers", "fehlt");
+        }
+        // 1. Referenzen auflösen (alter Datei-Wert → Zielwert)
+        Map<Long, Long> subjectMap = resolveSubjects(in.refs());
+        Map<Long, Long> slotMap = resolveTimeslots(in.refs());
+
+        int created = 0, updated = 0;
+        // 2. Vorhandene Lehrkräfte nach Kürzel auflösen
+        Map<String, Long> byShort = teachers.list().stream()
+                .collect(Collectors.toMap(t -> t.shortName().toUpperCase(), TeacherDto::id, (a, b) -> a));
+
+        for (TeacherDto t : in.teachers()) {
+            List<Long> subjectIds = mapRefs(t.subjectIds(), subjectMap, "teachers", t.shortName(), "subjectIds");
+            List<Long> preferred = mapRefs(t.preferredTimeslotIds(), slotMap, "teachers", t.shortName(), "preferredTimeslotIds");
+            List<Long> blocked = mapRefs(t.blockedTimeslotIds(), slotMap, "teachers", t.shortName(), "blockedTimeslotIds");
+            TeacherInput body = new TeacherInput(t.name(), t.shortName(), t.weeklyHoursQuota(),
+                    subjectIds, preferred, blocked, t.active());
+
+            Long vorhanden = byShort.get(t.shortName().toUpperCase(Locale.GERMAN));
+            if (vorhanden != null) {
+                teachers.update(vorhanden, body);
+                updated++;
+            } else {
+                teachers.create(body);
+                created++;
+            }
+        }
+        return new SectionImportResult("teachers", created, updated, List.of());
+    }
+
+    private SectionImportResult importClassesSection(MasterDataSection in) {
+        Map<Long, Long> subjectMap = resolveSubjects(in.refs());
+        Map<Long, Long> teacherMap = resolveTeachers(in.refs());
+
+        int created = 0, updated = 0;
+        Map<String, Long> byName = classes.list().stream()
+                .collect(Collectors.toMap(c -> c.name().toLowerCase(Locale.GERMAN), ClassDto::id, (a, b) -> a));
+
+        for (ClassDto c : in.classes()) {
+            List<ClassSubjectInput> rows = new ArrayList<>();
+            for (int i = 0; i < c.subjects().size(); i++) {
+                ClassSubjectDto s = c.subjects().get(i);
+                Long subjId = subjectMap.get(s.subjectId());
+                Long teachId = teacherMap.get(s.teacherId());
+                List<FieldError> fehler = new ArrayList<>();
+                if (subjId == null) fehler.add(new FieldError(
+                        "classes[" + i + "].subjects[" + i + "].subjectId",
+                        "Fach " + s.subjectShort() + " gibt es hier nicht"));
+                if (teachId == null) fehler.add(new FieldError(
+                        "classes[" + i + "].subjects[" + i + "].teacherId",
+                        "Lehrkraft " + s.teacherShort() + " gibt es hier nicht"));
+                if (!fehler.isEmpty()) throw new ValidationException(fehler);
+                rows.add(new ClassSubjectInput(subjId, s.weeklyHours(), teachId));
+            }
+            Long vorhanden = byName.get(c.name().toLowerCase(Locale.GERMAN));
+            if (vorhanden != null) {
+                classes.update(vorhanden, new ClassInput(c.name(), c.grade(), c.active()));
+                classes.replaceSubjects(vorhanden, rows);
+                updated++;
+            } else {
+                ClassDto neu = classes.create(new ClassInput(c.name(), c.grade(), c.active()));
+                classes.replaceSubjects(neu.id(), rows);
+                created++;
+            }
+        }
+        return new SectionImportResult("classes", created, updated, List.of());
+    }
+
+    // ------------------------------------------------------------------ Auflösung der Referenzen
+
+    private Map<Long, Long> resolveSubjects(SectionRefs refs) {
+        if (refs == null || refs.subjects() == null) return Map.of();
+        Map<String, Long> nachKuerzel = subjects.list().stream()
+                .collect(Collectors.toMap(s -> s.shortName().toUpperCase(Locale.GERMAN), SubjectDto::id, (a, b) -> a));
+        Map<Long, Long> map = new HashMap<>();
+        List<FieldError> errors = new ArrayList<>();
+        for (SubjectRef r : refs.subjects()) {
+            Long neu = nachKuerzel.get(r.shortName().toUpperCase(Locale.GERMAN));
+            if (neu == null) {
+                errors.add(new FieldError("refs.subjects[" + r.id() + "]", "Fach " + r.shortName() + " gibt es hier nicht"));
+            } else {
+                map.put(r.id(), neu);
+            }
+        }
+        if (!errors.isEmpty()) throw new ValidationException(errors);
+        return map;
+    }
+
+    private Map<Long, Long> resolveTeachers(SectionRefs refs) {
+        if (refs == null || refs.teachers() == null) return Map.of();
+        Map<String, Long> nachKuerzel = teachers.list().stream()
+                .collect(Collectors.toMap(t -> t.shortName().toUpperCase(Locale.GERMAN), TeacherDto::id, (a, b) -> a));
+        Map<Long, Long> map = new HashMap<>();
+        List<FieldError> errors = new ArrayList<>();
+        for (TeacherRef r : refs.teachers()) {
+            Long neu = nachKuerzel.get(r.shortName().toUpperCase(Locale.GERMAN));
+            if (neu == null) {
+                errors.add(new FieldError("refs.teachers[" + r.id() + "]", "Lehrkraft " + r.shortName() + " gibt es hier nicht"));
+            } else {
+                map.put(r.id(), neu);
+            }
+        }
+        if (!errors.isEmpty()) throw new ValidationException(errors);
+        return map;
+    }
+
+    private Map<Long, Long> resolveTimeslots(SectionRefs refs) {
+        if (refs == null || refs.timeslots() == null) return Map.of();
+        // Nach (Tag, Position) — dieselbe Identität, die der PUT /api/timegrid-Upsert nutzt.
+        Map<String, Long> nachOrt = timegrid.get().slots().stream()
+                .collect(Collectors.toMap(s -> s.day() + "|" + s.position(), TimeslotDto::id, (a, b) -> a));
+        Map<Long, Long> map = new HashMap<>();
+        List<FieldError> errors = new ArrayList<>();
+        for (TimeslotRef r : refs.timeslots()) {
+            Long neu = nachOrt.get(r.day() + "|" + r.position());
+            if (neu == null) {
+                errors.add(new FieldError("refs.timeslots[" + r.id() + "]",
+                        "Zeitfenster " + r.day() + " " + r.position() + " gibt es hier nicht"));
+            } else {
+                map.put(r.id(), neu);
+            }
+        }
+        if (!errors.isEmpty()) throw new ValidationException(errors);
+        return map;
+    }
+
+    private static List<Long> mapRefs(List<Long> refs, Map<Long, Long> map,
+                                       String entity, String label, String feld) {
+        List<FieldError> errors = new ArrayList<>();
+        List<Long> out = new ArrayList<>();
+        for (Long id : refs) {
+            Long neu = map.get(id);
+            if (neu == null) {
+                errors.add(new FieldError(entity + "[" + label + "]." + feld,
+                        "Verweis " + id + " ließ sich nicht auflösen"));
+            } else {
+                out.add(neu);
+            }
+        }
+        if (!errors.isEmpty()) throw new ValidationException(errors);
+        return out;
+    }
+
+    private static String key(String name, String from, String to) {
+        return name + '|' + from + '|' + to;
+    }
 }

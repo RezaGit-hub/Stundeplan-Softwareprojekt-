@@ -75,4 +75,76 @@ public class ExportService {
     private static HolidayDto toHolidayDto(HolidayView view) {
         return HolidayDto.of(view);
     }
+
+        @Transactional(readOnly = true)
+    public MasterDataSection exportSection(String scope) {
+        Instant now = Instant.now();
+        return switch (scope) {
+            case "subjects" -> new MasterDataSection(VERSION_2, "subjects", now,
+                    subjects.list(), null, null, null, null, null, null, null);
+            case "rooms" -> new MasterDataSection(VERSION_2, "rooms", now,
+                    null, null, rooms.list(), null, null, null, null, null);
+            case "timeslots" -> new MasterDataSection(VERSION_2, "timeslots", now,
+                    null, null, null, null, timegrid.get().slots(), null, null, null);
+            case "rules" -> new MasterDataSection(VERSION_2, "rules", now,
+                    null, null, null, null, null,
+                    rules.list().stream().map(ExportService::toRuleDto).toList(), null, null);
+            case "holidays" -> new MasterDataSection(VERSION_2, "holidays", now,
+                    null, null, null, null, null, null,
+                    holidays.list().stream().map(ExportService::toHolidayDto).toList(), null);
+            case "teachers" -> teachersSection(now);
+            case "classes" -> classesSection(now);
+            default -> throw new ValidationException("scope", "unbekannter Bereich");
+        };
+    }
+
+    private MasterDataSection teachersSection(Instant now) {
+        List<TeacherDto> teachers = teachers.list();
+        Set<Long> subjectIds = new HashSet<>();
+        Set<Long> slotIds = new HashSet<>();
+        for (TeacherDto t : teachers) {
+            subjectIds.addAll(t.subjectIds());
+            slotIds.addAll(t.preferredTimeslotIds());
+            slotIds.addAll(t.blockedTimeslotIds());
+        }
+        return new MasterDataSection(VERSION_2, "teachers", now,
+                null, teachers, null, null, null, null, null,
+                new SectionRefs(subjectRefs(subjectIds), null, timeslotRefs(slotIds)));
+    }
+
+    private MasterDataSection classesSection(Instant now) {
+        List<ClassDto> classes = classes.list();
+        Set<Long> subjectIds = new HashSet<>();
+        Set<Long> teacherIds = new HashSet<>();
+        for (ClassDto c : classes) {
+            for (ClassSubjectDto row : c.subjects()) {
+                subjectIds.add(row.subjectId());
+                teacherIds.add(row.teacherId());
+            }
+        }
+        return new MasterDataSection(VERSION_2, "classes", now,
+                null, null, null, classes, null, null, null,
+                new SectionRefs(subjectRefs(subjectIds), teacherRefs(teacherIds), null));
+    }
+
+    private List<SubjectRef> subjectRefs(Set<Long> ids) {
+        return subjects.list().stream()
+                .filter(s -> ids.contains(s.id()))
+                .map(s -> new SubjectRef(s.id(), s.shortName()))
+                .toList();
+    }
+
+    private List<TeacherRef> teacherRefs(Set<Long> ids) {
+        return teachers.list().stream()
+                .filter(t -> ids.contains(t.id()))
+                .map(t -> new TeacherRef(t.id(), t.shortName()))
+                .toList();
+    }
+
+    private List<TimeslotRef> timeslotRefs(Set<Long> ids) {
+        return timegrid.get().slots().stream()
+                .filter(s -> ids.contains(s.id()))
+                .map(s -> new TimeslotRef(s.id(), s.day(), s.position()))
+                .toList();
+    }
 }

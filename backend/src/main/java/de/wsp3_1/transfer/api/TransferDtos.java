@@ -80,4 +80,61 @@ public final class TransferDtos {
             int timeslots, int rules, int holidays,
             List<String> warnings) {
     }
+
+
+        // ------------------------------------------------------------------ Bereichsweise Sicherung (Version 2)
+
+    /**
+     * Ein Bereich der Grunddaten als eigenes Dokument (Format-Version 2). Anders als
+     * {@link MasterDataExport} enthält es nur **einen** Bereich — plus die Referenzlisten, die
+     * zum Auflösen der Verweise nötig sind.
+     *
+     * <p>Warum Referenzlisten? Eine Lehrkraft trägt {@code subjectIds} und
+     * {@code blockedTimeslotIds}. Enthielte das Dokument nur die Lehrkräfte, wüsste die
+     * Zielinstanz nicht, welche Fächer und Zeitfenster gemeint sind — die Kennungen sind dort
+     * andere. Die Referenzen tragen deshalb den natürlichen Schlüssel (Kurzname bzw. Tag+Position)
+     * mit, über den der Import sie im Zielbestand auflöst.</p>
+     */
+    public record MasterDataSection(
+            @NotBlank
+            @Pattern(regexp = "2", message = "wird nicht unterstützt (erwartet 2)")
+            String version,
+            @NotBlank
+            @Pattern(regexp = "subjects|teachers|rooms|classes|timeslots|rules|holidays",
+                    message = "unbekannter Bereich")
+            String scope,
+            Instant exportedAt,
+            List<SubjectDto> subjects,
+            List<TeacherDto> teachers,
+            List<RoomDto> rooms,
+            List<ClassDto> classes,
+            List<TimeslotDto> timeslots,
+            List<RuleDto> rules,
+            List<HolidayDto> holidays,
+            SectionRefs refs) {
+    }
+
+    /** Referenzlisten für die Auflösung. Nur die Listen sind gefüllt, die der Bereich braucht. */
+    public record SectionRefs(
+            List<SubjectRef> subjects,
+            List<TeacherRef> teachers,
+            List<TimeslotRef> timeslots) {
+    }
+
+    public record SubjectRef(@NotNull Long id, @NotBlank String shortName) {
+    }
+
+    public record TeacherRef(@NotNull Long id, @NotBlank String shortName) {
+    }
+
+    public record TimeslotRef(@NotNull Long id, @NotNull Weekday day, @NotNull Integer position) {
+    }
+
+    /** Zählung, was ein Bereichsimport angelegt (neu) bzw. aktualisiert hat. */
+    public record SectionImportResult(
+            String scope,
+            int created,
+            int updated,
+            List<String> warnings) {
+    }
 }

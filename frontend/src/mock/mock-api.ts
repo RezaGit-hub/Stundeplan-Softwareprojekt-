@@ -5,6 +5,7 @@ import type {
   EventInput, ExceptionDto, FieldErrorDto, LessonDto, PendingRow, RoomInput, RuleInput, SubjectInput, TeacherDto,
   TeacherInput, TimegridInput, TimetableDto, UserDto, WeekDto, ClassInput, HolidayInput, HolidayPresetInput,
   MasterDataExport, MasterDataImport, MasterDataImportResult,
+  MasterDataSection, SectionImportResult, TransferScope,
 } from '@/api/types'
 import { authToken } from '@/api/auth-token'
 import { addDaysIso, between, startOfIsoWeek } from '@/lib/dates'
@@ -1028,6 +1029,108 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
         added++
       }
       return { added, skipped, state, schoolYear: body.schoolYear }
+    },
+
+        // Bereichsweise Sicherung (Format-Version 2)
+    async exportMasterDataSection(scope: TransferScope): Promise<MasterDataSection> {
+      await planning()
+      const now = nowIso()
+      const build = (rows: object | null): MasterDataSection => ({
+        version: '2', scope, exportedAt: now,
+        subjects: scope === 'subjects' ? s.subjects.map((x) => ({ ...x })) : null,
+        teachers: scope === 'teachers' ? s.teachers.map((t) => teacherDto(t, s)) : null,
+        rooms: scope === 'rooms' ? s.rooms.map((r) => ({ ...r })) : null,
+        classes: scope === 'classes' ? s.classes.map((c) => classDto(c, s)) : null,
+        timeslots: scope === 'timeslots' ? s.timeslots.map((t) => ({ ...t })) : null,
+        rules: scope === 'rules' ? s.rules.map((r) => ({ ...r })) : null,
+        holidays: scope === 'holidays' ? s.holidays.map((h) => ({ ...h })) : null,
+        refs: null,
+      })
+      const doc = build(null)
+      if (scope === 'teachers') {
+        const subjIds = new Set(s.teachers.flatMap((t) => t.subjectIds))
+        const slotIds = new Set(s.teachers.flatMap((t) => [...t.preferredTimeslotIds, ...t.blockedTimeslotIds]))
+        doc.refs = {
+          subjects: s.subjects.filter((x) => subjIds.has(x.id)).map((x) => ({ id: x.id, shortName: x.shortName })),
+          timeslots: s.timeslots.filter((x) => slotIds.has(x.id)).map((x) => ({ id: x.id, day: x.day, position: x.position })),
+        }
+      } else if (scope === 'classes') {
+        const subjIds = new Set(s.classes.flatMap((c) => c.subjects.map((r) => r.subjectId)))
+        const teachIds = new Set(s.classes.flatMap((c) => c.subjects.map((r) => r.teacherId)))
+        doc.refs = {
+          subjects: s.subjects.filter((x) => subjIds.has(x.id)).map((x) => ({ id: x.id, shortName: x.shortName })),
+          teachers: s.teachers.filter((x) => teachIds.has(x.id)).map((x) => ({ id: x.id, shortName: x.shortName })),
+        }
+      }
+      return doc
+    },
+
+    async importMasterDataSection(body: MasterDataSection): Promise<SectionImportResult> {
+      await planning()
+      if (body.version !== '2') throw validation([{ field: 'version', message: 'wird nicht unterstützt (erwartet 2)' }])
+      const fehler: FieldErrorDto[] = []
+      const resolve = (refs: { id: number; shortName?: string; day?: string; position?: number }[] | null | undefined,
+                       lookup: (r: any) => number | null): Map<number, number> => {
+        const map = new Map<number, number>()
+        for (const r of refs ?? []) {
+          const neu = lookup(r)
+          if (neu != null) map.set(r.id, neu)
+        }
+        return map
+      }
+      let created = 0, updated = 0
+
+      if (body.scope === 'subjects') {
+        for (const x of body.subjects ?? []) {
+          const alt = s.subjects.find((y) => y.shortName.toLowerCase() === x.shortName.toLowerCase())
+          if (alt) { Object.assign(alt, { name: x.name, shortName: x.shortName, requiredRoomType: x.requiredRoomType, color: x.color }); updated++ }
+          else { s.subjects.push({ id: nextId(), name: x.name, shortName: x.shortName, requiredRoomType: x.requiredRoomType, color: x.color }); created++ }
+        }
+      } else if (body.scope === 'rooms') {
+        for (const x of body.rooms ?? []) {
+          const alt = s.rooms.find((y) => y.name.toLowerCase() === x.name.toLowerCase())
+          if (alt) { Object.assign(alt, { name: x.name, roomType: x.roomType, active: x.active }); updated++ }
+          else { s.rooms.push({ id: nextId(), name: x.name, roomType: x.roomType, active: x.active }); created++ }
+        }
+      } else if (body.scope === 'timeslots') {
+        s.timeslots = (body.timeslots ?? []).map((x) => ({ ...x, id: nextId() }))
+        created = s.timeslots.length
+      } else if (body.scope === 'rules') {
+        s.rules = (body.rules ?? []).map((x) => ({ ...x, id: nextId() }))
+        created = s.rules.length
+      } else if (body.scope === 'holidays') {
+        for (const x of body.holidays ?? []) {
+          const alt = s.holidays.find((y) => y.name === x.name && y.dateFrom === x.dateFrom && y.dateTo === x.dateTo)
+          if (!alt) { s.holidays.push({ ...x, id: nextId() }); created++ }
+        }
+      } else if (body.scope === 'teachers') {
+        const subjMap = resolve(body.refs?.subjects, (r) => s.subjects.find((y) => y.shortName.toLowerCase() === r.shortName.toLowerCase())?.id ?? null)
+        const slotMap = resolve(body.refs?.timeslots, (r) => s.timeslots.find((y) => y.day === r.day && y.position === r.position)?.id ?? null)
+        for (let i = 0; i < (body.teachers ?? []).length; i++) {
+          const t = body.teachers![i]
+          const subjectIds = t.subjectIds.map((id) => subjMap.get(id))
+          const blocked = t.blockedTimeslotIds.map((id) => slotMap.get(id))
+          const preferred = t.preferredTimeslotIds.map((id) => slotMap.get(id))
+          subjectIds.forEach((v, j) => { if (v == null) fehler.push({ field: `teachers[${i}].subjectIds[${j}]`, message: 'Fach nicht gefunden' }) })
+          if (fehler.length) continue
+          const alt = s.teachers.find((y) => y.shortName.toUpperCase() === t.shortName.toUpperCase())
+          if (alt) { Object.assign(alt, { name: t.name, weeklyHoursQuota: t.weeklyHoursQuota, subjectIds: subjectIds as number[], preferredTimeslotIds: preferred as number[], blockedTimeslotIds: blocked as number[], active: t.active }); updated++ }
+          else { s.teachers.push({ id: nextId(), name: t.name, shortName: t.shortName, weeklyHoursQuota: t.weeklyHoursQuota, subjectIds: subjectIds as number[], preferredTimeslotIds: preferred as number[], blockedTimeslotIds: blocked as number[], active: t.active }); created++ }
+        }
+      } else if (body.scope === 'classes') {
+        const subjMap = resolve(body.refs?.subjects, (r) => s.subjects.find((y) => y.shortName.toLowerCase() === r.shortName.toLowerCase())?.id ?? null)
+        const teachMap = resolve(body.refs?.teachers, (r) => s.teachers.find((y) => y.shortName.toUpperCase() === r.shortName.toUpperCase())?.id ?? null)
+        for (const c of body.classes ?? []) {
+          const subjects = c.subjects.map((row) => ({
+            subjectId: subjMap.get(row.subjectId)!, weeklyHours: row.weeklyHours, teacherId: teachMap.get(row.teacherId)!,
+          }))
+          const alt = s.classes.find((y) => y.name.toLowerCase() === c.name.toLowerCase())
+          if (alt) { Object.assign(alt, { name: c.name, grade: c.grade, active: c.active, subjects }); updated++ }
+          else { s.classes.push({ id: nextId(), name: c.name, grade: c.grade, active: c.active, subjects }); created++ }
+        }
+      }
+      if (fehler.length) throw validation(fehler)
+      return { scope: body.scope, created, updated, warnings: [] }
     },
   }
 }

@@ -43,7 +43,7 @@ export function RulesPage() {
         description={`${active} von ${rules.data.length} Regeln aktiv · ${hard} hart · ${active - hard} weich`}
         actions={
           <>
-            <TransferButtons />
+            <TransferButtons scope="rules"/>
             <Button variant="outline" onClick={() => { setAddKey((k) => k + 1); setAddOpen(true) }}><Plus /> Jahrgangswert hinzufügen</Button>
             <Button variant="outline" onClick={() => setConfirmReset(true)}><RotateCcw /> Beispielsatz {stateName} laden</Button>
           </>

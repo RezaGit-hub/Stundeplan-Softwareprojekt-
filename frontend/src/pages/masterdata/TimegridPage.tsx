@@ -61,7 +61,7 @@ function TimegridForm({ slots }: { slots: TimeslotDto[] }) {
         description={`${summary} — gilt für alle Klassen; Stundennummern werden gezählt, nicht gespeichert.`}
         actions={
           <>
-            <TransferButtons />
+            <TransferButtons scope="timeslots"/>
             {dirty && <Button variant="ghost" onClick={() => { setDraft(normalize(slots)); fields.clear(); setInUse(null) }} disabled={put.isPending}><RotateCcw /> Verwerfen</Button>}
             <Button onClick={() => void save()} disabled={!dirty || put.isPending}><Save /> Speichern</Button>
           </>

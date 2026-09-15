@@ -61,7 +61,7 @@ export function ClassesPage() {
         description={`${classes.data.length} Klassen${warningCount > 0 ? ` · ${warningCount} Warnungen in der Fächerzuordnung` : ''}`}
         actions={
           <>
-            <TransferButtons />
+            <TransferButtons scope="classes"/>
             <SearchField value={query} onChange={setQuery} placeholder="Klasse, Jahrgang…" />
             <Button onClick={() => openDialog()}><Plus /> Neue Klasse</Button>
           </>

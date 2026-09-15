@@ -10,9 +10,10 @@ import {
   ApiError, type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput, type ConfigDto, type CreateUser,
   type DraftDto, type DraftSource, type EventInput, type EventQuery, type ExceptionInput, type HolidayInput,
   type HolidayPresetInput,
-  type MasterDataExport, type MasterDataImport, type MasterDataImportResult,
+  type MasterDataExport, type MasterDataImport, type MasterDataImportResult, type MasterDataSection,
   type PasswordChange,
-  type PatchLessonInput, type RoomInput, type RuleInput, type SubjectInput, type TeacherInput, type TimegridInput, type View,
+  type PatchLessonInput, type RoomInput, type RuleInput, type SectionImportResult, type SubjectInput,
+  type TeacherInput, type TimegridInput, type TransferScope, type View,
 } from './types'
 
 export const queryClient = new QueryClient({
@@ -228,6 +229,18 @@ export function useExportMasterData(): UseMutationResult<MasterDataExport, Error
 export function useImportMasterData(opts?: MutationOpts): UseMutationResult<MasterDataImportResult, Error, MasterDataImport> {
   return useApiMutation(
     (body: MasterDataImport) => api.importMasterData(body),
+    (qc) => void qc.invalidateQueries(),
+    opts,
+  )
+}
+
+export function useExportMasterDataSection(scope: TransferScope): UseMutationResult<MasterDataSection, Error, void> {
+  return useApiMutation(() => api.exportMasterDataSection(scope), () => {})
+}
+
+export function useImportMasterDataSection(scope: TransferScope, opts?: MutationOpts): UseMutationResult<SectionImportResult, Error, MasterDataSection> {
+  return useApiMutation(
+    (body: MasterDataSection) => api.importMasterDataSection(body),
     (qc) => void qc.invalidateQueries(),
     opts,
   )

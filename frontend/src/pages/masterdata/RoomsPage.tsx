@@ -57,7 +57,7 @@ export function RoomsPage() {
         description={`${rooms.data.length} Räume · ${roomTypes.length} Raumarten`}
         actions={
           <>
-            <TransferButtons />
+            <TransferButtons scope="rooms"/>
             <SearchField value={query} onChange={setQuery} placeholder="Name, Raumart…" />
             <Button onClick={() => openDialog()}><Plus /> Neuer Raum</Button>
           </>

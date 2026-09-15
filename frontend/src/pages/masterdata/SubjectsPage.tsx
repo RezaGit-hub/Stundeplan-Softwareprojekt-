@@ -52,7 +52,7 @@ export function SubjectsPage() {
         description={`${subjects.data.length} Fächer · Farbe und Raumanforderung gelten in allen Plansichten`}
         actions={
           <>
-            <TransferButtons />
+            <TransferButtons scope="subjects"/>
             <SearchField value={query} onChange={setQuery} placeholder="Name, Kürzel, Raumart…" />
             <Button onClick={() => openDialog()}><Plus /> Neues Fach</Button>
           </>

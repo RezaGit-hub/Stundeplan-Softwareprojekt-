@@ -65,7 +65,7 @@ export function TeachersPage() {
         description={`${teachers.data.length} Lehrkräfte · ${activeCount} aktiv`}
         actions={
           <>
-            <TransferButtons />
+            <TransferButtons scope="teachers"/>
             <SearchField value={query} onChange={setQuery} placeholder="Name, Kürzel, Fach…" />
             <Button onClick={() => openDialog()}><Plus /> Neue Lehrkraft</Button>
           </>

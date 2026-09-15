@@ -2516,6 +2516,103 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
 
+  /api/masterdata/{scope}/export:
+    parameters:
+      - name: scope
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [subjects, teachers, rooms, classes, timeslots, rules, holidays]
+    get:
+      tags: [Sicherung]
+      operationId: exportMasterDataSection
+      summary: Einen Bereich der Grunddaten exportieren (Format-Version 2)
+      description: |
+        Liefert **nur den gewählten Bereich**. Enthält bei `teachers` und `classes` zusätzlich die
+        Referenzlisten (`refs.subjects`, `refs.teachers`, `refs.timeslots`), über die der Import die
+        Verweise auf dem Zielsystem auflöst — die Kennungen der Datei sind dort nicht gültig.
+
+        Anders als der Voll-Export (Version 1) ist die bereichsweise Datei **additiv gedacht**:
+        der Import ergänzt und aktualisiert, er löscht nichts. Ausnahme: `timeslots` und `rules`
+        ersetzen ihren Bereich vollständig (das Raster ist strukturell, das Regelwerk ist ein Satz).
+      x-role: PLANNING
+      responses:
+        '200':
+          description: das Bereichsdokument
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MasterDataSection'
+              example:
+                version: '2'
+                scope: teachers
+                exportedAt: '2026-09-15T10:00:00Z'
+                teachers:
+                  - { id: 1, name: Meyer, shortName: MEY, weeklyHoursQuota: 25, subjectIds: [1, 3], preferredTimeslotIds: [], blockedTimeslotIds: [], active: true, plannedHours: 5, warnings: [] }
+                  - { id: 2, name: Schulz, shortName: SCZ, weeklyHoursQuota: 2, subjectIds: [1], preferredTimeslotIds: [], blockedTimeslotIds: [34, 35], active: true, plannedHours: 1, warnings: [] }
+                refs:
+                  subjects:
+                    - { id: 1, shortName: Ma }
+                    - { id: 3, shortName: Ph }
+                  timeslots:
+                    - { id: 34, day: FR, position: 6 }
+                    - { id: 35, day: FR, position: 7 }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/masterdata/{scope}/import:
+    parameters:
+      - name: scope
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [subjects, teachers, rooms, classes, timeslots, rules, holidays]
+    post:
+      tags: [Sicherung]
+      operationId: importMasterDataSection
+      summary: Einen Bereich der Grunddaten einspielen (Format-Version 2)
+      description: |
+        Ergänzt und aktualisiert den Bereich, angepasst über den **natürlichen Schlüssel**:
+        Fächer über `shortName`, Lehrkräfte über `shortName`, Räume und Klassen über `name`,
+        Ferien über `name` + Zeitraum. Was schon dasteht, wird aktualisiert — nichts wird gelöscht.
+
+        `timeslots` und `rules` ersetzen ihren Bereich (Raster bzw. Regelwerk sind Sätze).
+
+        Verweise (`subjectIds` in Lehrkräften, `subjects` in Klassen) werden über die
+        Referenzlisten `refs` aufgelöst: die Kurzname aus der Datei muss im Zielbestand
+        vorhanden sein, sonst 400 `validation` mit dem Pfad in `errors[]`. Reihenfolge beim
+        Einspielen mehrerer Bereiche daher: Fächer → Lehrkräfte → Klassen.
+
+        Die Antwort nennt `created` und `updated` — die Summe der Zeilen, die neu angelegt bzw.
+        verändert wurden.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MasterDataSection'
+      responses:
+        '200':
+          description: importiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SectionImportResult'
+              example: { scope: teachers, created: 1, updated: 2, warnings: [] }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
   /api/masterdata/export:
     get:
       tags: [Sicherung]
@@ -2787,6 +2884,71 @@ components:
             detail: Der Entwurf wird gerade berechnet. Bitte warten oder die Berechnung abbrechen.
 
   schemas:
+
+    MasterDataSection:
+      type: object
+      description: |
+        Ein Bereich der Grunddaten (Format-Version 2). Nur das Feld zum `scope` ist gefüllt.
+        `refs` trägt die Referenzlisten, über die der Import Verweise auflöst — bei `teachers`
+        und `classes` gesetzt, sonst `null`.
+      required: [version, scope, exportedAt]
+      properties:
+        version:
+          type: string
+          enum: ['2']
+        scope:
+          type: string
+          enum: [subjects, teachers, rooms, classes, timeslots, rules, holidays]
+        exportedAt: { type: string, format: date-time }
+        subjects: { type: [array, 'null'], items: { $ref: '#/components/schemas/SubjectDto' } }
+        teachers: { type: [array, 'null'], items: { $ref: '#/components/schemas/TeacherDto' } }
+        rooms:    { type: [array, 'null'], items: { $ref: '#/components/schemas/RoomDto' } }
+        classes:  { type: [array, 'null'], items: { $ref: '#/components/schemas/ClassDto' } }
+        timeslots: { type: [array, 'null'], items: { $ref: '#/components/schemas/TimeslotDto' } }
+        rules:    { type: [array, 'null'], items: { $ref: '#/components/schemas/RuleDto' } }
+        holidays: { type: [array, 'null'], items: { $ref: '#/components/schemas/HolidayDto' } }
+        refs:
+          oneOf:
+            - $ref: '#/components/schemas/SectionRefs'
+            - type: 'null'
+
+    SectionRefs:
+      type: object
+      properties:
+        subjects:
+          type: [array, 'null']
+          items:
+            type: object
+            required: [id, shortName]
+            properties:
+              id: { type: integer, format: int64 }
+              shortName: { type: string }
+        teachers:
+          type: [array, 'null']
+          items:
+            type: object
+            required: [id, shortName]
+            properties:
+              id: { type: integer, format: int64 }
+              shortName: { type: string }
+        timeslots:
+          type: [array, 'null']
+          items:
+            type: object
+            required: [id, day, position]
+            properties:
+              id: { type: integer, format: int64 }
+              day: { $ref: '#/components/schemas/Weekday' }
+              position: { type: integer, minimum: 1 }
+
+    SectionImportResult:
+      type: object
+      required: [scope, created, updated, warnings]
+      properties:
+        scope: { type: string }
+        created: { type: integer, minimum: 0 }
+        updated: { type: integer, minimum: 0 }
+        warnings: { type: array, items: { type: string } }
 
     Role:
       type: string

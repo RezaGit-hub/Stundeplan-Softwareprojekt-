@@ -159,4 +159,7 @@ export const httpApi: Api = {
 
   exportMasterData: () => request('GET', '/masterdata/export'),
   importMasterData: (body) => request('POST', '/masterdata/import', { body }),
+
+  exportMasterDataSection: (scope) => request('GET', `/masterdata/${scope}/export`),
+  importMasterDataSection: (body) => request('POST', `/masterdata/${body.scope}/import`, { body }),
 }

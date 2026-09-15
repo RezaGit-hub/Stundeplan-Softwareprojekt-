@@ -39,4 +39,19 @@ public class TransferController {
     public MasterDataImportResult importMasterData(@Valid @RequestBody MasterDataImport body) {
         return importService.importMasterData(body);
     }
+
+    @GetMapping("/{scope}/export")
+    public MasterDataSection exportSection(@PathVariable String scope) {
+        return export.exportSection(scope);
+    }
+
+    @PostMapping("/{scope}/import")
+    public SectionImportResult importSection(@PathVariable String scope,
+                                             @Valid @RequestBody MasterDataSection body) {
+        if (!scope.equals(body.scope())) {
+            throw new ValidationException("scope",
+                    "Pfad und Dokument stimmen nicht überein (" + scope + " ≠ " + body.scope() + ")");
+        }
+        return importService.importSection(body);
+    }
 }

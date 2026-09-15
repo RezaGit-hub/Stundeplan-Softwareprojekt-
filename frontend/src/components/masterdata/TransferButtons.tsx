@@ -1,40 +1,45 @@
-// Kompakte Aus-/Einspielknöpfe für die Kopfzeile der Grunddatenseiten. Die ausführliche Variante
-// mit Erklärkarte steht in den Einstellungen (TransferCard); hier ist es dieselbe Mechanik in klein:
-// Dropdown am Kopfzeilenrand, Datei-Dialog, Vorschau vor dem Ersetzen.
+// Bereichs-Aus-/Einspielknöpfe für die Kopfzeile einer Grunddatenseite. Die Datei enthält **nur
+// diesen Bereich** (Format-Version 2) — auf der Lehrkraftseite also nur Lehrkräfte. Fächer und
+// Zeitfenster werden beim Import über Kurzname bzw. Tag+Position zugeordnet; stehen sie auf der
+// Zielinstanz nicht, meldet der Server einen Feldfehler, und der Dialog bleibt offen.
 import { useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { AlertTriangle, Download, FileUp, HardDriveDownload } from 'lucide-react'
-import type { MasterDataExport } from '@/api/types'
-import { useExportMasterData, useImportMasterData } from '@/api/hooks'
+import { Download, FileUp, HardDriveDownload, Info } from 'lucide-react'
+import type { MasterDataSection, TransferScope } from '@/api/types'
+import { useExportMasterDataSection, useImportMasterDataSection } from '@/api/hooks'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
-import { downloadMasterData, isDataExists, preview, readMasterDataFile } from './transfer-helpers'
+import { downloadSection, previewSection, previewSectionResult, readSectionFile, SCOPE_LABEL } from './transfer-helpers'
 
-export function TransferButtons() {
+const REFS_HINWEIS: Partial<Record<TransferScope, string>> = {
+  teachers: 'Fächer und Zeitfenster werden über Kurzname bzw. Tag+Position zugeordnet — sie müssen hier vorhanden sein.',
+  classes: 'Fächer und Lehrkräfte werden über Kürzel zugeordnet — sie müssen hier vorhanden sein.',
+}
+
+export function TransferButtons({ scope }: { scope: TransferScope }) {
   const qc = useQueryClient()
+  const label = SCOPE_LABEL[scope]
   const fileInput = useRef<HTMLInputElement>(null)
-  const [datei, setDatei] = useState<{ name: string; doc: MasterDataExport } | null>(null)
-  const exportMut = useExportMasterData()
-  const importMut = useImportMasterData({ quiet: isDataExists })
+  const [datei, setDatei] = useState<{ name: string; doc: MasterDataSection } | null>(null)
+  const exportMut = useExportMasterDataSection(scope)
+  const importMut = useImportMasterDataSection(scope)
 
   const exportieren = async () => {
     try {
       const doc = await exportMut.mutateAsync()
-      downloadMasterData(doc)
-      toast.success('Grunddaten exportiert', { description: preview(doc) })
-    } catch {
-      /* Toast kommt aus dem Standard-onError */
-    }
+      downloadSection(doc)
+      toast.success(`${label.plural} exportiert`, { description: previewSection(doc) })
+    } catch { /* Toast aus dem Standard-onError */ }
   }
 
   const onFile = async (file: File) => {
     try {
-      setDatei({ name: file.name, doc: await readMasterDataFile(file) })
+      setDatei({ name: file.name, doc: await readSectionFile(file, scope) })
     } catch (err) {
       toast.error('Datei nicht lesbar', { description: err instanceof Error ? err.message : undefined })
     }
@@ -43,14 +48,17 @@ export function TransferButtons() {
   const einspielen = async () => {
     if (!datei) return
     try {
-      const res = await importMut.mutateAsync({ ...datei.doc, replace: true })
+      const res = await importMut.mutateAsync(datei.doc)
       void qc.invalidateQueries()
-      toast.success('Grunddaten importiert', { description: preview(res) })
+      const beschreibung = previewSectionResult(res)
+      toast.success(`${label.plural} importiert`, {
+        description: res.warnings.length > 0 ? `${beschreibung} · ${res.warnings.join(' · ')}` : beschreibung,
+      })
       setDatei(null)
-    } catch {
-      /* Fehler-Toast kommt aus dem Standard-onError; der Dialog bleibt offen. */
-    }
+    } catch { /* Fehler-Toast kommt aus dem Standard-onError; der Dialog bleibt offen. */ }
   }
+
+  const hinweis = REFS_HINWEIS[scope]
 
   return (
     <>
@@ -61,8 +69,6 @@ export function TransferButtons() {
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0]
-          // Der File-Input erlaubt es nicht, denselben File zweimal zu waehlen, ohne den value
-          // zurueckzusetzen — sonst feuert `change` beim zweiten Mal nicht.
           e.target.value = ''
           if (f) void onFile(f)
         }}
@@ -70,19 +76,25 @@ export function TransferButtons() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" disabled={exportMut.isPending || importMut.isPending}>
-            <HardDriveDownload data-icon="inline-start" /> Sichern
+            <HardDriveDownload data-icon="inline-start" /> {label.plural} sichern
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuContent align="end" className="w-80">
           <DropdownMenuLabel className="text-xs font-normal text-foreground-subtle">
-            Sicherung der Grunddaten — immer der ganze Bestand
+            Nur {label.plural} — andere Bereiche bleiben unverändert
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => void exportieren()}>
-            <Download /> Grunddaten exportieren
+            <Download /> {label.plural} exportieren
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => fileInput.current?.click()}>
-            <FileUp /> Grunddaten importieren…
+            <FileUp /> {label.plural} importieren…
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <a href="/einstellungen?bereich=transfer" className="text-xs text-foreground-subtle">
+              <Info /> Ganze Schule sichern — Einstellungen → Sicherung
+            </a>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -90,20 +102,22 @@ export function TransferButtons() {
       <ConfirmDialog
         open={datei != null}
         onOpenChange={(o) => { if (!o) setDatei(null) }}
-        title={`„${datei?.name ?? ''}" importieren?`}
+        title={`${label.plural} aus „${datei?.name ?? ''}" importieren?`}
         description={
           datei ? (
             <div className="space-y-2 text-sm">
-              <p>Die Datei enthält: {preview(datei.doc)}.</p>
-              <p className="flex items-start gap-2 rounded-md bg-warning-soft px-3 py-2 text-warning">
-                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-                <span><b>Vorhandene Grunddaten werden ersetzt.</b> Pläne, Entwürfe, Vertretungen, Ereignisse und der Verlauf gehen verloren. Regelwerk und Ferienzeiträume kommen aus der Datei.</span>
+              <p>Die Datei enthält: {previewSection(datei.doc)}.</p>
+              <p className="text-foreground-muted">
+                Vorhandene {label.plural} mit demselben Schlüssel werden aktualisiert, neue kommen dazu.
+                Andere Bereiche (Fächer, Klassen, Räume, Planung) bleiben unverändert.
               </p>
+              {hinweis && (
+                <p className="rounded-md bg-surface-sunken px-3 py-2 text-xs text-foreground-muted">{hinweis}</p>
+              )}
             </div>
           ) : undefined
         }
-        confirmLabel="Ersetzen"
-        destructive
+        confirmLabel="Einspielen"
         onConfirm={einspielen}
       />
     </>
