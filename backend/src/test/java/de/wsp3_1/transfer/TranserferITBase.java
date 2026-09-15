@@ -3,7 +3,7 @@ package de.wsp3_1.transfer;
 import de.wsp3_1.rules.domain.RuleService;
 import de.wsp3_1.sampledata.domain.SampleDataLoader;
 import de.wsp3_1.shared.IntegrationTestBase;
-import de.wsp3_1.substitution.api.SubstitutionDtos.HolidayInput;
+import de.wsp3_1.substitution.domain.SubstitutionViews.NewHoliday;
 import de.wsp3_1.substitution.domain.HolidayKind;
 import de.wsp3_1.substitution.domain.HolidayService;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,7 +51,7 @@ abstract class TransferITBase extends IntegrationTestBase {
         // Der Loader laesst das Regelwerk in Ruhe; hier stellen wir den Beispielsatz SH her
         // (5 Zeilen: 3 aktiv, 2 Lehrkraft-Zeilen aus).
         rules.reset();
-        holidays.create(new HolidayInput("Herbstferien",
+                holidays.create(new NewHoliday("Herbstferien",
                 LocalDate.of(2026, 10, 19), LocalDate.of(2026, 10, 31), HolidayKind.VACATION));
         token = login();
     }

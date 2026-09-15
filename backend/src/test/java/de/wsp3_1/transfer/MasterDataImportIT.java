@@ -29,7 +29,7 @@ class MasterDataImportIT extends TransferITBase {
     @DisplayName("Roundtrip: exportieren, mit replace einspielen — gleiche Zahlen, Konto admin bleibt")
     void roundtripErhaeltDenBestand() throws Exception {
         JsonNode doc1 = exportiere();
-        ObjectNode body = doc1.deepCopy();
+        ObjectNode body = (ObjectNode) doc1.deepCopy();
         body.put("replace", true);
 
         JsonNode ergebnis = importiere(body, 200);
@@ -65,7 +65,7 @@ class MasterDataImportIT extends TransferITBase {
     @DisplayName("Ohne replace und bei vorhandenen Daten: 409 data-exists, Bestand unverändert")
     void ohneReplaceBeiVorhandenenDaten409() throws Exception {
         JsonNode doc = exportiere();
-        ObjectNode body = doc.deepCopy();
+        ObjectNode body = (ObjectNode) doc.deepCopy();
         body.put("replace", false);
 
         importiere(body, 409);
@@ -112,7 +112,7 @@ class MasterDataImportIT extends TransferITBase {
         long vorherFaecher = jdbc.queryForObject("SELECT count(*) FROM subject", Long.class);
 
         JsonNode doc = exportiere();
-        ObjectNode body = doc.deepCopy();
+        ObjectNode body = (ObjectNode) doc.deepCopy();
         body.put("replace", true);
         ((ObjectNode) body.get("classes").get(0).get("subjects").get(0)).put("teacherId", 999_999L);
 
@@ -131,7 +131,7 @@ class MasterDataImportIT extends TransferITBase {
         long vorher = jdbc.queryForObject("SELECT count(*) FROM subject", Long.class);
 
         JsonNode doc = exportiere();
-        ObjectNode body = doc.deepCopy();
+        ObjectNode body = (ObjectNode) doc.deepCopy();
         body.put("replace", true);
         // Das Kuerzel des ersten Fachs auf das zweite kopieren — die Fachpruefung lehnt das ab.
         ((ObjectNode) body.get("subjects").get(1)).put("shortName",
