@@ -90,7 +90,7 @@ export function PlanPage() {
   return (
     <>
       <PageHeader
-        title="Aktiver Plan"
+        title={objectLabel ? `Aktiver Plan - ${objectLabel}` : 'Aktiver Plan'}
         description={acceptedAt ? `Angenommen am ${formatDateTime(acceptedAt)} · ${timetable.data.lessons.length} Stunden${validFrom ? ` · gilt ab ${formatDayDate(validFrom)}` : ''}` : undefined}
         actions={<Button variant="outline" size="sm" className="print-hide" onClick={() => window.print()}><Printer data-icon="inline-start" /> Drucken</Button>}
       />
