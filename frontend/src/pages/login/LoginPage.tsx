@@ -3,7 +3,8 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'motion/react'
-import { AlertCircle, CalendarDays, Eye, EyeOff } from 'lucide-react'
+import { AlertCircle, Eye, EyeOff } from 'lucide-react'
+import { Logo } from '@/components/Logo'
 import { IS_MOCK } from '@/api/api'
 import { problemOf } from '@/api/errors'
 import { useHealth } from '@/api/hooks'
@@ -73,8 +74,8 @@ export function LoginPage() {
       <motion.div {...cardEnter} className="w-full max-w-[400px]">
         <Card className="gap-0 rounded-xl border-border/70 bg-surface/70 p-8 shadow-lg backdrop-blur-xl dark:bg-surface/50">
           <div className="mb-6 flex items-center gap-2">
-            <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground"><CalendarDays className="size-4" /></span>
-            <span className="font-semibold">Stundenplanung</span>
+            <Logo className="size-8" />
+            <span className="font-semibold">StundenPlan+</span>
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">Anmelden</h1>
           <p className="mt-1 mb-6 text-sm text-foreground-subtle">{health.data?.schoolName ?? (health.isError ? 'Server nicht erreichbar' : ' ')}</p>
