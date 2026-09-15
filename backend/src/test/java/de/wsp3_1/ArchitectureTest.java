@@ -35,7 +35,7 @@ class ArchitectureTest {
      * hier, damit die Grenze schon gilt, bevor die erste Klasse darin liegt.
      */
     // Map.ofEntries statt Map.of: Map.of fasst hoechstens zehn Paare, und die Tabelle waechst noch
-    // (ergaenzt 05.09. beim Modul sampledata).
+    // (ergaenzt 05.09. beim Modul sampledata, 15.09. beim Modul transfer).
     private static final Map<String, Set<String>> ALLOWED = new LinkedHashMap<>(Map.ofEntries(
             Map.entry("masterdata", Set.of("shared")),
             // rules liest das eingestellte Bundesland aus config (POST /api/rules/reset, E-48) —
@@ -60,13 +60,12 @@ class ArchitectureTest {
             // angenommenen Beispielplan (E-46) ruft SampleDataLoader.loadFull() seit der Nacharbeit
             // backend2 planning.DraftService und planning.SolveService.
             Map.entry("sampledata", Set.of("masterdata", "planning", "shared")),
-            Map.entry("shared", Set.of()),
-
-        // Neu am 15.09.: das Modul transfer liest fuer den Export die bestehenden Lese-Dienste der
-        // Module masterdata, rules, substitution und config und ruft beim Import deren Anlege-Methoden
-        // auf. config wird nicht gebraucht (die Systemkonfiguration ist bewusst nicht Teil des
-        // Dokuments), aber transfer haengt auch nicht an auth/planning/changelog/solver/sampledata.
-        Map.entry("transfer", Set.of("masterdata", "rules", "substitution", "shared"))));
+            // Neu am 15.09.: das Modul transfer liest fuer den Export die bestehenden Lese-Dienste der
+            // Module masterdata, rules und substitution und ruft beim Import deren Anlege-Methoden
+            // auf. config wird nicht gebraucht (die Systemkonfiguration ist bewusst nicht Teil des
+            // Dokuments); auth, planning, changelog, solver und sampledata benutzt es nicht.
+            Map.entry("transfer", Set.of("masterdata", "rules", "substitution", "shared")),
+            Map.entry("shared", Set.of())));
 
     private final JavaClasses classes = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
@@ -146,10 +145,10 @@ class ArchitectureTest {
             // sampledata leert und fuellt die Tabellen aller Module (D-2) — dafuer ist es da.
             ROOT + ".sampledata.domain.SampleDataLoader",
             // changelog joint user_account (auth) und school_class (masterdata) fuer die Liste (D-3).
-            ROOT + ".changelog.domain.ChangelogService");
-            // ImportService leert vor dem Einspielen die Grunddatentabellen. Reines JdbcTemplate wie im
-            // SampleDataLoader; die Modultabelle sieht SQL nicht (Regel 5).
-            ROOT + ".transfer.domain.ImportService",
+            ROOT + ".changelog.domain.ChangelogService",
+            // ImportService leert vor dem Einspielen die Grunddatentabellen (dieselbe Liste wie
+            // SampleDataLoader). Reines JdbcTemplate; die Modultabelle sieht SQL nicht (Regel 5).
+            ROOT + ".transfer.domain.ImportService");
 
     @Test
     @DisplayName("Regel 5: rohes SQL nur an den im Vertrag genannten Stellen")
