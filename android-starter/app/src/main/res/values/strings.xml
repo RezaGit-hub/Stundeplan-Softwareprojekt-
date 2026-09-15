@@ -39,6 +39,12 @@
     <string name="show_password">Passwort anzeigen</string>
     <string name="hide_password">Passwort verstecken</string>
 
+    <!-- Einstellungen: Ansicht -->
+    <string name="view_title">Ansicht</string>
+    <string name="view_system">System</string>
+    <string name="view_darkMode">Dunkel</string>
+    <string name="view_lightMode">Hell</string>
+
     <!-- Tagesansicht (A-1, T-A1.1) -->
     <string name="day_today">Heute</string>
     <string name="day_week">Woche</string>

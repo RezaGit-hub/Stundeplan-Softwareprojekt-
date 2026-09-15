@@ -45,6 +45,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import de.wsp3_1.stundenplan.Defaults
 import de.wsp3_1.stundenplan.R
+import de.wsp3_1.stundenplan.data.ThemeMode
 
 /**
  * Einstellungen: Serveradresse eintragen, Verbindung pruefen, speichern (A-3, T-A3.1);
@@ -55,6 +56,8 @@ import de.wsp3_1.stundenplan.R
 fun SettingsScreen(
     state: SettingsUiState,
     uiState: UiState,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
     onServerUrlChange: (String) -> Unit,
     onCheck: () -> Unit,
     onSave: () -> Unit,
@@ -89,6 +92,13 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
+            AnsichtSection(
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange
+            )
+
+            HorizontalDivider()
+
             LoginSection(state, uiState, onUsernameChange, onPasswordChange, onLogin, onLogout)
 
             Spacer(Modifier.height(8.dp))
@@ -98,6 +108,75 @@ fun SettingsScreen(
             )
         }
     }
+}
+
+@Composable
+private fun AnsichtSection(
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+) {
+   Column(
+       modifier = Modifier.fillMaxWidth(),
+       verticalArrangement = Arrangement.spacedBy(8.dp)
+   ) {
+       Text(
+           text = stringResource(R.string.view_title),
+           style = MaterialTheme.typography.titleMedium
+       )
+
+       Row(
+           modifier = Modifier.fillMaxWidth(),
+           horizontalArrangement = Arrangement.spacedBy(8.dp)
+       ) {
+           if (themeMode == ThemeMode.SYSTEM) {
+               Button(
+                   onClick = { onThemeModeChange(ThemeMode.SYSTEM) },
+                   modifier = Modifier.weight(1f)
+               ) {
+                   Text(stringResource(R.string.view_system))
+               }
+           } else {
+               OutlinedButton(
+                   onClick = { onThemeModeChange(ThemeMode.SYSTEM) },
+                   modifier = Modifier.weight(1f)
+               ) {
+                   Text(stringResource(R.string.view_system))
+               }
+           }
+
+           if (themeMode == ThemeMode.LIGHT) {
+               Button(
+                   onClick = { onThemeModeChange(ThemeMode.LIGHT) },
+                   modifier = Modifier.weight(1f)
+               ) {
+                   Text(stringResource(R.string.view_lightMode))
+               }
+           } else {
+               OutlinedButton(
+                   onClick = { onThemeModeChange(ThemeMode.LIGHT) },
+                   modifier = Modifier.weight(1f)
+               ) {
+                   Text(stringResource(R.string.view_lightMode))
+               }
+           }
+
+           if (themeMode == ThemeMode.DARK) {
+               Button(
+                   onClick = { onThemeModeChange(ThemeMode.DARK) },
+                   modifier = Modifier.weight(1f)
+               ) {
+                   Text(stringResource(R.string.view_darkMode))
+               }
+           } else {
+               OutlinedButton(
+                   onClick = { onThemeModeChange(ThemeMode.DARK) },
+                   modifier = Modifier.weight(1f)
+               ) {
+                   Text(stringResource(R.string.view_darkMode))
+               }
+           }
+       }
+   }
 }
 
 @Composable
@@ -302,10 +381,14 @@ private fun CheckMessage(check: CheckState) {
 @Preview(showBackground = true)
 @Composable
 private fun SettingsScreenPreview() {
-    StundenplanTheme {
+    StundenplanTheme(
+        themeMode = ThemeMode.SYSTEM
+    ) {
         SettingsScreen(
             state = SettingsUiState(serverUrlInput = Defaults.DEFAULT_SERVER_URL),
             uiState = UiState.LoginRequired(),
+            themeMode = ThemeMode.SYSTEM,
+            onThemeModeChange = {},
             onServerUrlChange = {},
             onCheck = {},
             onSave = {},

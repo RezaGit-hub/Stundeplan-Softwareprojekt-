@@ -7,6 +7,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import de.wsp3_1.stundenplan.data.ThemeMode
 import java.time.LocalDate
 
 /**
@@ -14,7 +15,7 @@ import java.time.LocalDate
  * Kein Navigation-Compose; die Zurueck-Taste ist ein BackHandler mit viewModel.back().
  */
 @Composable
-fun App(viewModel: TimetableViewModel) {
+fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     val screen by viewModel.screen.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val settingsState by viewModel.settingsState.collectAsStateWithLifecycle()
@@ -35,6 +36,8 @@ fun App(viewModel: TimetableViewModel) {
         Screen.Settings -> SettingsScreen(
             state = settingsState,
             uiState = uiState,
+            themeMode = themeMode,
+            onThemeModeChange = onThemeModeChange,
             onServerUrlChange = viewModel::onServerUrlChange,
             onCheck = viewModel::checkConnection,
             onSave = viewModel::saveServerUrl,

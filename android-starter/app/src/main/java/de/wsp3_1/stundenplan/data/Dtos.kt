@@ -16,6 +16,15 @@ data class HealthDto(
     val schoolName: String? = null,
 )
 
+@Serializable
+enum class ThemeMode
+{
+    SYSTEM,
+    LIGHT,
+    DARK
+}
+
+
 /** Fehlerantwort nach RFC 9457, wie das Backend sie liefert (application/problem+json). */
 @Serializable
 data class ProblemDetail(

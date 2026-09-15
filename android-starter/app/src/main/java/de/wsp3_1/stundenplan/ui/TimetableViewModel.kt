@@ -13,8 +13,10 @@ import de.wsp3_1.stundenplan.data.EntryDto
 import de.wsp3_1.stundenplan.data.HealthResult
 import de.wsp3_1.stundenplan.data.LoginResult
 import de.wsp3_1.stundenplan.data.PlanDates
+import de.wsp3_1.stundenplan.data.ThemeMode
 import de.wsp3_1.stundenplan.data.TimetableRepository
 import de.wsp3_1.stundenplan.data.WeekResult
+import de.wsp3_1.stundenplan.ui.ThemePreferences
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,8 +27,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-import android.util.Log
-
 /**
  * Das eine ViewModel der App (backbone/android.md). Haelt drei Zustaende: den Bildschirm
  * ([Screen]), den Datenzustand ([UiState]) und das Formular der Einstellungen ([SettingsUiState]).
@@ -35,6 +35,7 @@ import android.util.Log
 class TimetableViewModel(
     private val settings: AppSettings,
     private val repository: TimetableRepository,
+    private val themePreferences: ThemePreferences,
     private val today: () -> LocalDate = { LocalDate.now() },
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
@@ -47,6 +48,9 @@ class TimetableViewModel(
 
     private val _settingsState = MutableStateFlow(SettingsUiState())
     val settingsState: StateFlow<SettingsUiState> = _settingsState.asStateFlow()
+
+    private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
     /** true, waehrend eine Woche neu geladen wird und alte Daten stehen bleiben (Pull-to-refresh). */
     private val _refreshing = MutableStateFlow(false)
@@ -66,7 +70,15 @@ class TimetableViewModel(
     private var loadTicket: Int = 0
 
     init {
-        viewModelScope.launch { loadSettingsIntoForm() }
+        viewModelScope.launch {
+            themePreferences.themeMode.collect { mode ->
+                _themeMode.value = mode
+            }
+        }
+
+        viewModelScope.launch {
+            loadSettingsIntoForm()
+        }
     }
 
     private suspend fun loadSettingsIntoForm() {
@@ -250,6 +262,14 @@ class TimetableViewModel(
 
     // ---------------------------------------------------------------- Einstellungen
 
+    fun setThemeMode(mode: ThemeMode) {
+        _themeMode.value = mode
+
+        viewModelScope.launch {
+            themePreferences.saveThemeMode(mode)
+        }
+    }
+
     fun onServerUrlChange(value: String) {
         _settingsState.update { it.copy(serverUrlInput = value, check = CheckState.Idle, savedNotice = false) }
     }
@@ -318,7 +338,6 @@ class TimetableViewModel(
     }
 
     fun onUsernameChange(value: String) {
-        Log.d("LOGIN", "Username: $value")
         _settingsState.update {
             it.copy(
                 username = value,
@@ -381,7 +400,13 @@ class TimetableViewModel(
 
     companion object {
         fun factory(container: AppContainer): ViewModelProvider.Factory = viewModelFactory {
-            initializer { TimetableViewModel(container.settings, container.repository) }
+            initializer {
+                TimetableViewModel(
+                    container.settings,
+                    container.repository,
+                    container.themePreferences
+                )
+            }
         }
     }
 }
