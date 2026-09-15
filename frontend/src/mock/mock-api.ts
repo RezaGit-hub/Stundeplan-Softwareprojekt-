@@ -1035,7 +1035,7 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
     async exportMasterDataSection(scope: TransferScope): Promise<MasterDataSection> {
       await planning()
       const now = nowIso()
-      const build = (rows: object | null): MasterDataSection => ({
+      const build = (): MasterDataSection => ({
         version: '2', scope, exportedAt: now,
         subjects: scope === 'subjects' ? s.subjects.map((x) => ({ ...x })) : null,
         teachers: scope === 'teachers' ? s.teachers.map((t) => teacherDto(t, s)) : null,
@@ -1046,7 +1046,7 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
         holidays: scope === 'holidays' ? s.holidays.map((h) => ({ ...h })) : null,
         refs: null,
       })
-      const doc = build(null)
+      const doc = build()
       if (scope === 'teachers') {
         const subjIds = new Set(s.teachers.flatMap((t) => t.subjectIds))
         const slotIds = new Set(s.teachers.flatMap((t) => [...t.preferredTimeslotIds, ...t.blockedTimeslotIds]))

@@ -14,6 +14,7 @@ import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
 import java.util.List;
+import de.wsp3_1.shared.Weekday;
 
 /**
  * Die beiden Dokumente der Sicherung (Format-Version 1). Feldgleich zu den Schemata

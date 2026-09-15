@@ -11,7 +11,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
+import de.wsp3_1.transfer.api.TransferDtos.MasterDataSection;
+import de.wsp3_1.transfer.api.TransferDtos.SectionImportResult;
+import org.springframework.web.bind.annotation.PathVariable;
 /**
  * Sicherung der Grunddaten: {@code /api/masterdata/export} und {@code /api/masterdata/import}.
  *

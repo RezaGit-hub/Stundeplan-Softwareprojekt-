@@ -240,7 +240,14 @@ export function useExportMasterDataSection(scope: TransferScope): UseMutationRes
 
 export function useImportMasterDataSection(scope: TransferScope, opts?: MutationOpts): UseMutationResult<SectionImportResult, Error, MasterDataSection> {
   return useApiMutation(
-    (body: MasterDataSection) => api.importMasterDataSection(body),
+    (body: MasterDataSection) => {
+      // readSectionFile prüft dasselbe schon vor dem Aufruf; hier steht es noch einmal, weil der Hook
+      // auch programmatisch (ohne Datei) aufgerufen werden kann.
+      if (body.scope !== scope) {
+        throw new Error(`Das Dokument enthält „${body.scope}", nicht „${scope}".`)
+      }
+      return api.importMasterDataSection(body)
+    },
     (qc) => void qc.invalidateQueries(),
     opts,
   )

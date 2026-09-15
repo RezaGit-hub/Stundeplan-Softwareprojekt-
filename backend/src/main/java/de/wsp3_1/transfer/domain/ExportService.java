@@ -14,7 +14,18 @@ import de.wsp3_1.substitution.domain.SubstitutionViews.HolidayView;
 import de.wsp3_1.transfer.api.TransferDtos.MasterDataExport;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import de.wsp3_1.masterdata.MasterdataDtos.ClassSubjectDto;
+import de.wsp3_1.masterdata.MasterdataDtos.TeacherDto;
+import de.wsp3_1.shared.domain.ValidationException;
+import de.wsp3_1.transfer.api.TransferDtos.MasterDataSection;
+import de.wsp3_1.transfer.api.TransferDtos.SectionRefs;
+import de.wsp3_1.transfer.api.TransferDtos.SubjectRef;
+import de.wsp3_1.transfer.api.TransferDtos.TeacherRef;
+import de.wsp3_1.transfer.api.TransferDtos.TimeslotRef;
 
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.time.Instant;
 
 /**
@@ -32,7 +43,11 @@ import java.time.Instant;
 public class ExportService {
 
     /** Format-Version des Dokuments; siehe {@code MasterDataImport.version}. */
+     /** Format-Version der vollständigen Sicherung. */
     static final String VERSION = "1";
+
+    /** Format-Version der bereichsweisen Sicherung (teachers, classes, …). */
+    static final String VERSION_2 = "2";
 
     private final SubjectService subjects;
     private final TeacherService teachers;

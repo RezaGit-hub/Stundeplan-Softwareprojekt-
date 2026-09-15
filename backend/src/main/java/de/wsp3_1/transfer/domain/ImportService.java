@@ -34,6 +34,18 @@ import de.wsp3_1.transfer.api.TransferDtos.MasterDataImportResult;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import de.wsp3_1.transfer.api.TransferDtos.MasterDataSection;
+import de.wsp3_1.transfer.api.TransferDtos.SectionImportResult;
+import de.wsp3_1.transfer.api.TransferDtos.SectionRefs;
+import de.wsp3_1.transfer.api.TransferDtos.SubjectRef;
+import de.wsp3_1.transfer.api.TransferDtos.TeacherRef;
+import de.wsp3_1.transfer.api.TransferDtos.TimeslotRef;
+
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 import java.util.ArrayList;
 import java.util.HashSet;
