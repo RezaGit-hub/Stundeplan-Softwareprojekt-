@@ -275,6 +275,8 @@ describe('Bereichsweise Sicherung (Transfer, Version 2)', () => {
     // Im leeren Zielbestand gibt es keine der Kurzzeichen — die Referenzauflösung scheitert.
     // (Für dieses Beispiel: Store komplett leeren, außer Planungs-Konto.)
     const leer = emptyStore()
+    // Ohne das Konto gäbe es 401 statt 400 — planning() prüft die Rolle vor jeder Aktion.
+    leer.users.push({ id: 1, username: 'admin', password: 'admin', role: 'PLANNING', teacherId: null, classId: null })
     const apiLeer = createMockApiForTests(leer, 'admin')
 
     await expect(apiLeer.importMasterDataSection(doc)).rejects.toMatchObject({ status: 400 })

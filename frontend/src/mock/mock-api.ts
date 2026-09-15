@@ -1120,10 +1120,27 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       } else if (body.scope === 'classes') {
         const subjMap = resolve(body.refs?.subjects, (r) => s.subjects.find((y) => y.shortName.toLowerCase() === r.shortName!.toLowerCase())?.id ?? null)
         const teachMap = resolve(body.refs?.teachers, (r) => s.teachers.find((y) => y.shortName.toUpperCase() === r.shortName!.toUpperCase())?.id ?? null)
-        for (const c of body.classes ?? []) {
-          const subjects = c.subjects.map((row) => ({
-            subjectId: subjMap.get(row.subjectId)!, weeklyHours: row.weeklyHours, teacherId: teachMap.get(row.teacherId)!,
-          }))
+        const classRows = body.classes ?? []
+        for (let i = 0; i < classRows.length; i++) {
+          const c = classRows[i]
+          const subjects: { subjectId: number; weeklyHours: number; teacherId: number }[] = []
+          // Wie der Server (ImportService.importClassesSection): jede Referenz muss sich auflösen lassen.
+          // Sonst würde die Zeile mit `undefined` in den Store laufen, und der Aufrufer erführe nichts.
+          c.subjects.forEach((row, j) => {
+            const subjId = subjMap.get(row.subjectId)
+            const teachId = teachMap.get(row.teacherId)
+            if (subjId == null) {
+              fehler.push({ field: `classes[${i}].subjects[${j}].subjectId`, message: `Fach ${row.subjectShort} gibt es hier nicht` })
+            }
+            if (teachId == null) {
+              fehler.push({ field: `classes[${i}].subjects[${j}].teacherId`, message: `Lehrkraft ${row.teacherShort} gibt es hier nicht` })
+            }
+            if (subjId != null && teachId != null) {
+              subjects.push({ subjectId: subjId, weeklyHours: row.weeklyHours, teacherId: teachId })
+            }
+          })
+          // Eine Zeile mit Fehlern wird nicht angelegt; der Aufruf sammelt sie und wirft am Ende.
+          if (fehler.length > 0) continue
           const alt = s.classes.find((y) => y.name.toLowerCase() === c.name.toLowerCase())
           if (alt) { Object.assign(alt, { name: c.name, grade: c.grade, active: c.active, subjects }); updated++ }
           else { s.classes.push({ id: nextId(), name: c.name, grade: c.grade, active: c.active, subjects }); created++ }
