@@ -207,7 +207,9 @@ private fun WeekGrid(
                         )
                         Text(
                             text = date.format(shortDate),
-                            style = MaterialTheme.typography.labelSmall)
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
 
