@@ -62,6 +62,12 @@ class ArchitectureTest {
             Map.entry("sampledata", Set.of("masterdata", "planning", "shared")),
             Map.entry("shared", Set.of())));
 
+        // Neu am 15.09.: das Modul transfer liest fuer den Export die bestehenden Lese-Dienste der
+        // Module masterdata, rules, substitution und config und ruft beim Import deren Anlege-Methoden
+        // auf. config wird nicht gebraucht (die Systemkonfiguration ist bewusst nicht Teil des
+        // Dokuments), aber transfer haengt auch nicht an auth/planning/changelog/solver/sampledata.
+        Map.entry("transfer", Set.of("masterdata", "rules", "substitution", "shared")),
+
     private final JavaClasses classes = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
             // Team-Beispiel (Client, ClientController) gehoert keinem Modul und wird nicht geprueft.
@@ -141,6 +147,9 @@ class ArchitectureTest {
             ROOT + ".sampledata.domain.SampleDataLoader",
             // changelog joint user_account (auth) und school_class (masterdata) fuer die Liste (D-3).
             ROOT + ".changelog.domain.ChangelogService");
+            // ImportService leert vor dem Einspielen die Grunddatentabellen. Reines JdbcTemplate wie im
+            // SampleDataLoader; die Modultabelle sieht SQL nicht (Regel 5).
+            ROOT + ".transfer.domain.ImportService",
 
     @Test
     @DisplayName("Regel 5: rohes SQL nur an den im Vertrag genannten Stellen")

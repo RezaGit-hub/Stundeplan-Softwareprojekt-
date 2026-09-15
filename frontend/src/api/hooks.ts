@@ -9,7 +9,9 @@ import { toastProblem } from './errors'
 import {
   ApiError, type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput, type ConfigDto, type CreateUser,
   type DraftDto, type DraftSource, type EventInput, type EventQuery, type ExceptionInput, type HolidayInput,
-  type HolidayPresetInput, type PasswordChange,
+  type HolidayPresetInput,
+  type MasterDataExport, type MasterDataImport, type MasterDataImportResult,
+  type PasswordChange,
   type PatchLessonInput, type RoomInput, type RuleInput, type SubjectInput, type TeacherInput, type TimegridInput, type View,
 } from './types'
 
@@ -218,3 +220,10 @@ export const useCreateUser = () => useApiMutation((body: CreateUser) => api.crea
 export const useCreateClassAccounts = () => useApiMutation(() => api.createClassAccounts(), (qc) => invalidate(qc, qk.users))
 export const useSetUserPassword = () => useApiMutation((v: { id: number; body: { password: string } }) => api.setUserPassword(v.id, v.body), () => {})
 export const useChangeMyPassword = () => useApiMutation((body: PasswordChange) => api.changeMyPassword(body), () => {})
+
+export const useExportMasterData = () =>
+  useApiMutation(() => api.exportMasterData(), () => {})
+
+export const useImportMasterData = (opts?: MutationOpts) =>
+  useApiMutation((body: MasterDataImport) => api.importMasterData(body),
+    (qc) => void qc.invalidateQueries(), opts)

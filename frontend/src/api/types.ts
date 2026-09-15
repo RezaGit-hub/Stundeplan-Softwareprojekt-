@@ -321,6 +321,33 @@ export interface HolidayPresetInput { schoolYear: string }
 /** Ergebnis des Uebernehmens: `added` neu angelegt, `skipped` war schon da */
 export interface HolidayPresetResultDto { added: number; skipped: number; state: string; schoolYear: string }
 
+
+// ------------------------------------------------------------------ Grunddaten-Sicherung
+export interface MasterDataExport {
+  version: '1'
+  exportedAt: string
+  subjects: SubjectDto[]
+  teachers: TeacherDto[]
+  rooms: RoomDto[]
+  classes: ClassDto[]
+  timeslots: TimeslotDto[]
+  rules: RuleDto[]
+  holidays: HolidayDto[]
+}
+export interface MasterDataImport extends MasterDataExport {
+  replace: boolean
+}
+export interface MasterDataImportResult {
+  subjects: number
+  teachers: number
+  rooms: number
+  classes: number
+  timeslots: number
+  rules: number
+  holidays: number
+  warnings: string[]
+}
+
 // ------------------------------------------------------------------ Fehler (RFC 9457)
 export interface FieldErrorDto { field: string; message: string }
 export interface ProblemDetail {
@@ -430,4 +457,9 @@ export interface Api {
   deleteHoliday(id: number): Promise<void>
   listHolidayPresetYears(): Promise<HolidayPresetYearsDto>
   loadHolidayPreset(body: HolidayPresetInput): Promise<HolidayPresetResultDto>
+
+  // Grunddaten-Sicherung (Format-Version 1)
+  exportMasterData(): Promise<MasterDataExport>
+  importMasterData(body: MasterDataImport): Promise<MasterDataImportResult>
 }
+

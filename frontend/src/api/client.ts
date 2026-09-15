@@ -156,4 +156,7 @@ export const httpApi: Api = {
   deleteHoliday: (id) => request('DELETE', `/holidays/${id}`),
   listHolidayPresetYears: () => request('GET', '/holidays/preset-years'),
   loadHolidayPreset: (body) => request('POST', '/holidays/preset', { body }),
+
+  exportMasterData: () => request('GET', '/masterdata/export'),
+  importMasterData: (body) => request('POST', '/masterdata/import', { body }),
 }

@@ -106,6 +106,8 @@ tags:
     description: Unterrichtsfreie Zeiträume (Kann, E-13).
   - name: Schülersicht
     description: Wochenplan der eigenen Klasse für ein Klassenkonto — datensparsam (E-50).
+  - name: Sicherung
+    description: Grunddaten als Dokument aus- und wieder einspielen (Format-Version 1).
 
 paths:
   /api/health:
@@ -2514,6 +2516,160 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
 
+  /api/masterdata/export:
+    get:
+      tags: [Sicherung]
+      operationId: exportMasterData
+      summary: Grunddaten exportieren
+      description: |
+        Liefert alle Grunddaten als **ein** JSON-Dokument: Fächer, Lehrkräfte, Räume, Klassen
+        mit ihren Fächerlisten, Stundenraster, Regelwerk und unterrichtsfreie Zeiträume.
+
+        **Nicht** enthalten sind Systemkonfiguration, Benutzerkonten, Pläne, Entwürfe,
+        Ereignisse, Ausnahmen und der Verlauf — jene Daten sind umgebungsspezifisch bzw.
+        personenbezogen.
+
+        Kennungen sind im Dokument selbstkonsistent: jede `…Id` in einem Eintrag verweist auf
+        die `id` eines Eintrags derselben Datei. Der Import legt alles neu an und schreibt die
+        Verweise über eine alte→neue Zuordnung um (Format-Version 1).
+      x-role: PLANNING
+      responses:
+        '200':
+          description: vollständiger Grunddatenbestand
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MasterDataExport'
+              example:
+                version: '1'
+                exportedAt: '2026-09-15T10:00:00Z'
+                subjects:
+                  - { id: 1, name: Mathematik, shortName: Ma, requiredRoomType: null, color: '#1976D2' }
+                  - { id: 2, name: Deutsch, shortName: De, requiredRoomType: null, color: '#388E3C' }
+                  - { id: 3, name: Physik, shortName: Ph, requiredRoomType: Fachraum Physik, color: '#F57C00' }
+                teachers:
+                  - { id: 1, name: Meyer, shortName: MEY, weeklyHoursQuota: 25, subjectIds: [1, 3], preferredTimeslotIds: [], blockedTimeslotIds: [], active: true, plannedHours: 5, warnings: [] }
+                  - { id: 2, name: Schulz, shortName: SCZ, weeklyHoursQuota: 2, subjectIds: [1], preferredTimeslotIds: [], blockedTimeslotIds: [34, 35], active: true, plannedHours: 1, warnings: [] }
+                  - { id: 3, name: Weber, shortName: WEB, weeklyHoursQuota: 25, subjectIds: [2], preferredTimeslotIds: [], blockedTimeslotIds: [], active: true, plannedHours: 2, warnings: [] }
+                rooms:
+                  - { id: 1, name: R101, roomType: Klassenraum, active: true }
+                  - { id: 2, name: R204, roomType: Klassenraum, active: true }
+                  - { id: 3, name: P1, roomType: Fachraum Physik, active: true }
+                classes:
+                  - id: 1
+                    name: 7a
+                    grade: 7
+                    active: true
+                    subjects:
+                      - { subjectId: 1, subjectShort: Ma, weeklyHours: 2, teacherId: 1, teacherShort: MEY }
+                      - { subjectId: 2, subjectShort: De, weeklyHours: 1, teacherId: 3, teacherShort: WEB }
+                      - { subjectId: 3, subjectShort: Ph, weeklyHours: 1, teacherId: 1, teacherShort: MEY }
+                    warnings: []
+                  - id: 2
+                    name: 8b
+                    grade: 8
+                    active: true
+                    subjects:
+                      - { subjectId: 1, subjectShort: Ma, weeklyHours: 2, teacherId: 1, teacherShort: MEY }
+                      - { subjectId: 2, subjectShort: De, weeklyHours: 1, teacherId: 3, teacherShort: WEB }
+                    warnings: []
+                  - id: 3
+                    name: 9c
+                    grade: 9
+                    active: true
+                    subjects:
+                      - { subjectId: 1, subjectShort: Ma, weeklyHours: 1, teacherId: 2, teacherShort: SCZ }
+                    warnings: []
+                timeslots:
+                  - { id: 1, day: MO, position: 1, startTime: '08:00', endTime: '08:45', isBreak: false }
+                  - { id: 2, day: MO, position: 2, startTime: '08:50', endTime: '09:35', isBreak: false }
+                  - { id: 3, day: MO, position: 3, startTime: '09:35', endTime: '09:55', isBreak: true }
+                rules:
+                  - { id: 1, type: MAX_LESSONS_PER_DAY, scope: CLASS, grade: null, value: 6, severity: SOFT, weight: 1, active: true, label: Maximale Stunden pro Tag }
+                  - { id: 2, type: MAX_LESSONS_PER_WEEK, scope: CLASS, grade: null, value: 30, severity: SOFT, weight: 1, active: true, label: Maximale Stunden pro Woche }
+                  - { id: 5, type: NO_LESSONS_IN_BREAKS, scope: null, grade: null, value: 1, severity: HARD, weight: 1, active: true, label: Keine Stunden in Pausen }
+                holidays:
+                  - { id: 1, name: Herbstferien, dateFrom: '2026-10-19', dateTo: '2026-10-31', kind: VACATION }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/masterdata/import:
+    post:
+      tags: [Sicherung]
+      operationId: importMasterData
+      summary: Grunddaten importieren
+      description: |
+        Spielt ein mit `GET /api/masterdata/export` erzeugtes Dokument ein. Die Datei ersetzt
+        den vorhandenen Bestand **vollständig**, wenn `replace: true` gesetzt ist; ohne dieses
+        Feld und bei schon vorhandenen Grunddaten antwortet der Server mit 409 `data-exists`
+        (wie `POST /api/sample-data`).
+
+        Alles läuft in **einer** Transaktion: schlägt irgendetwas fehl (unbekannte Kennung,
+        doppeltes Kürzel, ungültige Uhrzeit), bleibt der alte Bestand unverändert. Der Server
+        prüft in drei Stufen: (1) Pflichtfelder und Format (Bean-Validation), (2) Referenzen
+        innerhalb der Datei (`classes[2].subjects[1].teacherId` → `teachers[].id` usw.),
+        (3) fachliche Regeln — dieselben wie beim Einzelanlegen.
+
+        **Nicht** in der Datei: Systemkonfiguration, Benutzerkonten, Pläne, Ereignisse,
+        Ausnahmen und Verlauf. Das Konto `admin` (Rolle `PLANNING`) und seine Sitzung bleiben
+        deshalb erhalten; Konten von Lehrkräften und Klassenkonten werden mit den Grunddaten
+        gelöscht (sie verweisen darauf).
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MasterDataImport'
+            example:
+              version: '1'
+              replace: true
+              subjects:
+                - { id: 1, name: Mathematik, shortName: Ma, requiredRoomType: null, color: '#1976D2' }
+              teachers:
+                - { id: 1, name: Meyer, shortName: MEY, weeklyHoursQuota: 25, subjectIds: [1], preferredTimeslotIds: [], blockedTimeslotIds: [], active: true, plannedHours: 0, warnings: [] }
+              rooms:
+                - { id: 1, name: R101, roomType: Klassenraum, active: true }
+              classes:
+                - id: 1
+                  name: 7a
+                  grade: 7
+                  active: true
+                  subjects:
+                    - { subjectId: 1, subjectShort: Ma, weeklyHours: 2, teacherId: 1, teacherShort: MEY }
+                  warnings: []
+              timeslots:
+                - { id: 1, day: MO, position: 1, startTime: '08:00', endTime: '08:45', isBreak: false }
+              rules:
+                - { id: 1, type: MAX_LESSONS_PER_DAY, scope: CLASS, grade: null, value: 6, severity: SOFT, weight: 1, active: true, label: Maximale Stunden pro Tag }
+              holidays: []
+      responses:
+        '200':
+          description: importiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MasterDataImportResult'
+              example: { subjects: 3, teachers: 3, rooms: 3, classes: 3, timeslots: 35, rules: 5, holidays: 1, warnings: [] }
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '409':
+          description: Es sind bereits Grunddaten vorhanden und `replace` fehlt.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: urn:pushnpull:problem:data-exists
+                title: Es sind bereits Daten vorhanden
+                status: 409
+                detail: Die Datenbank enthält bereits Grunddaten. Zum Ersetzen „replace“ setzen.
 
 components:
 
@@ -3636,3 +3792,67 @@ components:
         skipped: { type: integer, description: 'übersprungen, weil derselbe Zeitraum mit derselben Bezeichnung schon stand' }
         state: { type: string, examples: [SH] }
         schoolYear: { type: string, examples: ['2026/27'] }
+        
+    MasterDataExport:
+      type: object
+      description: |
+        Alle Grunddaten der Schule als ein Dokument (Format-Version 1). Die Kennungen sind
+        innerhalb des Dokuments selbstkonsistent — Verweise zeigen auf Einträge derselben
+        Datei. `plannedHours` und `warnings` in den enthaltenen DTOs sind abgeleitet und
+        dienen nur der Anzeige im exportierenden System; der Import ignoriert sie.
+      required: [version, exportedAt, subjects, teachers, rooms, classes, timeslots, rules, holidays]
+      properties:
+        version:
+          type: string
+          enum: ['1']
+          description: Format-Version des Dokuments. Bestimmt, wie der Import es liest.
+        exportedAt: { type: string, format: date-time }
+        subjects:
+          type: array
+          items: { $ref: '#/components/schemas/SubjectDto' }
+        teachers:
+          type: array
+          items: { $ref: '#/components/schemas/TeacherDto' }
+        rooms:
+          type: array
+          items: { $ref: '#/components/schemas/RoomDto' }
+        classes:
+          type: array
+          items: { $ref: '#/components/schemas/ClassDto' }
+        timeslots:
+          type: array
+          items: { $ref: '#/components/schemas/TimeslotDto' }
+        rules:
+          type: array
+          items: { $ref: '#/components/schemas/RuleDto' }
+        holidays:
+          type: array
+          items: { $ref: '#/components/schemas/HolidayDto' }
+
+    MasterDataImport:
+      description: Body von POST /api/masterdata/import — derselbe Aufbau wie MasterDataExport, dazu `replace`.
+      allOf:
+        - $ref: '#/components/schemas/MasterDataExport'
+        - type: object
+          required: [replace]
+          properties:
+            replace:
+              type: boolean
+              default: false
+              description: true = vorhandene Grunddaten vorher löschen (Pflicht, wenn schon welche da sind).
+
+    MasterDataImportResult:
+      type: object
+      required: [subjects, teachers, rooms, classes, timeslots, rules, holidays, warnings]
+      properties:
+        subjects: { type: integer, minimum: 0 }
+        teachers: { type: integer, minimum: 0 }
+        rooms: { type: integer, minimum: 0 }
+        classes: { type: integer, minimum: 0 }
+        timeslots: { type: integer, minimum: 0 }
+        rules: { type: integer, minimum: 0 }
+        holidays: { type: integer, minimum: 0 }
+        warnings:
+          type: array
+          description: deutsche Hinweise — aktuell leer, für spätere Formatänderungen vorgesehen.
+          items: { type: string }
