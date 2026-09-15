@@ -44,7 +44,7 @@ export interface UserDto { id: number; username: string; role: Role; teacherId: 
 export interface CreateUser { username: string; password: string; role: Role; teacherId?: number | null; classId?: number | null }
 /** Antwortzeile von POST /users/class-accounts — das Passwort kommt genau einmal im Klartext (E-50) */
 export interface ClassAccountDto { username: string; classShort: string; password: string }
-
+export interface TeacherAccountDto { username: string; teacherName: string; teacherShort: string; password: string }
 // ------------------------------------------------------------------ Grunddaten
 export interface WarningDto { code: WarningCode; message: string; teacherId: number | null }
 
@@ -357,6 +357,7 @@ export interface Api {
   createUser(body: CreateUser): Promise<UserDto>
   /** ein Konto je aktiver Klasse ohne Konto; idempotent, Passwörter nur in dieser Antwort (E-50) */
   createClassAccounts(): Promise<ClassAccountDto[]>
+  createTeacherAccounts(): Promise<TeacherAccountDto[]>
   setUserPassword(id: number, body: { password: string }): Promise<void>
   deleteUser(id: number): Promise<void>
   
