@@ -387,6 +387,13 @@ body { background: var(--background); color: var(--foreground); color-scheme: li
 }
 .tour-ziel { animation: tour-puls 1.6s cubic-bezier(.4, 0, .6, 1) infinite; }
 
+/* Pfeil neben dem Ziel: wippt darauf zu und wieder zurueck. Ohne Bewegung (Systemeinstellung) steht er
+   still — die Regel weiter unten setzt jede Animationsdauer auf null. */
+@keyframes tour-wippe-quer { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-7px); } }
+@keyframes tour-wippe-hoch { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+.tour-pfeil-quer { animation: tour-wippe-quer 1.1s ease-in-out infinite; }
+.tour-pfeil-hoch { animation: tour-wippe-hoch 1.1s ease-in-out infinite; }
+
 /* Verdunkelung waehrend eines Schritts. Feste Farbe statt color-mix: der gemischte Wert kam in Chrome als
    oklab(...) heraus und wurde im Schlagschatten gar nicht gemalt — die Seite blieb hell. */
 :root { --tour-dunkel: rgb(24 24 27 / 55%); }

@@ -1,22 +1,21 @@
 // Die Schritte des Rundgangs (#139) — eigene Datei wie nav.ts, damit TourOverlay.tsx nur Komponenten exportiert.
 //
 // Der Rundgang fuehrt einmal durch den ganzen Weg: Grunddaten anlegen, Plan rechnen lassen, Konflikt aufloesen,
-// annehmen, Vertretung und Ereignisse. Jeder Schritt zeigt auf ein echtes Bedienelement, das hervorgehoben und
-// als einziges klickbar bleibt.
+// annehmen, Vertretung und Ereignisse. Jeder Schritt zeigt auf ein echtes Bedienelement, hebt es hervor und
+// laesst nur dieses eine anklicken. Einen „Weiter"-Knopf gibt es nicht: Sobald die Aufgabe getan ist, geht es
+// von allein zum naechsten Schritt.
 //
 // Wie ein Ziel gefunden wird:
-//   `css`  — Selektor, fuer die Eintraege der Seitenleiste ueber ihr `href`. Die Seitenleiste gehoert Rolle 5,
-//            der Rundgang soll sie nicht anfassen muessen.
-//   `text` — erster Knopf oder Link, dessen Beschriftung so beginnt. Fuer Knoepfe innerhalb der Seiten; sie
-//            tragen keine eigene Kennzeichnung, und eine einzufuehren hiesse, fremde Dateien anzufassen.
+//   `css`  — Selektor, fuer die Eintraege der Seitenleiste ueber ihr `href` und fuer Formularfelder ueber ihre id.
+//   `text` — erster Knopf oder Link, dessen Beschriftung so beginnt; mehrere Beschriftungen = erste vorhandene.
 //
 // Wann ein Schritt als getan gilt (`weiter`):
 //   'route' — die Seite des Schritts ist offen (der Klick hat navigiert)
 //   'klick' — das Ziel wurde angeklickt (Dialog geht auf, Berechnung startet …)
-//   'lesen' — nichts zu tun, der Schritt erklaert nur; „Weiter" fuehrt hinaus
+//   'lesen' — nichts zu tun, der Schritt erklaert nur; er ist der letzte
 //
-// Faellt ein Ziel weg (Knopf nur bei vorhandenem Entwurf, Seitenleiste eingeklappt), faengt das Overlay das ab:
-// die Sperre bleibt aus, der Schritt bleibt lesbar, „Weiter" bleibt erreichbar.
+// `tippen` fuellt ein Formular vor: Der Rundgang schreibt die Werte selbst ins Feld, Zeichen fuer Zeichen.
+// Erst danach zeigt er auf das Ziel des Schritts (meist „Speichern").
 export interface TourStep {
   /** Ueberschrift im Erklaerfenster */
   title: string
@@ -24,14 +23,14 @@ export interface TourStep {
   text: string
   /** Ziel: Selektor oder Beschriftungsanfang; mehrere Beschriftungen = erste vorhandene gewinnt */
   target: { css: string; text?: never } | { text: string | string[]; css?: never }
-  /** Route, auf der der Schritt spielt — der Rundgang wartet darauf bei `weiter: 'route'` */
+  /** Route, auf der der Schritt spielt */
   route?: string
   /** Wie der Schritt abgeschlossen wird */
   weiter: 'route' | 'klick' | 'lesen'
   /** Aufforderung ueber dem Erklaerfenster */
   action: string
-  /** Was danach zu sehen ist; steht als Bestaetigung da, bevor es weitergeht */
-  result: string
+  /** Felder, die der Rundgang selbst ausfuellt, bevor er auf das Ziel zeigt */
+  tippen?: { css: string; wert: string; beschriftung: string }[]
 }
 
 export const TOUR_STEPS: TourStep[] = [
@@ -42,16 +41,26 @@ export const TOUR_STEPS: TourStep[] = [
     route: '/grunddaten/lehrkraefte',
     weiter: 'route',
     action: 'Öffnen Sie die Lehrkräfte.',
-    result: 'Die Tabelle listet jede Lehrkraft mit Kürzel, Fächern und Wochenstunden. Fächer, Klassen und Räume liegen daneben und funktionieren genauso.',
   },
   {
     title: 'Eine Lehrkraft anlegen',
-    text: 'Jede Lehrkraft braucht Kürzel, ihre Fächer und die Wochenstunden. Sperrzeiten und bevorzugte Zeiten kommen im selben Dialog dazu.',
+    text: 'Jede Lehrkraft braucht einen Namen, ein Kürzel und ihre Wochenstunden. Fächer, Sperrzeiten und bevorzugte Zeiten kommen im selben Dialog dazu.',
     target: { text: 'Neue Lehrkraft' },
     route: '/grunddaten/lehrkraefte',
     weiter: 'klick',
     action: 'Klicken Sie auf „Neue Lehrkraft".',
-    result: 'Der Dialog erwartet Name, Kürzel, Fächer und Wochenstunden. Das Raster darunter sperrt Zeiten hart — in einer gesperrten Stunde plant der Solver diese Lehrkraft nie. Schließen Sie den Dialog mit Escape, es geht weiter.',
+  },
+  {
+    title: 'Formular ausfüllen',
+    text: 'Das Kürzel steht später in jeder Planzelle, die Wochenstunden begrenzen, wie viel der Solver dieser Lehrkraft zumutet.',
+    target: { text: 'Speichern' },
+    route: '/grunddaten/lehrkraefte',
+    weiter: 'klick',
+    action: 'Klicken Sie auf „Speichern".',
+    tippen: [
+      { css: '#teacher-name', wert: 'Sommer', beschriftung: 'Name' },
+      { css: '#teacher-short', wert: 'SOM', beschriftung: 'Kürzel' },
+    ],
   },
   {
     title: 'Stundenraster',
@@ -60,7 +69,6 @@ export const TOUR_STEPS: TourStep[] = [
     route: '/grunddaten/raster',
     weiter: 'route',
     action: 'Öffnen Sie das Stundenraster.',
-    result: 'Jede Zeile ist ein Zeitfenster mit Beginn und Ende. Pausen stehen als eigene Zeilen dazwischen — ohne sie kann keine Pausenregel greifen.',
   },
   {
     title: 'Regelwerk',
@@ -69,7 +77,6 @@ export const TOUR_STEPS: TourStep[] = [
     route: '/regelwerk',
     weiter: 'route',
     action: 'Öffnen Sie das Regelwerk.',
-    result: 'Jede Zeile trägt Typ, Bezug, Wert, Härte und Gewicht. Der Satz zum Bundesland liegt bereit; eine Zeile für einen Jahrgang schlägt die schulweite Zeile.',
   },
   {
     title: 'Entwurf',
@@ -78,34 +85,30 @@ export const TOUR_STEPS: TourStep[] = [
     route: '/entwurf',
     weiter: 'route',
     action: 'Öffnen Sie den Entwurf.',
-    result: 'Ohne Entwurf stehen hier zwei Wege: leer beginnen oder den aktiven Plan kopieren. Mit Entwurf zeigt das Wochenraster die Stunden, daneben offene Stunden und Konflikte.',
   },
   {
     title: 'Entwurf anlegen',
-    text: 'Ohne Entwurf gibt es nichts zu rechnen. Zwei Wege: leer beginnen, oder den aktiven Plan kopieren und daran weiterarbeiten.',
+    text: 'Zwei Wege: leer beginnen, oder den aktiven Plan kopieren und daran weiterarbeiten.',
     target: { text: ['Leer beginnen', 'Aktiven Plan kopieren'] },
     route: '/entwurf',
     weiter: 'klick',
-    action: 'Legen Sie einen Entwurf an \u2014 \u201eLeer beginnen\u201c oder \u201eAktiven Plan kopieren\u201c.',
-    result: 'Der Entwurf steht als Arbeitskopie neben dem aktiven Plan. Das Wochenraster zeigt seine Stunden, daneben stehen offene Stunden und Konflikte.',
+    action: 'Legen Sie einen Entwurf an.',
   },
   {
     title: 'Plan berechnen lassen',
-    text: 'Der Solver füllt die offenen Stunden nach dem Regelwerk. Von Hand festgelegte Stunden bleiben dabei stehen — so lassen sich Vorgaben und Automatik mischen.',
+    text: 'Der Solver füllt die offenen Stunden nach dem Regelwerk. Von Hand festgelegte Stunden bleiben stehen — so lassen sich Vorgaben und Automatik mischen.',
     target: { text: 'Berechnen' },
     route: '/entwurf',
     weiter: 'klick',
     action: 'Klicken Sie auf „Berechnen".',
-    result: 'Die Rechenzeit steht in den Einstellungen; solange gerechnet wird, ist der Entwurf gesperrt. Danach stehen die Stunden im Raster, und die Konfliktliste zeigt, was nicht aufging.',
   },
   {
     title: 'Konflikt auflösen',
-    text: 'Konflikte blockieren nie das Speichern — sie werden bei jedem Lesen neu berechnet und angezeigt. Auflösen lassen sie sich per Knopf.',
+    text: 'Konflikte blockieren nie das Speichern — sie werden bei jedem Lesen neu berechnet. Auflösen lassen sie sich per Knopf: Der Server rechnet drei kurze Läufe mit wachsendem Spielraum.',
     target: { text: 'Lösen' },
     route: '/entwurf',
     weiter: 'klick',
     action: 'Klicken Sie in der Konfliktliste auf „Lösen".',
-    result: 'Der Server rechnet drei kurze Läufe mit wachsendem Spielraum: erst nur die Konfliktstunde frei, dann die Nachbarstunden der Klasse, dann auch Lehrkraft und Raum des Tages. Daraus werden bis zu drei Vorschläge, die Sie einzeln übernehmen.',
   },
   {
     title: 'Entwurf annehmen',
@@ -114,24 +117,21 @@ export const TOUR_STEPS: TourStep[] = [
     route: '/entwurf',
     weiter: 'klick',
     action: 'Klicken Sie auf „Annehmen".',
-    result: 'Der Dialog zeigt vorher, was sich ändert. Nach dem Annehmen ist der alte Plan archiviert, und es gibt wieder genau einen aktiven Plan.',
   },
   {
     title: 'Vertretung',
-    text: 'Fällt jemand aus, wird der Plan nicht neu gerechnet. Stattdessen legt eine datierte Ausnahme sich über den Regelplan.',
+    text: 'Fällt jemand aus, wird der Plan nicht neu gerechnet. Stattdessen legt sich eine datierte Ausnahme über den Regelplan.',
     target: { css: 'a[href="/vertretung"]' },
     route: '/vertretung',
     weiter: 'route',
     action: 'Öffnen Sie die Vertretung.',
-    result: 'Links stehen die offenen Stunden des Tages, rechts Vorschläge für Ersatz — mit Angabe, warum jemand passt oder nicht.',
   },
   {
     title: 'Ereignis erfassen',
-    text: 'Ausfall einer Lehrkraft, Raumsperrung oder Zusatzstunde: Jedes Ereignis wird hier mit Datum und Grund erfasst und erzeugt die offenen Stunden, die daneben zu vertreten sind.',
+    text: 'Ausfall, Raumsperrung oder Zusatzstunde: Jedes Ereignis wird hier mit Datum und Grund erfasst und erzeugt die offenen Stunden, die daneben zu vertreten sind. Jede Entscheidung landet im Änderungsverlauf.',
     target: { text: 'Ereignis speichern' },
     route: '/vertretung',
     weiter: 'lesen',
-    action: 'Sehen Sie sich das Formular an — ausfüllen können Sie es gleich selbst.',
-    result: 'Jede Entscheidung landet im Änderungsverlauf: wer wann was aus welchem Anlass umgeplant hat. Damit ist der Rundgang durch.',
+    action: 'Damit ist der Rundgang durch — ausfüllen können Sie das Formular gleich selbst.',
   },
 ]
