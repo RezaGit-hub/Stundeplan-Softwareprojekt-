@@ -389,8 +389,8 @@ body { background: var(--background); color: var(--foreground); color-scheme: li
 
 /* Verdunkelung waehrend eines Schritts. Feste Farbe statt color-mix: der gemischte Wert kam in Chrome als
    oklab(...) heraus und wurde im Schlagschatten gar nicht gemalt — die Seite blieb hell. */
-:root { --tour-dunkel: rgb(24 24 27 / 45%); }
-.dark { --tour-dunkel: rgb(0 0 0 / 60%); }
+:root { --tour-dunkel: rgb(24 24 27 / 55%); }
+.dark { --tour-dunkel: rgb(0 0 0 / 65%); }
 
 /* Das Ziel selbst waehrend eines Schritts: die Flaeche, die sonst beim Darueberfahren grau wird, ist
    satt violett und pulsiert. Gesetzt wird die Klasse am echten Bedienelement (TourOverlay.tsx), damit

@@ -40,6 +40,24 @@ const LOCH_RUNDUNG = 8
 interface Rect { top: number; left: number; width: number; height: number }
 
 /**
+ * Fuellt das ganze Fenster und stanzt das Loch aus: aeusseres Rechteck im Uhrzeigersinn, das abgerundete
+ * Loch gegen den Uhrzeigersinn — mit `evenodd` bleibt innen ein Loch statt einer Flaeche.
+ */
+function lochPfad(l: Rect, r: number): string {
+  const { top: t, left: x, width: w, height: h } = l
+  const b = t + h, re = x + w
+  const rr = Math.max(0, Math.min(r, w / 2, h / 2))
+  const aussen = `M0 0 H100000 V100000 H0 Z`
+  const innen = [
+    `M${x + rr} ${t}`, `H${re - rr}`, `A${rr} ${rr} 0 0 1 ${re} ${t + rr}`,
+    `V${b - rr}`, `A${rr} ${rr} 0 0 1 ${re - rr} ${b}`,
+    `H${x + rr}`, `A${rr} ${rr} 0 0 1 ${x} ${b - rr}`,
+    `V${t + rr}`, `A${rr} ${rr} 0 0 1 ${x + rr} ${t}`, 'Z',
+  ].join(' ')
+  return `path(evenodd, '${aussen} ${innen}')`
+}
+
+/**
  * Das Ziel eines Schritts im DOM finden: entweder ueber einen Selektor (Seitenleiste, ueber ihr `href`) oder
  * ueber den Anfang der Beschriftung (Knoepfe in den Seiten — sie tragen keine eigene Kennzeichnung, und eine
  * einzufuehren hiesse, fremde Dateien anzufassen).
@@ -243,6 +261,8 @@ export function TourOverlay() {
   const platzUnten = loch ? window.innerHeight - (loch.top + loch.height) : 0
   const platzOben = loch ? loch.top : 0
   const links = loch ? Math.max(RAND, Math.min(loch.left, window.innerWidth - PANEL_BREITE - RAND)) : 0
+  // „8px" oder „8px 8px 8px 8px" — fuer das SVG-Loch zaehlt die erste Zahl.
+  const eckenRadius = Number.parseFloat(rundung ?? '') || LOCH_RUNDUNG
   // Drei Lagen: unter dem Ziel, darueber, oder — wenn beides nicht passt — unten rechts in der Ecke.
   const lage: 'unten' | 'oben' | 'ecke' =
     loch && Math.max(platzUnten, platzOben) > PANEL_PLATZ
@@ -264,10 +284,18 @@ export function TourOverlay() {
         // nicht: an den Ecken bliebe sonst je ein Zipfel stehen.
         // Stehen im Portal vor dem Erklaerfenster und liegen deshalb bei gleichem z-index darunter.
         <div aria-hidden className="print-hide fixed inset-0 z-50" style={{ pointerEvents: 'none' }}>
-          <div className="absolute bg-[var(--tour-dunkel)]" style={{ pointerEvents: 'auto', top: 0, left: 0, right: 0, height: loch.top }} />
-          <div className="absolute bg-[var(--tour-dunkel)]" style={{ pointerEvents: 'auto', top: loch.top + loch.height, left: 0, right: 0, bottom: 0 }} />
-          <div className="absolute bg-[var(--tour-dunkel)]" style={{ pointerEvents: 'auto', top: loch.top, left: 0, width: loch.left, height: loch.height }} />
-          <div className="absolute bg-[var(--tour-dunkel)]" style={{ pointerEvents: 'auto', top: loch.top, left: loch.left + loch.width, right: 0, height: loch.height }} />
+          {/* Eine einzige dunkle Flaeche ueber allem, aus der das Loch mit derselben Rundung wie das
+              Bedienelement ausgestanzt ist (clip-path, Fuellregel evenodd). Vier dunkle Rechtecke liessen
+              an den runden Ecken weisse Zipfel stehen — der Knopf ist rund, das Loch war eckig. */}
+          <div
+            className="absolute inset-0 bg-[var(--tour-dunkel)]"
+            style={{ pointerEvents: 'none', clipPath: lochPfad(loch, eckenRadius) }}
+          />
+          {/* Die vier Flaechen sperren nur, sie faerben nicht: durchsichtig, aber klickfest. */}
+          <div className="absolute" style={{ pointerEvents: 'auto', top: 0, left: 0, right: 0, height: loch.top }} />
+          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top + loch.height, left: 0, right: 0, bottom: 0 }} />
+          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top, left: 0, width: loch.left, height: loch.height }} />
+          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top, left: loch.left + loch.width, right: 0, height: loch.height }} />
         </div>
       )}
 
