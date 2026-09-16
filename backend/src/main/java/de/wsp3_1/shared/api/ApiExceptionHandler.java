@@ -210,7 +210,10 @@ public class ApiExceptionHandler {
     /** Fachlicher Konflikt: der Slug steht in der Ausnahme, Zusatzfelder kommen unveraendert mit. */
     @ExceptionHandler(ConflictException.class)
     public ProblemDetail onConflict(ConflictException ex) {
-        ProblemDetail problem = ApiProblems.of(HttpStatus.CONFLICT, ex.slug(), "Konflikt", ex.getMessage());
+        String title = "solve-capacity-exceeded".equals(ex.slug())
+                ? "Plan kann nicht berechnet werden"
+                : "Konflikt";
+        ProblemDetail problem = ApiProblems.of(HttpStatus.CONFLICT, ex.slug(), title, ex.getMessage());
         ex.extras().forEach(problem::setProperty);
         return problem;
     }

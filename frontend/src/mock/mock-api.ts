@@ -6,6 +6,7 @@ import type {
   TeacherInput, TimegridInput, TimetableDto, UserDto, WeekDto, ClassInput, HolidayInput, HolidayPresetInput,
   MasterDataExport, MasterDataImport, MasterDataImportResult,
   MasterDataSection, SectionImportResult, TransferScope,
+  CapacityViolation, Weekday,
 } from '@/api/types'
 import { authToken } from '@/api/auth-token'
 import { addDaysIso, between, startOfIsoWeek } from '@/lib/dates'
@@ -209,6 +210,63 @@ function syncRequiredLessons(draft: MockTimetable, s: Store) {
       }
     }
   }
+}
+
+/** Dieselben notwendigen Kapazitaetspruefungen wie CapacityChecker im Backend. */
+function solveCapacityViolations(draft: MockTimetable, s: Store): CapacityViolation[] {
+  const planningSlots = s.timeslots.filter((slot) => !slot.isBreak)
+  const slotsByDay = new Map<Weekday, number[]>()
+  for (const slot of planningSlots) slotsByDay.set(slot.day, [...(slotsByDay.get(slot.day) ?? []), slot.id])
+  const hardRule = (type: 'MAX_LESSONS_PER_DAY' | 'MAX_LESSONS_PER_WEEK', scope: 'CLASS' | 'TEACHER', ownerGrade?: number): number | null => {
+    const candidates = s.rules.filter((rule) => rule.active && rule.severity === 'HARD' && rule.type === type && rule.scope === scope)
+    if (scope === 'CLASS') return candidates.find((rule) => rule.grade === ownerGrade)?.value ?? candidates.find((rule) => rule.grade == null)?.value ?? null
+    return candidates.find((rule) => rule.grade == null)?.value ?? null
+  }
+  const dailyCapacity = (available: (id: number) => boolean, dailyLimit: number | null): Partial<Record<Weekday, number>> => {
+    const capacities: Partial<Record<Weekday, number>> = {}
+    for (const [day, ids] of slotsByDay) capacities[day] = Math.min(ids.filter(available).length, dailyLimit ?? Number.MAX_SAFE_INTEGER)
+    return capacities
+  }
+  const sum = (capacities: Partial<Record<Weekday, number>>) => Object.values(capacities).reduce<number>((total, value) => total + (value ?? 0), 0)
+  const violations: CapacityViolation[] = []
+
+  for (const cls of s.classes.filter((entry) => entry.active)) {
+    const demand = draft.lessons.filter((lesson) => lesson.classId === cls.id).length
+    const dailyRuleLimit = hardRule('MAX_LESSONS_PER_DAY', 'CLASS', cls.grade)
+    const weeklyRuleLimit = hardRule('MAX_LESSONS_PER_WEEK', 'CLASS', cls.grade)
+    const dailyCapacities = dailyCapacity(() => true, dailyRuleLimit)
+    const capacityFromDays = sum(dailyCapacities)
+    const capacity = Math.min(capacityFromDays, weeklyRuleLimit ?? Number.MAX_SAFE_INTEGER)
+    if (demand > capacity) violations.push({ type: 'CLASS_CAPACITY', ownerId: cls.id, label: cls.name, roomType: null, demand, capacity, shortfall: demand - capacity, dailyCapacities, capacityFromDays, dailyRuleLimit, weeklyRuleLimit, activeRoomCount: null, planningTimeslotCount: null })
+  }
+
+  for (const teacherId of [...new Set(draft.lessons.map((lesson) => lesson.teacherId))]) {
+    const teacher = s.teachers.find((entry) => entry.id === teacherId)
+    if (!teacher) continue
+    const demand = draft.lessons.filter((lesson) => lesson.teacherId === teacherId).length
+    const dailyRuleLimit = hardRule('MAX_LESSONS_PER_DAY', 'TEACHER')
+    const weeklyRuleLimit = hardRule('MAX_LESSONS_PER_WEEK', 'TEACHER')
+    const dailyCapacities = dailyCapacity((id) => !teacher.blockedTimeslotIds.includes(id), dailyRuleLimit)
+    const capacityFromDays = sum(dailyCapacities)
+    const capacity = Math.min(capacityFromDays, weeklyRuleLimit ?? Number.MAX_SAFE_INTEGER)
+    if (demand > capacity) violations.push({ type: 'TEACHER_CAPACITY', ownerId: teacher.id, label: teacher.name, roomType: null, demand, capacity, shortfall: demand - capacity, dailyCapacities, capacityFromDays, dailyRuleLimit, weeklyRuleLimit, activeRoomCount: null, planningTimeslotCount: null })
+  }
+
+  const specialDemand = new Map<string, number>()
+  for (const lesson of draft.lessons) {
+    const roomType = s.subjects.find((subject) => subject.id === lesson.subjectId)?.requiredRoomType
+    if (roomType) specialDemand.set(roomType, (specialDemand.get(roomType) ?? 0) + 1)
+  }
+  for (const [roomType, demand] of specialDemand) {
+    const activeRoomCount = s.rooms.filter((room) => room.active && room.roomType === roomType).length
+    const capacity = planningSlots.length * activeRoomCount
+    if (demand > capacity) violations.push({ type: 'SPECIAL_ROOM_CAPACITY', ownerId: null, label: `Raumtyp ${roomType}`, roomType, demand, capacity, shortfall: demand - capacity, dailyCapacities: {}, capacityFromDays: null, dailyRuleLimit: null, weeklyRuleLimit: null, activeRoomCount, planningTimeslotCount: planningSlots.length })
+  }
+
+  const activeRoomCount = s.rooms.filter((room) => room.active).length
+  const capacity = planningSlots.length * activeRoomCount
+  if (draft.lessons.length > capacity) violations.push({ type: 'ROOM_CAPACITY', ownerId: null, label: 'Alle aktiven Raeume', roomType: null, demand: draft.lessons.length, capacity, shortfall: draft.lessons.length - capacity, dailyCapacities: {}, capacityFromDays: null, dailyRuleLimit: null, weeklyRuleLimit: null, activeRoomCount, planningTimeslotCount: planningSlots.length })
+  return violations
 }
 function finishSolve(draft: MockTimetable, s: Store, classId?: number) {
   placeLessons(draft, s, { classId })
@@ -730,10 +788,19 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       notSolving(d)
       const missing = s.classes.filter((c) => c.active && c.subjects.length === 0).map((c) => `Klasse ${c.name} hat kein Fach`)
       if (missing.length) throw conflict409('master-data-incomplete', 'Grunddaten unvollständig', 'Vor der Berechnung fehlen Angaben.', { missing })
+      const lessonCountBeforeSync = d.lessons.length
+      syncRequiredLessons(d, s)
       const pinned = d.lessons.filter((l) => l.pinned)
       const contradictions = checkConflicts(pinned, s).filter((c) => c.severity === 'HARD')
-      if (contradictions.length) throw conflict409('pinned-contradiction', 'Festgelegte Stunden widersprechen sich', 'Festgelegte Stunden stehen im Konflikt. Bitte auflösen oder Festlegung aufheben.', { conflicts: contradictions })
-      syncRequiredLessons(d, s)
+      if (contradictions.length) {
+        d.lessons.splice(lessonCountBeforeSync)
+        throw conflict409('pinned-contradiction', 'Festgelegte Stunden widersprechen sich', 'Festgelegte Stunden stehen im Konflikt. Bitte auflösen oder Festlegung aufheben.', { conflicts: contradictions })
+      }
+      const capacityViolations = solveCapacityViolations(d, s)
+      if (capacityViolations.length) {
+        d.lessons.splice(lessonCountBeforeSync)
+        throw conflict409('solve-capacity-exceeded', 'Plan kann nicht berechnet werden', 'Die verfügbaren Kapazitäten reichen für einen vollständigen Plan nicht aus.', { capacityViolations })
+      }
       d.draftStatus = 'SOLVING'
       d.solve = { startedAt: nowIso(), limitSeconds: s.config.maxSolveSeconds, lastScore: null, error: null }
       const classId = body?.classId

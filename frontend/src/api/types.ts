@@ -405,6 +405,23 @@ export interface MasterDataImportResult {
 
 // ------------------------------------------------------------------ Fehler (RFC 9457)
 export interface FieldErrorDto { field: string; message: string }
+export type CapacityViolationType = 'CLASS_CAPACITY' | 'TEACHER_CAPACITY' | 'SPECIAL_ROOM_CAPACITY' | 'ROOM_CAPACITY'
+/** Eine fehlende notwendige Kapazitaet vor dem Start des Stundenplan-Solvers. */
+export interface CapacityViolation {
+  type: CapacityViolationType
+  ownerId: number | null
+  label: string
+  roomType: string | null
+  demand: number
+  capacity: number
+  shortfall: number
+  dailyCapacities: Partial<Record<Weekday, number>>
+  capacityFromDays: number | null
+  dailyRuleLimit: number | null
+  weeklyRuleLimit: number | null
+  activeRoomCount: number | null
+  planningTimeslotCount: number | null
+}
 export interface ProblemDetail {
   type: string
   title: string
@@ -414,6 +431,7 @@ export interface ProblemDetail {
   errors?: FieldErrorDto[]
   missing?: string[]
   conflicts?: ConflictDto[]
+  capacityViolations?: CapacityViolation[]
 }
 
 export class ApiError extends Error {
