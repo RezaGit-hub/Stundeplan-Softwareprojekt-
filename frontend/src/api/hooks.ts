@@ -251,7 +251,8 @@ export const useCancelSolve = (id: number) => useApiMutation(() => api.cancelSol
  */
 export const useAcceptDraft = (id: number, opts?: MutationOpts) => useApiMutation((body?: AcceptDraftInput) => api.acceptDraft(id, body), (qc) => {
   qc.setQueryData(qk.draft(id), null)
-  invalidate(qc, qk.drafts, qk.timetable, qk.timetables, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.pendingAll, qk.optionsAll)
+  // Auch die übrigen Entwürfe neu laden: ihre Vorschau der verfallenden Vertretungen bezog sich auf den alten Plan.
+  invalidate(qc, qk.drafts, qk.draftAll, qk.timetable, qk.timetables, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.pendingAll, qk.optionsAll)
 }, { ...forDraft(id), ...opts })
 // Konflikt lösen (#110): drei Solver-Läufe, bis zu 15 s, speichert nichts. Dieselben Entwurfs-Optionen wie die
 // übrigen Mutationen — während der Serie gilt der Entwurf serverseitig als SOLVING, weitere Entwurfs-Mutationen

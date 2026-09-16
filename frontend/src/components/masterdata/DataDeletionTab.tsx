@@ -17,6 +17,7 @@ import { api } from '@/api/api'
 import { qk } from '@/api/query-keys'
 import type { UserDto } from '@/api/types'
 import { problemOf } from '@/api/errors'
+import { today } from '@/lib/today'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -113,7 +114,14 @@ export function DataDeletionTab() {
   // (Ticket #108) — das melden wir ehrlich, statt es zu verschleiern.
   // Seit #103 kann es mehrere Entwürfe geben; ihre Stunden blockieren das Löschen genauso wie die des
   // aktiven Plans. Deshalb erst alle Entwürfe verwerfen, dann einen leeren anlegen und annehmen.
+  // Ein Plan, der erst künftig beginnt, lässt sich nicht durch „jetzt annehmen" ersetzen (409 plan-overlap, #115).
+  // Das vorher prüfen — sonst wären die Entwürfe schon weg, bevor der Ablauf scheitert.
   const runAll = async () => {
+    const kuenftig = (await api.listTimetables().catch(() => [])).filter((t) => t.validFrom != null && t.validFrom > today())
+    if (kuenftig.length > 0) {
+      toast.error(`Ein angenommener Plan gilt erst ab ${kuenftig[0].validFrom}. Er lässt sich nicht durch einen leeren Plan ersetzen — nichts wurde gelöscht.`)
+      return
+    }
     try {
       for (const d of drafts.data ?? []) await api.deleteDraftById(d.id)
       const leer = await api.createDraft({ source: 'EMPTY' })
