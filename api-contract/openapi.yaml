@@ -2108,8 +2108,8 @@ paths:
       operationId: acceptDraftById
       summary: Diesen Entwurf annehmen — er wird der aktive Plan (W-8, seit 1.3.0)
       description: |
-        Wie `POST /api/draft/accept`, für den Entwurf mit dieser Kennung: bisheriger aktiver Plan →
-        `ARCHIVED`, dieser Entwurf → `ACTIVE`, Verlaufseintrag `TIMETABLE_ACCEPTED`. **Andere Entwürfe
+        Wie `POST /api/draft/accept`, für den Entwurf mit dieser Kennung: berührte Vorgänger werden
+        verkürzt oder archiviert, dieser Entwurf → `ACTIVE`, Verlaufseintrag `TIMETABLE_ACCEPTED`. **Andere Entwürfe
         bleiben stehen** — die Planung nimmt sie später an oder verwirft sie. **Harte Konflikte
         blockieren**: 409 `draft-has-conflicts` mit `conflicts[]` (die harten); erst lösen (z. B.
         `POST …/repair`), dann annehmen. Weiche Konflikte blockieren nicht. Während einer Berechnung 409
@@ -2119,8 +2119,9 @@ paths:
 
         **Gültigkeitszeitraum (seit 1.4.0, #115).** `validFrom` ist der Beginn (fehlt: heute),
         `validUntil` das Ende einschließlich (fehlt: unbegrenzt); `validUntil` vor dem Beginn ist 400
-        `validation` mit Feld `validUntil`. Berührt wird nur, was sich mit dem gewünschten Zeitraum
-        überschneidet:
+        `validation` mit Feld `validUntil`, `validFrom` **vor heute** ist 400 `validation` mit Feld
+        `validFrom`. Die Antwort trägt `validFrom` immer als Datum — bei „ab sofort" den heutigen Tag.
+        Berührt wird nur, was sich mit dem gewünschten Zeitraum überschneidet:
 
         - Ein Plan, der **früher begonnen** hat, endet am Tag vor `validFrom` und bleibt aktiv — „der
           alte Plan gilt bis zu seinem Ende weiter". Liegt er damit ganz in der Vergangenheit, wird er
@@ -2130,6 +2131,10 @@ paths:
         - Ein Plan, der **erst künftig beginnt** und im Weg liegt: 409 `plan-overlap` — auch bei
           „jetzt aktivieren". Nichts wird geändert; die Planung wählt ein Enddatum vor dessen Beginn
           oder ändert den Zeitraum.
+
+        Ein aktiver Plan, dessen Ende vor heute liegt, wird bei dieser Gelegenheit archiviert — es gibt
+        keinen Zeitgeber, der das sonst täte. Zwei Annahmen gleichzeitig gehen nicht aneinander vorbei:
+        die zweite wartet und antwortet danach 404 (derselbe Entwurf) oder 409 `plan-overlap`.
       x-role: PLANNING
       requestBody:
         required: false
@@ -2565,8 +2570,8 @@ paths:
       operationId: acceptDraft
       summary: Jüngsten Entwurf annehmen — er wird der aktive Plan (W-8)
       description: |
-        Eine Transaktion: bisheriger aktiver Plan → `ARCHIVED`, Entwurf → `ACTIVE` mit `acceptedAt`,
-        Verlaufseintrag `TIMETABLE_ACCEPTED`. Andere Entwürfe bleiben stehen (seit 1.3.0). **Harte
+        Eine Transaktion: berührte Vorgänger werden verkürzt oder archiviert, Entwurf → `ACTIVE` mit
+        `acceptedAt`, Verlaufseintrag `TIMETABLE_ACCEPTED`. Andere Entwürfe bleiben stehen (seit 1.3.0). **Harte
         Konflikte blockieren seit 1.3.0** (409 `draft-has-conflicts` mit `conflicts[]`); weiche nicht (die
         Planung entscheidet). Während einer Berechnung 409 `solving`. Ausnahmen (Vertretungen)
         mit Datum ab heute hängen am alten Plan und verfallen; die Antwort nennt das in `warnings[]`, die
@@ -2582,8 +2587,9 @@ paths:
 
         **Gültigkeitszeitraum (seit 1.4.0, #115).** `validFrom` ist der Beginn (fehlt: heute),
         `validUntil` das Ende einschließlich (fehlt: unbegrenzt); `validUntil` vor dem Beginn ist 400
-        `validation` mit Feld `validUntil`. Berührt wird nur, was sich mit dem gewünschten Zeitraum
-        überschneidet:
+        `validation` mit Feld `validUntil`, `validFrom` **vor heute** ist 400 `validation` mit Feld
+        `validFrom`. Die Antwort trägt `validFrom` immer als Datum — bei „ab sofort" den heutigen Tag.
+        Berührt wird nur, was sich mit dem gewünschten Zeitraum überschneidet:
 
         - Ein Plan, der **früher begonnen** hat, endet am Tag vor `validFrom` und bleibt aktiv — „der
           alte Plan gilt bis zu seinem Ende weiter". Liegt er damit ganz in der Vergangenheit, wird er
@@ -2593,6 +2599,10 @@ paths:
         - Ein Plan, der **erst künftig beginnt** und im Weg liegt: 409 `plan-overlap` — auch bei
           „jetzt aktivieren". Nichts wird geändert; die Planung wählt ein Enddatum vor dessen Beginn
           oder ändert den Zeitraum.
+
+        Ein aktiver Plan, dessen Ende vor heute liegt, wird bei dieser Gelegenheit archiviert — es gibt
+        keinen Zeitgeber, der das sonst täte. Zwei Annahmen gleichzeitig gehen nicht aneinander vorbei:
+        die zweite wartet und antwortet danach 404 (derselbe Entwurf) oder 409 `plan-overlap`.
       x-role: PLANNING
       requestBody:
         required: false
@@ -4200,7 +4210,9 @@ components:
         `pinned-contradiction`, `data-exists`, `exception-exists`, `preset-missing`,
         `draft-has-conflicts` (seit 1.3.0: Annehmen eines Entwurfs mit harten Konflikten, `conflicts[]`
         wie bei `pinned-contradiction`), `plan-overlap` (seit 1.4.0: der gewünschte Zeitraum
-        überschneidet sich mit einem Plan, der erst künftig beginnt — auch bei „jetzt aktivieren"), `draft-finished` (seit 1.4.0:
+        überschneidet sich mit einem Plan, der erst künftig beginnt — auch bei „jetzt aktivieren"; und
+        bei zwei gleichzeitigen Annahmen mit überschneidenden Zeiträumen), `protected-account`
+        (`DELETE /api/users/{id}` auf das Konto „admin"), `draft-finished` (seit 1.4.0:
         der Entwurf liegt in der Ablage und wird nicht mehr bearbeitet), `internal`. `draft-exists`
         gab es bis 1.3.0 (ein Entwurf) und kommt seit 1.3.0 nicht mehr vor.
       required: [type, title, status]
@@ -4493,7 +4505,12 @@ components:
         validFrom:
           type: string
           format: date
-          description: 'Kann (E-40, nach R1): der neue Plan gilt erst ab diesem Datum; bis dahin bleibt der bisherige Plan in den Wochensichten. Fehlt: gilt ab heute.'
+          description: |
+            Kann (E-40, nach R1): der neue Plan gilt erst ab diesem Datum; bis dahin bleibt der
+            bisherige Plan in den Wochensichten. Fehlt: gilt ab heute — die Antwort trägt dann den
+            heutigen Tag, seit 1.4.0 steht bei jedem angenommenen Plan ein Datum. Ein Datum **vor
+            heute** ist 400 `validation` mit Feld `validFrom`: ein Beginn in der Vergangenheit
+            schriebe die Zeitleiste rückwirkend um.
         validUntil:
           type: string
           format: date
