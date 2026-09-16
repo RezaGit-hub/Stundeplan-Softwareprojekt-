@@ -25,3 +25,6 @@ sammler.py
 zentrale_sammlung.md
 frontend/zentrale_sammlung_frontend.md
 backend/zentrale_sammlung_backend.md
+
+# Ausgaben des Playwright-MCP (Snapshots, Konsolenprotokolle) — nur lokal
+.playwright-mcp/
