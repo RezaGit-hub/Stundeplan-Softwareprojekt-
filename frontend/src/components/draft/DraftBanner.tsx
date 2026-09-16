@@ -71,7 +71,9 @@ export function DraftBanner({ draft, onSolve, onCancel, onAccept, onDiscard, pen
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {draft.status === 'EDITING' && (
               <>
-                <Button size="sm" onClick={onSolve} disabled={pending}><Play data-icon="inline-start" /> Berechnen</Button>
+                {/* In der Ablage (#116) ist Berechnen serverseitig gesperrt (409 draft-finished) — der Knopf
+                    verschwindet, statt in einen Fehler zu führen. Annehmen und Verwerfen bleiben erlaubt. */}
+                {!draft.finished && <Button size="sm" onClick={onSolve} disabled={pending}><Play data-icon="inline-start" /> Berechnen</Button>}
                 <Button size="sm" variant="outline" onClick={onAccept} disabled={pending}><Check data-icon="inline-start" /> Annehmen</Button>
                 <Button size="sm" variant="outline" onClick={onDiscard} disabled={pending}><Trash2 data-icon="inline-start" /> Verwerfen</Button>
               </>

@@ -90,9 +90,13 @@ export function AcceptDialog({ open, onOpenChange, draftId, warnings, openLesson
       : `${spaeter ? 'Höchstens ' : ''}${expiringExceptions} Vertretungen ${ab} hängen an Stunden, die der Entwurf verschiebt oder streicht. Sie verfallen mit der Annahme und müssen danach neu eingetragen werden.`
   const submitDisabled = (notice !== null && !confirmed) || rangeError !== undefined || (aktiviert && hardConflicts > 0)
 
-  /** Beim Schließen zurücksetzen: das nächste Öffnen fragt wieder nach (kein useEffect nötig). */
+  /**
+   * Beim Schließen zurücksetzen: das nächste Öffnen fragt wieder nach (kein useEffect nötig). Auch der
+   * Weg fällt auf „Jetzt aktivieren" zurück — sonst stünde beim nächsten Öffnen still die Wahl von
+   * vorhin, und wer den Dialog zweimal aufruft, legt versehentlich wieder ab statt anzunehmen.
+   */
   const setOpen = (o: boolean) => {
-    if (!o) { setConfirmedFor(null); setProblem(null) }
+    if (!o) { setConfirmedFor(null); setProblem(null); setWay('now') }
     onOpenChange(o)
   }
 
