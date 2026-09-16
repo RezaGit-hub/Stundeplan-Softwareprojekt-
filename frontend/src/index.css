@@ -396,10 +396,11 @@ body { background: var(--background); color: var(--foreground); color-scheme: li
 .tour-pfeil-quer { animation: tour-wippe-quer 1.1s ease-in-out infinite; }
 .tour-pfeil-hoch { animation: tour-wippe-hoch 1.1s ease-in-out infinite; }
 
-/* Verdunkelung waehrend eines Schritts. Feste Farbe statt color-mix: der gemischte Wert kam in Chrome als
-   oklab(...) heraus und wurde im Schlagschatten gar nicht gemalt — die Seite blieb hell. */
-:root { --tour-dunkel: rgb(24 24 27 / 55%); }
-.dark { --tour-dunkel: rgb(0 0 0 / 65%); }
+/* Verdunkelung waehrend eines Schritts. Bewusst zurueckhaltend: Der Rundgang erklaert die Seite, also muss
+   man die Seite noch lesen koennen — das Ziel faellt ohnehin durch seine Farbe auf. Feste Farbe statt
+   color-mix: der gemischte Wert kam in Chrome als oklab(...) heraus und wurde gar nicht gemalt. */
+:root { --tour-dunkel: rgb(24 24 27 / 28%); }
+.dark { --tour-dunkel: rgb(0 0 0 / 45%); }
 
 /* Das Ziel selbst waehrend eines Schritts: die Flaeche, die sonst beim Darueberfahren grau wird, ist
    satt violett und pulsiert. Gesetzt wird die Klasse am echten Bedienelement (TourOverlay.tsx), damit

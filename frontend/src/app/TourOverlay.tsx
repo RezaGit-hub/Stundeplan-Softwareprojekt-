@@ -18,12 +18,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { Check, Compass, MousePointerClick, PenLine } from 'lucide-react'
+import { Compass, MousePointerClick, PenLine } from 'lucide-react'
 import { useMe, useSetTour } from '@/api/hooks'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { useAuth } from './auth'
-import { TOUR_STEPS, type TourStep } from './tour-steps'
+import { TOUR_STEPS, type TourAktion, type TourStep } from './tour-steps'
 
 /** Breite des Erklaerfensters (22rem) — fuer die Begrenzung auf den sichtbaren Bereich. */
 const PANEL_BREITE = 352
@@ -34,12 +34,6 @@ const PANEL_PLATZ = 280
 const LOCH_RUNDUNG = 8
 /** Ruhe nach einem Klick, bevor der naechste Schritt anfaengt (Seite/Dialog kommen zur Ruhe). */
 const NACHLAUF = 550
-/**
- * Lesezeit, nachdem eine Seite aufgegangen ist. Ohne sie waere ein Navigationsschritt in dem Moment erledigt,
- * in dem die Seite erscheint — man saehe die Erklaerung nur, solange man noch woanders ist, und auf der Seite
- * selbst spraenge der Rundgang sofort weiter. Genau das wirkte wie ein Fehler.
- */
-const LESEZEIT = 4500
 /** Anschlag je Zeichen der Schreibanimation. */
 const ANSCHLAG = 55
 /** Ab so viel Platz rechts neben dem Ziel steht der Pfeil daneben statt darunter. */
@@ -91,10 +85,45 @@ function lochPfad(l: Rect, r: number): string {
  * den letzten Wert am Knoten und haelt die Zuweisung fuer keine Aenderung. Deshalb ueber den nativen Setter
  * des Prototyps, dann ein `input`-Ereignis — derselbe Weg, den auch Testwerkzeuge nehmen.
  */
-function setzeWert(el: HTMLInputElement, wert: string) {
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
-  setter?.call(el, wert)
+function setzeWert(el: HTMLInputElement | HTMLTextAreaElement, wert: string) {
+  const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype
+  Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(el, wert)
   el.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
+const pause = (ms: number) => new Promise((r) => window.setTimeout(r, ms))
+
+/**
+ * Fuehrt eine Vorbereitung aus: tippen (Zeichen fuer Zeichen), waehlen (Auswahlfeld oeffnen und Eintrag
+ * nehmen) oder klicken. Gibt zurueck, ob sie geklappt hat — fehlt das Feld, geht der Rundgang trotzdem weiter.
+ */
+async function fuehreAus(a: TourAktion, abbruch: () => boolean): Promise<void> {
+  if (a.art === 'tippen') {
+    const el = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(a.css)
+    if (!el) return
+    el.focus()
+    for (let i = 1; i <= a.wert.length; i++) {
+      if (abbruch()) return
+      setzeWert(el, a.wert.slice(0, i))
+      await pause(ANSCHLAG)
+    }
+    return
+  }
+  if (a.art === 'waehlen') {
+    // Auswahlfelder sind keine <select>: Der Knopf oeffnet eine Liste, aus der ein Eintrag geklickt wird.
+    const trigger = document.querySelector<HTMLElement>(a.css)
+    if (!trigger) return
+    trigger.click()
+    await pause(320)
+    if (abbruch()) return
+    const eintraege = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
+    const treffer = a.option ? eintraege.find((o) => (o.textContent ?? '').includes(a.option!)) : eintraege[0]
+    treffer?.click()
+    await pause(260)
+    return
+  }
+  document.querySelector<HTMLElement>(a.css)?.click()
+  await pause(260)
 }
 
 /**
@@ -149,6 +178,7 @@ export function TourOverlay() {
   // Schreibanimation: laeuft gerade / ist durch. Solange sie laeuft, zeigt der Rundgang auf das Feld.
   const [tippt, setTippt] = useState(false)
   const [getippt, setGetippt] = useState(false)
+  const [aktuelleAktion, setAktuelleAktion] = useState<string | null>(null)
   const panel = useRef<HTMLDivElement>(null)
 
   const current = TOUR_STEPS[step]
@@ -160,7 +190,7 @@ export function TourOverlay() {
   // dorthin: Ziel ist dann der Eintrag der Seitenleiste, nicht der Knopf, den es hier gar nicht gibt.
   const hinfuehren = !!current.route && location.pathname !== current.route && current.weiter !== 'route'
   // Waehrend des Schreibens zeigt der Rundgang auf das Feld, danach auf „Speichern".
-  const feldZiel = current.tippen && !getippt ? current.tippen[0] : null
+  const feldZiel = current.vorbereiten && !getippt ? current.vorbereiten[0] : null
   const ziel = useMemo(
     () => (hinfuehren ? ({ css: `a[href="${current.route}"]` } as const)
       : feldZiel ? ({ css: feldZiel.css } as const)
@@ -183,6 +213,7 @@ export function TourOverlay() {
     setStep(Math.max(0, Math.min(n, TOUR_STEPS.length - 1)))
     setTippt(false)
     setGetippt(false)
+    setAktuelleAktion(null)
   }, [])
 
   /**
@@ -208,19 +239,13 @@ export function TourOverlay() {
     return () => window.clearTimeout(t)
   }, [step, location.pathname, getippt])
 
-  // Navigationsschritt: Die Seite ist offen — jetzt steht die Erklaerung noch einen Moment auf der Seite
-  // selbst, dann geht es weiter.
-  const [liest, setLiest] = useState(false)
+  // Navigationsschritt: Die Seite ist offen — weiter zum Handgriff, der auf dieser Seite dran ist.
+  // Keine Wartezeit, die von selbst ablaeuft: Jede Seite hat einen eigenen Schritt, der auf ihr stattfindet.
   useEffect(() => {
-    if (!sichtbar || current.weiter !== 'route' || location.pathname !== current.route) { setLiest(false); return }
-    setLiest(true)
-    const meiner = step
-    const t = window.setTimeout(() => {
-      setLiest(false)
-      setStep((s2) => (s2 === meiner && s2 < TOUR_STEPS.length - 1 ? s2 + 1 : s2))
-    }, LESEZEIT)
-    return () => { window.clearTimeout(t); setLiest(false) }
-  }, [sichtbar, current.weiter, current.route, location.pathname, step])
+    if (!sichtbar || current.weiter !== 'route' || location.pathname !== current.route) return
+    const t = weiterNachRuhe(step)
+    return () => window.clearTimeout(t)
+  }, [sichtbar, current.weiter, current.route, location.pathname, step, weiterNachRuhe])
 
   // Klickschritt: am Ziel selbst horchen. Der Klick zaehlt, egal was er ausloest — Dialog, Berechnung, Wechsel.
   useEffect(() => {
@@ -245,35 +270,30 @@ export function TourOverlay() {
     return () => window.clearTimeout(t)
   }, [sichtbar, current.weiter, hinfuehren, tippt, rect, suchtNoch, letzter, step])
 
-  // Schreibanimation: Der Rundgang fuellt die Felder selbst — Zeichen fuer Zeichen, damit man es mitliest.
-  // Bricht ab, sobald der Schritt wechselt oder der Rundgang endet; ein halb getipptes Feld bleibt stehen
-  // und laesst sich von Hand weiterschreiben.
+  // Vorbereitung: Der Rundgang fuellt die Felder selbst — tippt, waehlt aus, drueckt Hilfsknoepfe. Bricht ab,
+  // sobald der Schritt wechselt oder der Rundgang endet; halb Getipptes bleibt stehen und laesst sich von Hand
+  // weiterschreiben. Abgeschickt wird nie automatisch.
   useEffect(() => {
-    if (!sichtbar || !current.tippen || getippt || hinfuehren) return
-    const felder = current.tippen
+    if (!sichtbar || !current.vorbereiten || getippt || hinfuehren) return
+    const schritte = current.vorbereiten
     let abbruch = false
-    const pause = (ms: number) => new Promise((r) => window.setTimeout(r, ms))
     void (async () => {
-      await pause(400)   // der Dialog baut sich gerade erst auf
-      if (abbruch || !document.querySelector(felder[0].css)) return
+      await pause(420)   // Dialog oder Seite baut sich gerade erst auf
+      if (abbruch || !document.querySelector(schritte[0].css)) return
       setTippt(true)
-      for (const feld of felder) {
-        const el = document.querySelector<HTMLInputElement>(feld.css)
-        if (!el) continue
-        el.focus()
-        for (let i = 1; i <= feld.wert.length; i++) {
-          if (abbruch) return
-          setzeWert(el, feld.wert.slice(0, i))
-          await pause(ANSCHLAG)
-        }
-        await pause(200)
+      for (const a of schritte) {
+        if (abbruch) return
+        setAktuelleAktion(a.was)
+        await fuehreAus(a, () => abbruch)
+        await pause(160)
       }
       if (abbruch) return
       setTippt(false)
+      setAktuelleAktion(null)
       setGetippt(true)
     })()
     return () => { abbruch = true }
-  }, [sichtbar, step, current.tippen, getippt, hinfuehren])
+  }, [sichtbar, step, current.vorbereiten, getippt, hinfuehren])
 
   // Ziel ins Bild holen, sonst zeigt der Rundgang auf etwas, das ausserhalb des Fensters liegt.
   useEffect(() => {
@@ -418,25 +438,14 @@ export function TourOverlay() {
         <p className="mt-3 flex items-start gap-2 rounded-lg bg-primary/10 p-2 font-medium text-primary">
           {tippt
             ? <PenLine className="mt-0.5 size-4 shrink-0 animate-pulse" aria-hidden />
-            : liest
-              ? <Check className="mt-0.5 size-4 shrink-0" aria-hidden />
-              : <MousePointerClick className="mt-0.5 size-4 shrink-0" aria-hidden />}
+            : <MousePointerClick className="mt-0.5 size-4 shrink-0" aria-hidden />}
           <span>
             {tippt
-              ? `Der Rundgang füllt das Formular aus — ${current.tippen?.map((f) => f.beschriftung).join(' und ')}.`
-              : liest
-                ? 'Sie sind da — schauen Sie sich um. Gleich geht es weiter.'
-                : hinfuehren ? 'Öffnen Sie zuerst die Seite, auf der das passiert.' : current.action}
+              ? `Der Rundgang füllt das Formular aus${aktuelleAktion ? ` — ${aktuelleAktion}` : ''} …`
+              : hinfuehren ? 'Öffnen Sie zuerst die Seite, auf der das passiert.' : current.action}
             {loch === null && !suchtNoch && <span className="mt-1 block font-normal text-muted-foreground">Das Element ist gerade nicht da — es erscheint erst, wenn die Seite es anbietet. Mit „Überspringen" geht es zum nächsten Thema.</span>}
           </span>
         </p>
-
-        {liest && (
-          // Zeigt, dass gleich weitergeschaltet wird — ein Sprung ohne Vorwarnung wirkt wie ein Fehler.
-          <span aria-hidden className="mt-2 block h-0.5 overflow-hidden rounded-full bg-primary/15">
-            <span className="tour-lesebalken block h-full bg-primary" style={{ animationDuration: `${LESEZEIT}ms` }} />
-          </span>
-        )}
 
         <div className="mt-4 flex items-center justify-between gap-2">
           <Button variant="ghost" size="sm" onClick={beenden}>Beenden</Button>
