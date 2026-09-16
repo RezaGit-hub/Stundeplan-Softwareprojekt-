@@ -1,6 +1,7 @@
 package de.wsp3_1.stundenplan.data
 
 import android.content.Context
+import androidx.compose.ui.semantics.Role
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -20,11 +21,12 @@ interface AppSettings {
     val serverUrl: Flow<String?>
     val token: Flow<String?>
     val displayName: Flow<String?>
+    val role: Flow<String?>
 
     suspend fun setServerUrl(url: String)
 
     /** Nach erfolgreicher Anmeldung: Token und Anzeigename zusammen ablegen. */
-    suspend fun saveLogin(token: String, displayName: String)
+    suspend fun saveLogin(token: String, displayName: String, role: String)
 
     /** Abmelden oder 401: Token und Anzeigename entfernen. Die Serveradresse bleibt. */
     suspend fun clearToken()
@@ -40,15 +42,17 @@ class Settings(private val context: Context) : AppSettings {
     override val serverUrl: Flow<String?> = context.dataStore.data.map { it[KEY_SERVER_URL] }
     override val token: Flow<String?> = context.dataStore.data.map { it[KEY_TOKEN] }
     override val displayName: Flow<String?> = context.dataStore.data.map { it[KEY_DISPLAY_NAME] }
+    override val role: Flow<String?> = context.dataStore.data.map { it[KEY_ROLE] }
 
     override suspend fun setServerUrl(url: String) {
         context.dataStore.edit { it[KEY_SERVER_URL] = url.trim() }
     }
 
-    override suspend fun saveLogin(token: String, displayName: String) {
+    override suspend fun saveLogin(token: String, displayName: String, role: String) {
         context.dataStore.edit {
             it[KEY_TOKEN] = token
             it[KEY_DISPLAY_NAME] = displayName
+            it[KEY_ROLE] = role
         }
     }
 
@@ -56,6 +60,7 @@ class Settings(private val context: Context) : AppSettings {
         context.dataStore.edit { prefs ->
             prefs.minusAssign(KEY_TOKEN)
             prefs.minusAssign(KEY_DISPLAY_NAME)
+            prefs.minusAssign(KEY_ROLE)
         }
     }
 
@@ -63,5 +68,6 @@ class Settings(private val context: Context) : AppSettings {
         val KEY_SERVER_URL = stringPreferencesKey("server_url")
         val KEY_TOKEN = stringPreferencesKey("token")
         val KEY_DISPLAY_NAME = stringPreferencesKey("display_name")
+        val KEY_ROLE = stringPreferencesKey("role")
     }
 }

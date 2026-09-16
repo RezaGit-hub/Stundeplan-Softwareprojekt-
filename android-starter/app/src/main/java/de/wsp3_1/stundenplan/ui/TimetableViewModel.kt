@@ -134,8 +134,15 @@ class TimetableViewModel(
         if (!keepOld) _uiState.value = UiState.Loading
         _refreshing.value = true
         val now = today()
+
+        val role = settings.role.first()
+
         try {
-            val result = repository.loadWeek(monday)
+            val result = if (role == "STUDENT") {
+                repository.loadClassWeek(monday)
+            } else {
+                repository.loadWeek(monday)
+            }
             // Ist inzwischen eine andere Woche gefragt oder die Sitzung beendet, wird diese
             // Antwort verworfen - sie gehoert nicht mehr zu dem, was auf dem Schirm steht.
             if (!isCurrent(ticket, monday)) return

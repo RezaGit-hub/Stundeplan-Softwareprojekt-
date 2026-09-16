@@ -12,5 +12,5 @@ object Defaults {
     const val DEFAULT_SERVER_URL: String = "http://10.0.2.2:1500"
 
     /** Wird in der Fusszeile der Einstellungen angezeigt. */
-    const val APP_VERSION: String = "0.2"
+    const val APP_VERSION: String = "0.3"
 }
