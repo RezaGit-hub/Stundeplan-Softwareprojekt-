@@ -149,8 +149,10 @@ function useZielRect(target: TourStep['target'], aktiv: boolean, imDialog = fals
       const el = zielFinden(zielRef.current, imDialog)
       const r = el?.getBoundingClientRect()
       // Breite 0 heisst: nicht da oder nicht sichtbar (auch jsdom misst so) — dann kein Ausschnitt.
+      // Auf ganze Pixel runden: Waehrend Animationen wackeln die Messwerte um Bruchteile, und jedes Wackeln
+      // waere ein neues Rendern — das Fenster zittert dann sichtbar.
       const neu: Rect | null = r && r.width > 0 && r.height > 0
-        ? { top: r.top, left: r.left, width: r.width, height: r.height }
+        ? { top: Math.round(r.top), left: Math.round(r.left), width: Math.round(r.width), height: Math.round(r.height) }
         : null
       const schluessel = neu ? `${neu.top}|${neu.left}|${neu.width}|${neu.height}` : ''
       if (schluessel !== letzte.current) { letzte.current = schluessel; setRect(neu) }
@@ -407,12 +409,13 @@ export function TourOverlay() {
         : { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' })
     : null
 
-  // Ein Erklaerschritt ohne Ziel gehoert in die Mitte: Er spricht ueber die ganze Seite, nicht ueber eine Ecke.
-  const mitte: CSSProperties | null = nurLesen && !nebenDialog
-    ? { top: '50%', left: '50%', transform: 'translate(-50%, -50%)', maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' }
+  // Ein Erklaerschritt ohne Ziel steht unten rechts: Er spricht ueber die ganze Seite und soll sie nicht
+  // verdecken.
+  const ecke: CSSProperties | null = nurLesen && !nebenDialog
+    ? { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' }
     : null
 
-  const panelStil: CSSProperties = mitte ?? nebenDialog ?? (loch && lage === 'unten'
+  const panelStil: CSSProperties = ecke ?? nebenDialog ?? (loch && lage === 'unten'
     ? { top: loch.top + loch.height + 28, left: links, maxHeight: platzUnten - 2 * RAND, overflowY: 'auto' }
     : loch && lage === 'oben'
       ? { bottom: window.innerHeight - loch.top + 28, left: links, maxHeight: platzOben - 2 * RAND, overflowY: 'auto' }
@@ -444,9 +447,12 @@ export function TourOverlay() {
         <div
           aria-hidden
           className={`print-hide fixed z-[60] text-primary ${pfeilQuer ? 'tour-pfeil-quer' : 'tour-pfeil-hoch'}`}
-          style={pfeilQuer
-            ? { top: loch.top + loch.height / 2 - 17, left: loch.left + loch.width + 6 }
-            : { top: loch.top + loch.height + 6, left: loch.left + loch.width / 2 - 17 }}
+          style={{
+            transition: 'top .16s ease-out, left .16s ease-out',
+            ...(pfeilQuer
+              ? { top: loch.top + loch.height / 2 - 17, left: loch.left + loch.width + 6 }
+              : { top: loch.top + loch.height + 6, left: loch.left + loch.width / 2 - 17 }),
+          }}
         >
           <svg width="34" height="34" viewBox="0 0 24 24" fill="currentColor" className="drop-shadow-[0_1px_2px_rgb(0_0_0/.35)]" aria-hidden>
             {pfeilQuer
@@ -463,9 +469,10 @@ export function TourOverlay() {
         // z-[100] statt z-50: Ein Dialog der Anwendung (Radix) liegt selbst auf z-50 samt eigener Verdunkelung.
         // `pointerEvents: auto` aus demselben Grund: ein modaler Dialog setzt `pointer-events: none` auf den Body.
         className="print-hide fixed z-[100] w-[22rem] max-w-[calc(100%-2rem)] rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10"
-        style={{ ...panelStil, pointerEvents: 'auto', opacity: sucht ? 0 : 1 }}
+        // Gleiten statt springen: Beim Schrittwechsel und beim Scrollen wandert das Fenster weich mit.
+        style={{ ...panelStil, pointerEvents: 'auto', opacity: sucht ? 0 : 1, transition: 'top .16s ease-out, left .16s ease-out, bottom .16s ease-out, opacity .12s linear' }}
       >
-        {lage !== 'ecke' && !nebenDialog && !mitte && (
+        {lage !== 'ecke' && !nebenDialog && !ecke && (
           <span
             aria-hidden
             className="absolute size-3 rotate-45 bg-popover ring-1 ring-foreground/10"
