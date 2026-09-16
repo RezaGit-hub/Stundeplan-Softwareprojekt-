@@ -159,4 +159,10 @@ deleteUser: (id) => request('DELETE', `/users/${id}`),
   deleteHoliday: (id) => request('DELETE', `/holidays/${id}`),
   listHolidayPresetYears: () => request('GET', '/holidays/preset-years'),
   loadHolidayPreset: (body) => request('POST', '/holidays/preset', { body }),
+
+  exportMasterData: () => request('GET', '/masterdata/export'),
+  importMasterData: (body) => request('POST', '/masterdata/import', { body }),
+
+  exportMasterDataSection: (scope) => request('GET', `/masterdata/${scope}/export`),
+  importMasterDataSection: (body) => request('POST', `/masterdata/${body.scope}/import`, { body }),
 }

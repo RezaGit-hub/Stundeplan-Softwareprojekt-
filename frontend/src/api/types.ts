@@ -72,6 +72,44 @@ export interface TeacherInput {
   active: boolean
 }
 
+
+// ------------------------------------------------------------------ Bereichsweise Sicherung (Version 2)
+
+export type TransferScope = 'subjects' | 'teachers' | 'rooms' | 'classes' | 'timeslots' | 'rules' | 'holidays'
+export const TRANSFER_SCOPES: readonly TransferScope[] =
+  ['subjects', 'teachers', 'rooms', 'classes', 'timeslots', 'rules', 'holidays'] as const
+
+export interface SubjectRef { id: number; shortName: string }
+export interface TeacherRef { id: number; shortName: string }
+export interface TimeslotRef { id: number; day: Weekday; position: number }
+export interface SectionRefs {
+  subjects?: SubjectRef[] | null
+  teachers?: TeacherRef[] | null
+  timeslots?: TimeslotRef[] | null
+}
+
+export interface MasterDataSection {
+  version: '2'
+  scope: TransferScope
+  exportedAt: string
+  subjects?: SubjectDto[] | null
+  teachers?: TeacherDto[] | null
+  rooms?: RoomDto[] | null
+  classes?: ClassDto[] | null
+  timeslots?: TimeslotDto[] | null
+  rules?: RuleDto[] | null
+  holidays?: HolidayDto[] | null
+  refs?: SectionRefs | null
+}
+
+export interface SectionImportResult {
+  scope: TransferScope
+  created: number
+  updated: number
+  warnings: string[]
+}
+
+
 export interface SubjectDto { id: number; name: string; shortName: string; requiredRoomType: string | null; color: string }
 export type SubjectInput = Omit<SubjectDto, 'id'>
 
@@ -338,6 +376,33 @@ export interface HolidayPresetInput { schoolYear: string }
 /** Ergebnis des Uebernehmens: `added` neu angelegt, `skipped` war schon da */
 export interface HolidayPresetResultDto { added: number; skipped: number; state: string; schoolYear: string }
 
+
+// ------------------------------------------------------------------ Grunddaten-Sicherung
+export interface MasterDataExport {
+  version: '1'
+  exportedAt: string
+  subjects: SubjectDto[]
+  teachers: TeacherDto[]
+  rooms: RoomDto[]
+  classes: ClassDto[]
+  timeslots: TimeslotDto[]
+  rules: RuleDto[]
+  holidays: HolidayDto[]
+}
+export interface MasterDataImport extends MasterDataExport {
+  replace: boolean
+}
+export interface MasterDataImportResult {
+  subjects: number
+  teachers: number
+  rooms: number
+  classes: number
+  timeslots: number
+  rules: number
+  holidays: number
+  warnings: string[]
+}
+
 // ------------------------------------------------------------------ Fehler (RFC 9457)
 export interface FieldErrorDto { field: string; message: string }
 export interface ProblemDetail {
@@ -451,4 +516,13 @@ export interface Api {
   deleteHoliday(id: number): Promise<void>
   listHolidayPresetYears(): Promise<HolidayPresetYearsDto>
   loadHolidayPreset(body: HolidayPresetInput): Promise<HolidayPresetResultDto>
+
+  // Grunddaten-Sicherung (Format-Version 1)
+  exportMasterData(): Promise<MasterDataExport>
+  importMasterData(body: MasterDataImport): Promise<MasterDataImportResult>
+
+  // Bereichsweise Sicherung (Format-Version 2)
+  exportMasterDataSection(scope: TransferScope): Promise<MasterDataSection>
+  importMasterDataSection(body: MasterDataSection): Promise<SectionImportResult>
 }
+

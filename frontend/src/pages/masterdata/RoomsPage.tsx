@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { RoomDialog } from '@/components/masterdata/RoomDialog'
 import { isInUse, matches, useDeleteWithInUse } from '@/components/masterdata/helpers'
 import { ActiveBadge, InUseDialog, NoMatches, RowMenu, SearchField } from '@/components/masterdata/shared'
+import { TransferButtons } from '@/components/masterdata/TransferButtons'
 
 export function RoomsPage() {
   const rooms = useRooms()
@@ -56,6 +57,7 @@ export function RoomsPage() {
         description={`${rooms.data.length} Räume · ${roomTypes.length} Raumarten`}
         actions={
           <>
+            <TransferButtons scope="rooms"/>
             <SearchField value={query} onChange={setQuery} placeholder="Name, Raumart…" />
             <Button onClick={() => openDialog()}><Plus /> Neuer Raum</Button>
           </>

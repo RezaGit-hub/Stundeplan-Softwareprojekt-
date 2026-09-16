@@ -3,15 +3,26 @@
 // 400-Feldfehler fängt die Seite mit useFieldErrors().handle(err) im catch. Fehler, die die Seite selbst darstellt
 // (409 in-use als Dialog, 409 data-exists als Rückfrage), schaltet sie mit { quiet: (err) => boolean } stumm.
 import { QueryClient, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query'
+import {
+  ApiError,
+  type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput,
+  type ConfigDto, type CreateUser,
+  type DraftDto, type DraftSource,
+  type EventInput, type EventQuery, type ExceptionInput,
+  type HolidayInput, type HolidayPresetInput,
+  type MasterDataExport, type MasterDataImport, type MasterDataImportResult, type MasterDataSection,
+  type PasswordChange, type PatchLessonInput,
+  type RepairInput,                              // ← nur wenn in types.ts vorhanden
+  type RoomInput, type RuleInput, type SectionImportResult, type SubjectInput,
+  type TeacherInput, type TimegridInput, type TransferScope, type View,
+} from './types'
+import {
+  QueryClient, useMutation, useQuery, useQueryClient,
+  type QueryKey, type UseMutationResult,
+} from '@tanstack/react-query'
 import { api } from './api'
 import { qk } from './query-keys'
 import { toastProblem } from './errors'
-import {
-  ApiError, type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput, type ConfigDto, type CreateUser,
-  type DraftDto, type DraftSource, type EventInput, type EventQuery, type ExceptionInput, type HolidayInput,
-  type HolidayPresetInput, type PasswordChange,
-  type PatchLessonInput, type RepairInput, type RoomInput, type RuleInput, type SubjectInput, type TeacherInput, type TimegridInput, type View,
-} from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -224,4 +235,36 @@ export const useCreateTeacherAccounts = () => useApiMutation(() => api.createTea
 export const useSetUserPassword = () => useApiMutation((v: { id: number; body: { password: string } }) => api.setUserPassword(v.id, v.body), () => {})
 export const useChangeMyPassword = () => useApiMutation((body: PasswordChange) => api.changeMyPassword(body), () => {})
 
+export function useExportMasterData(): UseMutationResult<MasterDataExport, Error, void> {
+  return useApiMutation(() => api.exportMasterData(), () => {})
+}
+
+export function useImportMasterData(opts?: MutationOpts): UseMutationResult<MasterDataImportResult, Error, MasterDataImport> {
+  return useApiMutation(
+    (body: MasterDataImport) => api.importMasterData(body),
+    (qc) => void qc.invalidateQueries(),
+    opts,
+  )
+}
+
+export function useExportMasterDataSection(scope: TransferScope): UseMutationResult<MasterDataSection, Error, void> {
+  return useApiMutation(() => api.exportMasterDataSection(scope), () => {})
+}
+
+export function useImportMasterDataSection(scope: TransferScope, opts?: MutationOpts): UseMutationResult<SectionImportResult, Error, MasterDataSection> {
+  return useApiMutation(
+    (body: MasterDataSection) => {
+      // readSectionFile prüft dasselbe schon vor dem Aufruf; hier steht es noch einmal, weil der Hook
+      // auch programmatisch (ohne Datei) aufgerufen werden kann.
+      if (body.scope !== scope) {
+        throw new Error(`Das Dokument enthält „${body.scope}", nicht „${scope}".`)
+      }
+      return api.importMasterDataSection(body)
+    },
+    (qc) => void qc.invalidateQueries(),
+    opts,
+  )
+}
+
 export const useDeleteUser = (opts?: MutationOpts) => useApiMutation((id: number) => api.deleteUser(id), (qc) => invalidate(qc, qk.users), opts)
+

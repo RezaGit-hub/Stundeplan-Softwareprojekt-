@@ -4,6 +4,8 @@ import type {
   Api, ClassAccountDto, TeacherAccountDto, ClassDto, ClassSubjectInput, ConfigDto, CreateUser, DayDto, DraftDto, EntryDto, EventDto,
   EventInput, ExceptionDto, FieldErrorDto, LessonDto, PendingRow, RoomInput, RuleInput, SubjectInput, TeacherDto,
   TeacherInput, TimegridInput, TimetableDto, UserDto, WeekDto, ClassInput, HolidayInput, HolidayPresetInput,
+  MasterDataExport, MasterDataImport, MasterDataImportResult,
+  MasterDataSection, SectionImportResult, TransferScope,
 } from '@/api/types'
 import { authToken } from '@/api/auth-token'
 import { addDaysIso, between, startOfIsoWeek } from '@/lib/dates'
@@ -908,6 +910,145 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       s.holidays = s.holidays.filter((h) => h.id !== id)
     },
 
+        // ---------------- Grunddaten-Sicherung (Format-Version 1)
+    // Bildet `ExportService`/`ImportService` des Backends nach: derselbe Vertrag, dieselben Regeln
+    // (Version '1', replace-Vorbedingung, Verweise über eine alte→neue Zuordnung). Der Export gibt
+    // die Grunddaten als ein Dokument heraus — ohne Systemkonfiguration, Konten, Pläne, Ereignisse,
+    // Ausnahmen und Verlauf, genau wie im Vertrag (Modul `transfer`).
+    async exportMasterData(): Promise<MasterDataExport> {
+      await planning()
+      return {
+        version: '1',
+        exportedAt: nowIso(),
+        subjects: s.subjects.map((x) => ({ ...x })),
+        teachers: s.teachers.map((t) => teacherDto(t, s)),
+        rooms: s.rooms.map((r) => ({ ...r })),
+        classes: s.classes.map((c) => classDto(c, s)),
+        timeslots: s.timeslots.map((t) => ({ ...t })),
+        rules: s.rules.map((r) => ({ ...r })),
+        holidays: s.holidays.map((h) => ({ ...h })),
+      }
+    },
+    async importMasterData(body: MasterDataImport): Promise<MasterDataImportResult> {
+      await planning()
+
+      if (body.version !== '1') {
+        throw validation([{ field: 'version', message: 'wird nicht unterstützt (erwartet 1)' }])
+      }
+
+      // Dieselbe Vorbedingung wie POST /api/sample-data: bei vorhandenen Grunddaten ohne replace → 409.
+      const hasData = s.subjects.length + s.teachers.length + s.rooms.length
+        + s.classes.length + s.timeslots.length > 0
+      if (hasData && !body.replace) {
+        throw conflict409('data-exists', 'Es sind bereits Grunddaten vorhanden',
+          'Die Datenbank enthält bereits Grunddaten. Zum Ersetzen „replace“ setzen.')
+      }
+
+      // Stufe 1+2: Pflichtfelder, Eindeutigkeit der Kennungen, Verweise innerhalb der Datei.
+      const errors: FieldErrorDto[] = []
+      const checkUnique = (rows: { id: number | null }[], feld: string) => {
+        const seen = new Set<number>()
+        rows.forEach((row, i) => {
+          if (row.id == null) errors.push({ field: `${feld}[${i}].id`, message: 'Kennung fehlt' })
+          else if (!seen.add(row.id)) errors.push({ field: `${feld}[${i}].id`, message: `Kennung ${row.id} ist doppelt` })
+        })
+      }
+      checkUnique(body.subjects, 'subjects')
+      checkUnique(body.teachers, 'teachers')
+      checkUnique(body.rooms, 'rooms')
+      checkUnique(body.classes, 'classes')
+      checkUnique(body.timeslots, 'timeslots')
+
+      const subjectIds = new Set(body.subjects.map((x) => x.id))
+      const teacherIds = new Set(body.teachers.map((x) => x.id))
+      const slotIds = new Set(body.timeslots.map((x) => x.id))
+      body.teachers.forEach((t, i) => {
+        t.subjectIds.forEach((id) => {
+          if (!subjectIds.has(id)) errors.push({ field: `teachers[${i}].subjectIds`, message: `Fach ${id} gibt es in der Datei nicht` })
+        })
+        t.preferredTimeslotIds.forEach((id) => {
+          if (!slotIds.has(id)) errors.push({ field: `teachers[${i}].preferredTimeslotIds`, message: `Zeitfenster ${id} gibt es in der Datei nicht` })
+        })
+        t.blockedTimeslotIds.forEach((id) => {
+          if (!slotIds.has(id)) errors.push({ field: `teachers[${i}].blockedTimeslotIds`, message: `Zeitfenster ${id} gibt es in der Datei nicht` })
+        })
+      })
+      body.classes.forEach((c, i) => {
+        c.subjects.forEach((row, j) => {
+          if (!subjectIds.has(row.subjectId)) errors.push({ field: `classes[${i}].subjects[${j}].subjectId`, message: `Fach ${row.subjectId} gibt es in der Datei nicht` })
+          if (!teacherIds.has(row.teacherId)) errors.push({ field: `classes[${i}].subjects[${j}].teacherId`, message: `Lehrkraft ${row.teacherId} gibt es in der Datei nicht` })
+        })
+      })
+      if (errors.length) throw validation(errors)
+
+      // Leeren — wie der Server: alles außer Planungs-Konten, Tokens und Systemkonfiguration.
+      if (hasData) {
+        s.subjects = []
+        s.teachers = []
+        s.rooms = []
+        s.classes = []
+        s.timeslots = []
+        s.rules = []
+        s.holidays = []
+        s.timetables = []
+        s.events = []
+        s.exceptions = []
+        s.changelog = []
+        s.users = s.users.filter((u) => u.role === 'PLANNING')
+      }
+
+      // Einspielen in Abhängigkeitsreihenfolge; Verweise über die Zuordnung umschreiben.
+      const subjMap = new Map<number, number>()
+      const teachMap = new Map<number, number>()
+      const slotMap = new Map<number, number>()
+
+      s.subjects = body.subjects.map((x) => {
+        const neu = { ...x, id: nextId() }
+        subjMap.set(x.id, neu.id)
+        return neu
+      })
+      s.rooms = body.rooms.map((x) => ({ ...x, id: nextId() }))
+      s.timeslots = body.timeslots.map((x) => {
+        const neu = { ...x, id: nextId() }
+        slotMap.set(x.id, neu.id)
+        return neu
+      })
+      s.teachers = body.teachers.map((t): MockTeacher => {
+        const neu: MockTeacher = {
+          id: nextId(),
+          name: t.name, shortName: t.shortName, weeklyHoursQuota: t.weeklyHoursQuota,
+          subjectIds: t.subjectIds.map((id) => subjMap.get(id)!),
+          preferredTimeslotIds: t.preferredTimeslotIds.map((id) => slotMap.get(id)!),
+          blockedTimeslotIds: t.blockedTimeslotIds.map((id) => slotMap.get(id)!),
+          active: t.active,
+        }
+        teachMap.set(t.id, neu.id)
+        return neu
+      })
+      s.classes = body.classes.map((c): MockClass => ({
+        id: nextId(),
+        name: c.name, grade: c.grade, active: c.active,
+        subjects: c.subjects.map((row) => ({
+          subjectId: subjMap.get(row.subjectId)!,
+          weeklyHours: row.weeklyHours,
+          teacherId: teachMap.get(row.teacherId)!,
+        })),
+      }))
+      s.rules = body.rules.map((r) => ({ ...r, id: nextId() }))
+      s.holidays = body.holidays.map((h) => ({ ...h, id: nextId() }))
+
+      return {
+        subjects: s.subjects.length,
+        teachers: s.teachers.length,
+        rooms: s.rooms.length,
+        classes: s.classes.length,
+        timeslots: s.timeslots.length,
+        rules: s.rules.length,
+        holidays: s.holidays.length,
+        warnings: [],
+      }
+    },
+
     // Mitgelieferte Vorlage je Bundesland (E-51). Wie im Server: reine Daten aus holiday-presets.ts,
     // kein Abruf aus dem Internet. Das Bundesland kommt aus der Systemkonfiguration.
     async listHolidayPresetYears() {
@@ -936,6 +1077,125 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
         added++
       }
       return { added, skipped, state, schoolYear: body.schoolYear }
+    },
+
+        // Bereichsweise Sicherung (Format-Version 2)
+    async exportMasterDataSection(scope: TransferScope): Promise<MasterDataSection> {
+      await planning()
+      const now = nowIso()
+      const build = (): MasterDataSection => ({
+        version: '2', scope, exportedAt: now,
+        subjects: scope === 'subjects' ? s.subjects.map((x) => ({ ...x })) : null,
+        teachers: scope === 'teachers' ? s.teachers.map((t) => teacherDto(t, s)) : null,
+        rooms: scope === 'rooms' ? s.rooms.map((r) => ({ ...r })) : null,
+        classes: scope === 'classes' ? s.classes.map((c) => classDto(c, s)) : null,
+        timeslots: scope === 'timeslots' ? s.timeslots.map((t) => ({ ...t })) : null,
+        rules: scope === 'rules' ? s.rules.map((r) => ({ ...r })) : null,
+        holidays: scope === 'holidays' ? s.holidays.map((h) => ({ ...h })) : null,
+        refs: null,
+      })
+      const doc = build()
+      if (scope === 'teachers') {
+        const subjIds = new Set(s.teachers.flatMap((t) => t.subjectIds))
+        const slotIds = new Set(s.teachers.flatMap((t) => [...t.preferredTimeslotIds, ...t.blockedTimeslotIds]))
+        doc.refs = {
+          subjects: s.subjects.filter((x) => subjIds.has(x.id)).map((x) => ({ id: x.id, shortName: x.shortName })),
+          timeslots: s.timeslots.filter((x) => slotIds.has(x.id)).map((x) => ({ id: x.id, day: x.day, position: x.position })),
+        }
+      } else if (scope === 'classes') {
+        const subjIds = new Set(s.classes.flatMap((c) => c.subjects.map((r) => r.subjectId)))
+        const teachIds = new Set(s.classes.flatMap((c) => c.subjects.map((r) => r.teacherId)))
+        doc.refs = {
+          subjects: s.subjects.filter((x) => subjIds.has(x.id)).map((x) => ({ id: x.id, shortName: x.shortName })),
+          teachers: s.teachers.filter((x) => teachIds.has(x.id)).map((x) => ({ id: x.id, shortName: x.shortName })),
+        }
+      }
+      return doc
+    },
+
+    async importMasterDataSection(body: MasterDataSection): Promise<SectionImportResult> {
+      await planning()
+      if (body.version !== '2') throw validation([{ field: 'version', message: 'wird nicht unterstützt (erwartet 2)' }])
+      const fehler: FieldErrorDto[] = []
+      type Ref = { id: number; shortName?: string; day?: string; position?: number }
+      const resolve = (refs: Ref[] | null | undefined, lookup: (r: Ref) => number | null): Map<number, number> => {
+        const map = new Map<number, number>()
+        for (const r of refs ?? []) {
+          const neu = lookup(r)
+          if (neu != null) map.set(r.id, neu)
+        }
+        return map
+      }
+      let created = 0, updated = 0
+
+      if (body.scope === 'subjects') {
+        for (const x of body.subjects ?? []) {
+          const alt = s.subjects.find((y) => y.shortName.toLowerCase() === x.shortName.toLowerCase())
+          if (alt) { Object.assign(alt, { name: x.name, shortName: x.shortName, requiredRoomType: x.requiredRoomType, color: x.color }); updated++ }
+          else { s.subjects.push({ id: nextId(), name: x.name, shortName: x.shortName, requiredRoomType: x.requiredRoomType, color: x.color }); created++ }
+        }
+      } else if (body.scope === 'rooms') {
+        for (const x of body.rooms ?? []) {
+          const alt = s.rooms.find((y) => y.name.toLowerCase() === x.name.toLowerCase())
+          if (alt) { Object.assign(alt, { name: x.name, roomType: x.roomType, active: x.active }); updated++ }
+          else { s.rooms.push({ id: nextId(), name: x.name, roomType: x.roomType, active: x.active }); created++ }
+        }
+      } else if (body.scope === 'timeslots') {
+        s.timeslots = (body.timeslots ?? []).map((x) => ({ ...x, id: nextId() }))
+        created = s.timeslots.length
+      } else if (body.scope === 'rules') {
+        s.rules = (body.rules ?? []).map((x) => ({ ...x, id: nextId() }))
+        created = s.rules.length
+      } else if (body.scope === 'holidays') {
+        for (const x of body.holidays ?? []) {
+          const alt = s.holidays.find((y) => y.name === x.name && y.dateFrom === x.dateFrom && y.dateTo === x.dateTo)
+          if (!alt) { s.holidays.push({ ...x, id: nextId() }); created++ }
+        }
+      } else if (body.scope === 'teachers') {
+        const subjMap = resolve(body.refs?.subjects, (r) => s.subjects.find((y) => y.shortName.toLowerCase() === r.shortName!.toLowerCase())?.id ?? null)
+        const slotMap = resolve(body.refs?.timeslots, (r) => s.timeslots.find((y) => y.day === r.day && y.position === r.position)?.id ?? null)
+        for (let i = 0; i < (body.teachers ?? []).length; i++) {
+          const t = body.teachers![i]
+          const subjectIds = t.subjectIds.map((id) => subjMap.get(id))
+          const blocked = t.blockedTimeslotIds.map((id) => slotMap.get(id))
+          const preferred = t.preferredTimeslotIds.map((id) => slotMap.get(id))
+          subjectIds.forEach((v, j) => { if (v == null) fehler.push({ field: `teachers[${i}].subjectIds[${j}]`, message: 'Fach nicht gefunden' }) })
+          if (fehler.length) continue
+          const alt = s.teachers.find((y) => y.shortName.toUpperCase() === t.shortName.toUpperCase())
+          if (alt) { Object.assign(alt, { name: t.name, weeklyHoursQuota: t.weeklyHoursQuota, subjectIds: subjectIds as number[], preferredTimeslotIds: preferred as number[], blockedTimeslotIds: blocked as number[], active: t.active }); updated++ }
+          else { s.teachers.push({ id: nextId(), name: t.name, shortName: t.shortName, weeklyHoursQuota: t.weeklyHoursQuota, subjectIds: subjectIds as number[], preferredTimeslotIds: preferred as number[], blockedTimeslotIds: blocked as number[], active: t.active }); created++ }
+        }
+      } else if (body.scope === 'classes') {
+        const subjMap = resolve(body.refs?.subjects, (r) => s.subjects.find((y) => y.shortName.toLowerCase() === r.shortName!.toLowerCase())?.id ?? null)
+        const teachMap = resolve(body.refs?.teachers, (r) => s.teachers.find((y) => y.shortName.toUpperCase() === r.shortName!.toUpperCase())?.id ?? null)
+        const classRows = body.classes ?? []
+        for (let i = 0; i < classRows.length; i++) {
+          const c = classRows[i]
+          const subjects: { subjectId: number; weeklyHours: number; teacherId: number }[] = []
+          // Wie der Server (ImportService.importClassesSection): jede Referenz muss sich auflösen lassen.
+          // Sonst würde die Zeile mit `undefined` in den Store laufen, und der Aufrufer erführe nichts.
+          c.subjects.forEach((row, j) => {
+            const subjId = subjMap.get(row.subjectId)
+            const teachId = teachMap.get(row.teacherId)
+            if (subjId == null) {
+              fehler.push({ field: `classes[${i}].subjects[${j}].subjectId`, message: `Fach ${row.subjectShort} gibt es hier nicht` })
+            }
+            if (teachId == null) {
+              fehler.push({ field: `classes[${i}].subjects[${j}].teacherId`, message: `Lehrkraft ${row.teacherShort} gibt es hier nicht` })
+            }
+            if (subjId != null && teachId != null) {
+              subjects.push({ subjectId: subjId, weeklyHours: row.weeklyHours, teacherId: teachId })
+            }
+          })
+          // Eine Zeile mit Fehlern wird nicht angelegt; der Aufruf sammelt sie und wirft am Ende.
+          if (fehler.length > 0) continue
+          const alt = s.classes.find((y) => y.name.toLowerCase() === c.name.toLowerCase())
+          if (alt) { Object.assign(alt, { name: c.name, grade: c.grade, active: c.active, subjects }); updated++ }
+          else { s.classes.push({ id: nextId(), name: c.name, grade: c.grade, active: c.active, subjects }); created++ }
+        }
+      }
+      if (fehler.length) throw validation(fehler)
+      return { scope: body.scope, created, updated, warnings: [] }
     },
   }
 }

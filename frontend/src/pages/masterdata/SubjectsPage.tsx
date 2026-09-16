@@ -14,6 +14,7 @@ import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { SubjectDialog } from '@/components/masterdata/SubjectDialog'
 import { matches, useDeleteWithInUse } from '@/components/masterdata/helpers'
 import { InUseDialog, NoMatches, RowMenu, SearchField } from '@/components/masterdata/shared'
+import { TransferButtons } from '@/components/masterdata/TransferButtons'
 
 export function SubjectsPage() {
   const subjects = useSubjects()
@@ -51,6 +52,7 @@ export function SubjectsPage() {
         description={`${subjects.data.length} Fächer · Farbe und Raumanforderung gelten in allen Plansichten`}
         actions={
           <>
+            <TransferButtons scope="subjects"/>
             <SearchField value={query} onChange={setQuery} placeholder="Name, Kürzel, Raumart…" />
             <Button onClick={() => openDialog()}><Plus /> Neues Fach</Button>
           </>

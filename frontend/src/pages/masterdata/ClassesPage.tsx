@@ -15,6 +15,8 @@ import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { ClassDialog } from '@/components/masterdata/ClassDialog'
 import { isInUse, matches, useDeleteWithInUse, weeklyHoursOf } from '@/components/masterdata/helpers'
 import { ActiveBadge, InUseDialog, NoMatches, RowMenu, SearchField, WarningChip } from '@/components/masterdata/shared'
+import { TransferButtons } from '@/components/masterdata/TransferButtons'
+
 
 export function ClassesPage() {
   const classes = useClasses()
@@ -59,6 +61,7 @@ export function ClassesPage() {
         description={`${classes.data.length} Klassen${warningCount > 0 ? ` · ${warningCount} Warnungen in der Fächerzuordnung` : ''}`}
         actions={
           <>
+            <TransferButtons scope="classes"/>
             <SearchField value={query} onChange={setQuery} placeholder="Klasse, Jahrgang…" />
             <Button onClick={() => openDialog()}><Plus /> Neue Klasse</Button>
           </>

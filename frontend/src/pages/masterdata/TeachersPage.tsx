@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { TeacherDialog } from '@/components/masterdata/TeacherDialog'
 import { isInUse, matches, useDeleteWithInUse } from '@/components/masterdata/helpers'
 import { ActiveBadge, ColorDot, InUseDialog, NoMatches, QuotaMeter, RowMenu, SearchField, WarningChip } from '@/components/masterdata/shared'
+import { TransferButtons } from '@/components/masterdata/TransferButtons'
 
 export function TeachersPage() {
   const teachers = useTeachers()
@@ -64,6 +65,7 @@ export function TeachersPage() {
         description={`${teachers.data.length} Lehrkräfte · ${activeCount} aktiv`}
         actions={
           <>
+            <TransferButtons scope="teachers"/>
             <SearchField value={query} onChange={setQuery} placeholder="Name, Kürzel, Fach…" />
             <Button onClick={() => openDialog()}><Plus /> Neue Lehrkraft</Button>
           </>

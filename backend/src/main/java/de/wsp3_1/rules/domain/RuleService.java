@@ -179,4 +179,30 @@ public class RuleService {
     private static String schluessel(RuleType type, RuleScope scope, Integer grade) {
         return type + "|" + scope + "|" + grade;
     }
+
+
+    /**
+     * Ersetzt das ganze Regelwerk — nur fuer den Import von Grunddaten (Modul {@code transfer}).
+     * Loescht alle Zeilen und legt die uebergebenen neu an.
+     *
+     * <p>Es gibt bewusst keinen REST-Endpunkt dafuer: die Planung pflegt einzelne Zeilen ueber
+     * {@code PUT /api/rules/&#123;id&#125;} und laedt den Beispielsatz ueber
+     * {@code POST /api/rules/reset}. Der Import ist der einzige Fall, in dem das Regelwerk als
+     * Ganzes ersetzt wird — deshalb steht die Methode hier, aber ohne Controller.</p>
+     *
+     * <p>Die Kennungen der uebergebenen Zeilen werden verworfen (sie sind aus dem exportierenden
+     * System); die neuen vergibt die Datenbank. Die ganze Aktion laeuft in der Transaktion des
+     * Aufrufers.</p>
+     */
+    @Transactional
+    public List<RuleView> replaceAll(List<RuleView> rows) {
+        rules.deleteAll();
+        rules.flush();               // alte Zeilen vor dem Insert wegraeumen (Eindeutigkeit)
+        List<Rule> neu = new ArrayList<>();
+        for (RuleView r : rows) {
+            neu.add(new Rule(r.type(), r.scope(), r.grade(), r.value(), r.severity(), r.weight(), r.active()));
+        }
+        rules.saveAll(neu);
+        return list();
+    }
 }

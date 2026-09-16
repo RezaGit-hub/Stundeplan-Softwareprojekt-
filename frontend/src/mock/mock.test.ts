@@ -165,3 +165,144 @@ describe('Mock-Store (Datensatz FULL)', () => {
     expect(checkConflicts(active.lessons, s).filter((c) => c.type.endsWith('DOUBLE_BOOKED'))).toHaveLength(0)
   })
 })
+
+describe('Grunddaten-Sicherung (Transfer)', () => {
+  it('Roundtrip: exportieren und importieren erhält den Bestand, Konto admin bleibt', async () => {
+    const s = emptyStore()
+    loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+
+    const doc = await api.exportMasterData()
+    expect(doc.version).toBe('1')
+    expect(doc.subjects).toHaveLength(3)
+    expect(doc.teachers).toHaveLength(3)
+    expect(doc.rooms).toHaveLength(3)
+    expect(doc.classes).toHaveLength(3)
+    expect(doc.timeslots).toHaveLength(35)
+    expect(doc.rules).toHaveLength(5)
+    expect(doc.holidays).toHaveLength(1)
+
+    const ergebnis = await api.importMasterData({ ...doc, replace: true })
+    expect(ergebnis).toMatchObject({ subjects: 3, teachers: 3, rooms: 3, classes: 3, timeslots: 35, rules: 5, holidays: 1 })
+    expect(ergebnis.warnings).toEqual([])
+
+    // Konto admin lebt weiter.
+    expect(s.users.some((u) => u.username === 'admin' && u.role === 'PLANNING')).toBe(true)
+    // Die Lehrkraft-Konten sind weg — wie im Backend (sie verweisen auf geloeschte Stammdaten).
+    expect(s.users.filter((u) => u.role === 'TEACHER')).toHaveLength(0)
+  })
+
+  it('Ohne replace und bei vorhandenen Daten: 409 data-exists', async () => {
+    const s = emptyStore()
+    loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterData()
+
+    await expect(api.importMasterData({ ...doc, replace: false }))
+      .rejects.toMatchObject({ status: 409, problem: { type: 'urn:pushnpull:problem:data-exists' } })
+  })
+
+  it('Unbekannte Version: 400, Bestand bleibt', async () => {
+    const s = emptyStore()
+    loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterData()
+
+    await expect(api.importMasterData({ ...doc, version: '99' as never, replace: true }))
+      .rejects.toMatchObject({ status: 400 })
+    expect(s.teachers).toHaveLength(3)
+  })
+
+  it('Verweis ins Leere: 400, nichts geändert', async () => {
+    const s = emptyStore()
+    loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterData()
+    const kaputt = JSON.parse(JSON.stringify(doc)) as typeof doc
+    kaputt.classes[0].subjects[0].teacherId = 999_999
+
+    await expect(api.importMasterData({ ...kaputt, replace: true }))
+      .rejects.toMatchObject({ status: 400 })
+    expect(s.teachers).toHaveLength(3)
+    expect(s.classes).toHaveLength(3)
+  })
+})
+
+describe('Bereichsweise Sicherung (Transfer, Version 2)', () => {
+  it('Lehrkräfte exportieren und in einen gleichen Bestand importieren: nur Lehrkräfte betroffen', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterDataSection('teachers')
+    expect(doc.version).toBe('2')
+    expect(doc.scope).toBe('teachers')
+    expect(doc.teachers).toHaveLength(3)
+    expect(doc.subjects).toBeNull()
+    expect(doc.classes).toBeNull()
+    // Referenzen für die Fach- und Sperrzeiten-Zuordnung:
+    expect(doc.refs?.subjects?.map((r) => r.shortName).sort()).toEqual(['De', 'Ma', 'Ph'])
+    expect(doc.refs?.timeslots?.map((r) => `${r.day}${r.position}`).sort()).toEqual(['FR6', 'FR7'])
+
+    const vorher = { subjects: s.subjects.length, rooms: s.rooms.length, classes: s.classes.length }
+    const res = await api.importMasterDataSection(doc)
+    expect(res).toMatchObject({ scope: 'teachers', updated: 3, created: 0 })
+    expect(s.subjects.length).toBe(vorher.subjects)
+    expect(s.rooms.length).toBe(vorher.rooms)
+    expect(s.classes.length).toBe(vorher.classes)
+    expect(s.teachers).toHaveLength(3)
+  })
+
+  it('Neue Lehrkraft in der Datei wird angelegt, bestehende aktualisiert', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterDataSection('teachers')
+    // Meyer umbenennen, vierte Lehrkraft ergänzen (Kürzel KRA existiert noch nicht)
+    doc.teachers![0].name = 'Meyer-van-der-Berg'
+    doc.teachers!.push({ id: 99, name: 'Krause', shortName: 'KRA', weeklyHoursQuota: 20,
+      subjectIds: [doc.refs!.subjects![0].id], preferredTimeslotIds: [], blockedTimeslotIds: [], active: true,
+      plannedHours: 0, warnings: [] })
+
+    const res = await api.importMasterDataSection(doc)
+    expect(res).toMatchObject({ created: 1, updated: 3 })
+    expect(s.teachers.find((t) => t.shortName === 'MEY')?.name).toBe('Meyer-van-der-Berg')
+    expect(s.teachers.find((t) => t.shortName === 'KRA')).toBeDefined()
+  })
+
+  it('Fach-Referenz ins Leere: 400 mit Pfad, Bestand bleibt', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterDataSection('teachers')
+    // Ein neues Fach in die Referenzliste, das es im Zielbestand nicht gibt
+    doc.refs!.subjects!.push({ id: 999, shortName: 'Xy' })
+    doc.teachers![0].subjectIds.push(999)
+
+    await expect(api.importMasterDataSection(doc)).rejects.toMatchObject({
+      status: 400,
+      problem: { type: 'urn:pushnpull:problem:validation' },
+    })
+    expect(s.teachers).toHaveLength(3)
+  })
+
+  it('Klassen ohne passende Lehrkräfte im Zielbestand: 400, nichts angelegt', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterDataSection('classes')
+    // Im leeren Zielbestand gibt es keine der Kurzzeichen — die Referenzauflösung scheitert.
+    // (Für dieses Beispiel: Store komplett leeren, außer Planungs-Konto.)
+    const leer = emptyStore()
+    // Ohne das Konto gäbe es 401 statt 400 — planning() prüft die Rolle vor jeder Aktion.
+    leer.users.push({ id: 1, username: 'admin', password: 'admin', role: 'PLANNING', teacherId: null, classId: null })
+    const apiLeer = createMockApiForTests(leer, 'admin')
+
+    await expect(apiLeer.importMasterDataSection(doc)).rejects.toMatchObject({ status: 400 })
+    expect(leer.classes).toHaveLength(0)
+  })
+
+  it('Zeitfenster-Bereich ersetzt das komplette Raster', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s, 'admin')
+    const doc = await api.exportMasterDataSection('timeslots')
+    doc.timeslots = doc.timeslots!.slice(0, 2)
+    await api.importMasterDataSection(doc)
+    expect(s.timeslots).toHaveLength(2)
+  })
+})

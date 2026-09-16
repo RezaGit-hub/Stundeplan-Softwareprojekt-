@@ -19,6 +19,7 @@ import { RulesMatrix } from '@/components/masterdata/RulesMatrix'
 import { RULE_TYPE_LABEL, STATE_LABEL } from '@/components/masterdata/helpers'
 import { Field } from '@/components/masterdata/shared'
 import { useFieldErrors } from '@/lib/form-errors'
+import { TransferButtons } from '@/components/masterdata/TransferButtons'
 
 export function RulesPage() {
   const rules = useRules()
@@ -42,6 +43,7 @@ export function RulesPage() {
         description={`${active} von ${rules.data.length} Regeln aktiv · ${hard} hart · ${active - hard} weich`}
         actions={
           <>
+            <TransferButtons scope="rules"/>
             <Button variant="outline" onClick={() => { setAddKey((k) => k + 1); setAddOpen(true) }}><Plus /> Jahrgangswert hinzufügen</Button>
             <Button variant="outline" onClick={() => setConfirmReset(true)}><RotateCcw /> Beispielsatz {stateName} laden</Button>
           </>
