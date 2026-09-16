@@ -58,7 +58,7 @@ describe('TourOverlay (#139)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Rundgang' })).toBeNull())
   })
 
-  it('ein Navigationsschritt schaltet von allein weiter, sobald seine Seite offen ist', async () => {
+  it('ein Navigationsschritt schaltet nach kurzer Lesezeit von allein weiter', { timeout: 20_000 }, async () => {
     await renderPage(<TourOverlay />, { route: ERSTER.route })
     await screen.findByRole('dialog', { name: 'Rundgang' })
 
@@ -66,11 +66,12 @@ describe('TourOverlay (#139)', () => {
     expect(screen.queryByRole('button', { name: 'Weiter' })).toBeNull()
     await waitFor(
       () => expect(screen.getByRole('heading', { name: TOUR_STEPS[1].title })).toBeTruthy(),
-      { timeout: 3000 },
+      { timeout: 8000 },
     )
   })
 
-  it('ein Klickschritt schaltet weiter, sobald das Ziel angeklickt wurde', async () => {
+  // Der Fall braucht Luft: Schritt 1 hat seine Lesezeit, danach kommt erst der Klickschritt.
+  it('ein Klickschritt schaltet weiter, sobald das Ziel angeklickt wurde', { timeout: 20_000 }, async () => {
     const nutzer = userEvent.setup()
     const schritt = TOUR_STEPS[KLICKSCHRITT]
     // Das echte Ziel steht in einer fremden Seite; hier reicht ein Knopf mit derselben Beschriftung.
@@ -82,12 +83,12 @@ describe('TourOverlay (#139)', () => {
       { route: schritt.route },
     )
     await screen.findByRole('dialog', { name: 'Rundgang' })
-    await waitFor(() => expect(screen.getByRole('heading', { name: schritt.title })).toBeTruthy(), { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('heading', { name: schritt.title })).toBeTruthy(), { timeout: 8000 })
 
     await nutzer.click(screen.getByRole('button', { name: schritt.target.text! }))
     await waitFor(
       () => expect(screen.getByRole('heading', { name: TOUR_STEPS[KLICKSCHRITT + 1].title })).toBeTruthy(),
-      { timeout: 3000 },
+      { timeout: 8000 },
     )
   })
 

@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { Compass, MousePointerClick, PenLine } from 'lucide-react'
+import { Check, Compass, MousePointerClick, PenLine } from 'lucide-react'
 import { useMe, useSetTour } from '@/api/hooks'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -32,8 +32,14 @@ const RAND = 12
 const PANEL_PLATZ = 280
 /** Rueckfall, falls sich die Rundung des Bedienelements nicht auslesen laesst. */
 const LOCH_RUNDUNG = 8
-/** Ruhe nach einer erledigten Aufgabe, bevor der naechste Schritt anfaengt (Seite/Dialog kommen zur Ruhe). */
+/** Ruhe nach einem Klick, bevor der naechste Schritt anfaengt (Seite/Dialog kommen zur Ruhe). */
 const NACHLAUF = 550
+/**
+ * Lesezeit, nachdem eine Seite aufgegangen ist. Ohne sie waere ein Navigationsschritt in dem Moment erledigt,
+ * in dem die Seite erscheint — man saehe die Erklaerung nur, solange man noch woanders ist, und auf der Seite
+ * selbst spraenge der Rundgang sofort weiter. Genau das wirkte wie ein Fehler.
+ */
+const LESEZEIT = 4500
 /** Anschlag je Zeichen der Schreibanimation. */
 const ANSCHLAG = 55
 /** Ab so viel Platz rechts neben dem Ziel steht der Pfeil daneben statt darunter. */
@@ -46,10 +52,16 @@ interface Rect { top: number; left: number; width: number; height: number }
  * Formularfelder ueber ihre id) oder ueber den Anfang der Beschriftung (Knoepfe in den Seiten — sie tragen
  * keine eigene Kennzeichnung, und eine einzufuehren hiesse, fremde Dateien anzufassen).
  */
-function zielFinden(t: TourStep['target']): HTMLElement | null {
-  if (t.css) return document.querySelector<HTMLElement>(t.css)
+function zielFinden(t: TourStep['target'], imDialog = false): HTMLElement | null {
+  // Im Dialog suchen, wenn der Schritt es verlangt: „Berechnen" und „Annehmen" stehen auch auf der Seite
+  // dahinter, gemeint ist aber der Knopf im Dialog.
+  const bereich: ParentNode | null = imDialog
+    ? document.querySelector('[role="dialog"]:not([aria-label="Rundgang"]), [role="alertdialog"]')
+    : document
+  if (!bereich) return null
+  if (t.css) return bereich.querySelector<HTMLElement>(t.css)
   const beschriftungen = (Array.isArray(t.text) ? t.text : [t.text ?? '']).map((x) => x.toLowerCase())
-  const kandidaten = Array.from(document.querySelectorAll<HTMLElement>('button, a'))
+  const kandidaten = Array.from(bereich.querySelectorAll<HTMLElement>('button, a'))
   for (const gesucht of beschriftungen) {
     const treffer = kandidaten.find((el) => (el.textContent ?? '').trim().toLowerCase().startsWith(gesucht))
     if (treffer) return treffer
@@ -90,11 +102,11 @@ function setzeWert(el: HTMLInputElement, wert: string) {
  * der meldet Groessenaenderungen, aber keine Verschiebung — und verschieben tut sich hier fast alles
  * (Seitenleiste ein- und ausklappen, Entwurfsleiste taucht auf, Seite scrollt).
  */
-function useZielRect(target: TourStep['target'], aktiv: boolean): Rect | null {
+function useZielRect(target: TourStep['target'], aktiv: boolean, imDialog = false): Rect | null {
   const [rect, setRect] = useState<Rect | null>(null)
   const letzte = useRef('')
   // Das Ziel-Objekt ist bei jedem Render neu; als Abhaengigkeit taugt nur sein Inhalt.
-  const schluesselDesZiels = target.css ?? `text:${[target.text].flat().join('|')}`
+  const schluesselDesZiels = `${imDialog ? 'dlg:' : ''}${target.css ?? `text:${[target.text].flat().join('|')}`}`
   const zielRef = useRef(target)
   zielRef.current = target
 
@@ -105,7 +117,7 @@ function useZielRect(target: TourStep['target'], aktiv: boolean): Rect | null {
     if (!aktiv) { setRect(null); return }
     let frame = 0
     const messen = () => {
-      const el = zielFinden(zielRef.current)
+      const el = zielFinden(zielRef.current, imDialog)
       const r = el?.getBoundingClientRect()
       // Breite 0 heisst: nicht da oder nicht sichtbar (auch jsdom misst so) — dann kein Ausschnitt.
       const neu: Rect | null = r && r.width > 0 && r.height > 0
@@ -117,7 +129,7 @@ function useZielRect(target: TourStep['target'], aktiv: boolean): Rect | null {
     }
     messen()   // sofort einmal messen, damit das Erklaerfenster gleich am Ziel steht
     return () => cancelAnimationFrame(frame)
-  }, [schluesselDesZiels, aktiv])
+  }, [schluesselDesZiels, aktiv, imDialog])
 
   return rect
 }
@@ -155,7 +167,9 @@ export function TourOverlay() {
         : current.target),
     [hinfuehren, current.route, current.target, feldZiel],
   )
-  const rect = useZielRect(ziel, sichtbar)
+  // Im Dialog nur suchen, solange der Schritt nicht ohnehin erst zur Seite fuehrt.
+  const imDialog = !!current.imDialog && !hinfuehren
+  const rect = useZielRect(ziel, sichtbar, imDialog)
 
   const beenden = useCallback(() => {
     setGeschlossen(true)
@@ -194,24 +208,42 @@ export function TourOverlay() {
     return () => window.clearTimeout(t)
   }, [step, location.pathname, getippt])
 
-  // Navigationsschritt: Die Seite des Schritts ist offen — fertig.
+  // Navigationsschritt: Die Seite ist offen — jetzt steht die Erklaerung noch einen Moment auf der Seite
+  // selbst, dann geht es weiter.
+  const [liest, setLiest] = useState(false)
   useEffect(() => {
-    if (!sichtbar || current.weiter !== 'route' || location.pathname !== current.route) return
-    const t = weiterNachRuhe(step)
-    return () => window.clearTimeout(t)
-  }, [sichtbar, current.weiter, current.route, location.pathname, step, weiterNachRuhe])
+    if (!sichtbar || current.weiter !== 'route' || location.pathname !== current.route) { setLiest(false); return }
+    setLiest(true)
+    const meiner = step
+    const t = window.setTimeout(() => {
+      setLiest(false)
+      setStep((s2) => (s2 === meiner && s2 < TOUR_STEPS.length - 1 ? s2 + 1 : s2))
+    }, LESEZEIT)
+    return () => { window.clearTimeout(t); setLiest(false) }
+  }, [sichtbar, current.weiter, current.route, location.pathname, step])
 
   // Klickschritt: am Ziel selbst horchen. Der Klick zaehlt, egal was er ausloest — Dialog, Berechnung, Wechsel.
   useEffect(() => {
     if (!sichtbar || current.weiter !== 'klick' || hinfuehren || feldZiel) return
-    const el = zielFinden(current.target)
+    const el = zielFinden(current.target, imDialog)
     if (!el) return
     const meiner = step
     const onClick = () => weiterNachRuhe(meiner)
     el.addEventListener('click', onClick)
     return () => el.removeEventListener('click', onClick)
     // `rect` haengt mit drin, damit der Horcher nachgezogen wird, sobald das Ziel auftaucht.
-  }, [sichtbar, current.weiter, current.target, hinfuehren, feldZiel, rect, step, weiterNachRuhe])
+  }, [sichtbar, current.weiter, current.target, hinfuehren, feldZiel, imDialog, rect, step, weiterNachRuhe])
+
+  // Gibt es das Ziel nicht (und es kommt auch nicht mehr), ist der Schritt gegenstandslos: „Leer beginnen"
+  // fehlt, wenn schon ein Entwurf da ist, „Lösen" fehlt ohne Konflikt. Dann still weiter, statt auf einen
+  // Knopf zu warten, den es nie geben wird.
+  useEffect(() => {
+    if (!sichtbar || current.weiter !== 'klick' || hinfuehren || tippt) return
+    if (rect !== null || suchtNoch || letzter) return
+    const meiner = step
+    const t = window.setTimeout(() => setStep((s2) => (s2 === meiner ? s2 + 1 : s2)), 400)
+    return () => window.clearTimeout(t)
+  }, [sichtbar, current.weiter, hinfuehren, tippt, rect, suchtNoch, letzter, step])
 
   // Schreibanimation: Der Rundgang fuellt die Felder selbst — Zeichen fuer Zeichen, damit man es mitliest.
   // Bricht ab, sobald der Schritt wechselt oder der Rundgang endet; ein halb getipptes Feld bleibt stehen
@@ -246,20 +278,20 @@ export function TourOverlay() {
   // Ziel ins Bild holen, sonst zeigt der Rundgang auf etwas, das ausserhalb des Fensters liegt.
   useEffect(() => {
     if (!sichtbar) return
-    zielFinden(ziel)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [sichtbar, ziel])
+    zielFinden(ziel, imDialog)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [sichtbar, ziel, imDialog])
 
   // Das Ziel selbst faerben: violett und pulsierend, genau auf seiner eigenen Flaeche. Die Klasse sitzt am
   // echten Bedienelement und verschwindet mit dem Schritt — nichts bleibt zurueck, auch nicht beim Abbruch.
   const [rundung, setRundung] = useState<string | null>(null)
   useEffect(() => {
     if (!sichtbar) { setRundung(null); return }
-    const el = zielFinden(ziel)
+    const el = zielFinden(ziel, imDialog)
     if (!el) { setRundung(null); return }
     el.classList.add('tour-ziel-aktiv')
     setRundung(getComputedStyle(el).borderRadius || null)
     return () => el.classList.remove('tour-ziel-aktiv')
-  }, [sichtbar, ziel, rect])
+  }, [sichtbar, ziel, imDialog, rect])
 
   // Escape beendet immer, solange der Rundgang steht — auch dann, wenn ein fremder Dialog die Maus abfaengt.
   useEffect(() => {
@@ -282,7 +314,7 @@ export function TourOverlay() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.stopPropagation(); e.preventDefault(); return }
       if (e.key !== 'Tab') return
-      const zielEl = zielFinden(ziel)
+      const zielEl = zielFinden(ziel, imDialog)
       const knoepfe = Array.from(panel.current?.querySelectorAll<HTMLElement>('button:not([disabled])') ?? [])
       const kette = [zielEl, ...knoepfe].filter(Boolean) as HTMLElement[]
       if (kette.length === 0) return
@@ -293,7 +325,7 @@ export function TourOverlay() {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [sichtbar, ziel, tippt])
+  }, [sichtbar, ziel, imDialog, tippt])
 
   if (!sichtbar) return null
 
@@ -386,14 +418,25 @@ export function TourOverlay() {
         <p className="mt-3 flex items-start gap-2 rounded-lg bg-primary/10 p-2 font-medium text-primary">
           {tippt
             ? <PenLine className="mt-0.5 size-4 shrink-0 animate-pulse" aria-hidden />
-            : <MousePointerClick className="mt-0.5 size-4 shrink-0" aria-hidden />}
+            : liest
+              ? <Check className="mt-0.5 size-4 shrink-0" aria-hidden />
+              : <MousePointerClick className="mt-0.5 size-4 shrink-0" aria-hidden />}
           <span>
             {tippt
               ? `Der Rundgang füllt das Formular aus — ${current.tippen?.map((f) => f.beschriftung).join(' und ')}.`
-              : hinfuehren ? 'Öffnen Sie zuerst die Seite, auf der das passiert.' : current.action}
+              : liest
+                ? 'Sie sind da — schauen Sie sich um. Gleich geht es weiter.'
+                : hinfuehren ? 'Öffnen Sie zuerst die Seite, auf der das passiert.' : current.action}
             {loch === null && !suchtNoch && <span className="mt-1 block font-normal text-muted-foreground">Das Element ist gerade nicht da — es erscheint erst, wenn die Seite es anbietet. Mit „Überspringen" geht es zum nächsten Thema.</span>}
           </span>
         </p>
+
+        {liest && (
+          // Zeigt, dass gleich weitergeschaltet wird — ein Sprung ohne Vorwarnung wirkt wie ein Fehler.
+          <span aria-hidden className="mt-2 block h-0.5 overflow-hidden rounded-full bg-primary/15">
+            <span className="tour-lesebalken block h-full bg-primary" style={{ animationDuration: `${LESEZEIT}ms` }} />
+          </span>
+        )}
 
         <div className="mt-4 flex items-center justify-between gap-2">
           <Button variant="ghost" size="sm" onClick={beenden}>Beenden</Button>

@@ -31,6 +31,8 @@ export interface TourStep {
   action: string
   /** Felder, die der Rundgang selbst ausfuellt, bevor er auf das Ziel zeigt */
   tippen?: { css: string; wert: string; beschriftung: string }[]
+  /** Nur im offenen Dialog der Anwendung suchen — dieselbe Beschriftung steht oft auch auf der Seite dahinter */
+  imDialog?: boolean
 }
 
 export const TOUR_STEPS: TourStep[] = [
@@ -103,6 +105,15 @@ export const TOUR_STEPS: TourStep[] = [
     action: 'Klicken Sie auf „Berechnen".',
   },
   {
+    title: 'Rechenzeit bestätigen',
+    text: 'Der Dialog zeigt die Rechenzeit aus den Einstellungen. Solange gerechnet wird, ist der Entwurf gesperrt; danach stehen die Stunden im Raster.',
+    target: { text: 'Berechnen' },
+    route: '/entwurf',
+    weiter: 'klick',
+    imDialog: true,
+    action: 'Bestätigen Sie mit „Berechnen".',
+  },
+  {
     title: 'Konflikt auflösen',
     text: 'Konflikte blockieren nie das Speichern — sie werden bei jedem Lesen neu berechnet. Auflösen lassen sie sich per Knopf: Der Server rechnet drei kurze Läufe mit wachsendem Spielraum.',
     target: { text: 'Lösen' },
@@ -117,6 +128,15 @@ export const TOUR_STEPS: TourStep[] = [
     route: '/entwurf',
     weiter: 'klick',
     action: 'Klicken Sie auf „Annehmen".',
+  },
+  {
+    title: 'Annehmen bestätigen',
+    text: 'Der Dialog zeigt vorher, was sich ändert. Nach dem Annehmen ist der alte Plan archiviert, und es gibt wieder genau einen aktiven Plan.',
+    target: { text: 'Annehmen' },
+    route: '/entwurf',
+    weiter: 'klick',
+    imDialog: true,
+    action: 'Bestätigen Sie mit „Annehmen".',
   },
   {
     title: 'Vertretung',

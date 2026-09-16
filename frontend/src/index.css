@@ -391,6 +391,8 @@ body { background: var(--background); color: var(--foreground); color-scheme: li
    still — die Regel weiter unten setzt jede Animationsdauer auf null. */
 @keyframes tour-wippe-quer { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-7px); } }
 @keyframes tour-wippe-hoch { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes tour-lesen { from { width: 0; } to { width: 100%; } }
+.tour-lesebalken { animation-name: tour-lesen; animation-timing-function: linear; animation-fill-mode: forwards; }
 .tour-pfeil-quer { animation: tour-wippe-quer 1.1s ease-in-out infinite; }
 .tour-pfeil-hoch { animation: tour-wippe-hoch 1.1s ease-in-out infinite; }
 
