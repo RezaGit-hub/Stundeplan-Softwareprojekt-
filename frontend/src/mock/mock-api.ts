@@ -814,8 +814,8 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
     /**
      * Annehmen mit Gültigkeitszeitraum (#115). Es darf mehrere angenommene Pläne geben, solange ihre
      * Zeiträume sich nicht überschneiden. Jeder überlappende Vorgänger wird gekürzt; ein Vorgänger, der
-     * erst in der Zukunft beginnt, lässt sich nicht kürzen — dann 409 `plan-overlap`, und nichts ändert
-     * sich. Deshalb erst alle Änderungen sammeln, dann anwenden.
+     * erst in der Zukunft beginnt, lässt sich nicht kürzen — dann 409 `plan-overlap` (auch bei „jetzt
+     * aktivieren"), und nichts ändert sich. Deshalb erst alle Änderungen sammeln, dann anwenden.
      */
     async acceptDraft(draftId, body) {
       await planning()
@@ -837,8 +837,8 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
         if (pStart < from) {
           // Der alte Plan bleibt bis zum Vortag gültig; ist er damit ganz Vergangenheit, wandert er ins Archiv.
           kuerzungen.push({ plan: p, validUntil: vortag, archivieren: vortag < heute })
-        } else if (from <= heute) {
-          // „Jetzt aktivieren": ein Plan, der heute oder später beginnt, wird ersetzt (leerer Zeitraum).
+        } else if (pStart <= heute) {
+          // Ein Plan, der heute schon begonnen hat (eben erst angenommen, sofort ersetzt): ins Archiv, leerer Zeitraum.
           kuerzungen.push({ plan: p, validUntil: vortag, archivieren: true })
         } else {
           const bis = p.validUntil ? ` bis ${p.validUntil}` : ''

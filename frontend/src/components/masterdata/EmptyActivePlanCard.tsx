@@ -26,17 +26,29 @@ export function EmptyActivePlanCard() {
 
   // Zwei Aufrufe auf einem Entwurf, dessen Kennung erst der erste liefert — dafür gibt es keinen
   // Mutations-Hook je Kennung. Deshalb hier direkt über `api`, mit derselben Auffrischung wie die Hooks.
+  //
+  // Scheitert der zweite Aufruf (z. B. 409 `plan-overlap`, weil ein künftiger Plan den Zeitraum belegt),
+  // steht der leere Entwurf schon in der Datenbank — sichtbar wäre er nur in der Entwurfsliste, und jeder
+  // weitere Klick legte „Entwurf 2", „Entwurf 3" … nach. Deshalb wird er wieder gelöscht. Die Auffrischung
+  // gehört ins `finally`: auch der Fehlerweg hat den Bestand verändert.
   const run = async () => {
     setPending(true)
+    let angelegt: number | null = null
     try {
       const draft = await api.createDraft({ source: 'EMPTY' })
+      angelegt = draft.id
       await api.acceptDraft(draft.id, {})
-      await Promise.all([qk.drafts, qk.draftAll, qk.timetable, qk.timetables, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.pendingAll, qk.optionsAll]
-        .map((queryKey) => qc.invalidateQueries({ queryKey })))
+      angelegt = null
       toast.success('Aktiver Plan geleert')
     } catch (err) {
+      // Zuerst melden, was wirklich schiefging — das Aufräumen ist Nebensache und darf die Meldung nicht
+      // überschreiben. Scheitert auch das Löschen, bleibt der Entwurf stehen, ist aber nach der
+      // Auffrischung wenigstens in der Liste sichtbar.
       toastProblem(err)
+      if (angelegt != null) await api.deleteDraftById(angelegt).catch(() => undefined)
     } finally {
+      await Promise.all([qk.drafts, qk.draftAll, qk.timetable, qk.timetables, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.pendingAll, qk.optionsAll]
+        .map((queryKey) => qc.invalidateQueries({ queryKey })))
       setPending(false)
     }
   }

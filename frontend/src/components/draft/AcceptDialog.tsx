@@ -30,15 +30,13 @@ import { FormDialog } from '@/components/dialogs/FormDialog'
 import { DateField } from '@/components/forms/DateField'
 import { FieldError } from '@/components/forms/FieldError'
 import { ProblemBanner } from '@/components/states/ProblemBanner'
+import { acceptBody, acceptRangeError, type AcceptWay } from '@/lib/accept-input'
 import { formatDay, formatDayDate, planValidFrom } from '@/lib/dates'
 import { openCount } from '@/lib/draft'
 import { today } from '@/lib/today'
 import { cn } from '@/lib/utils'
 
-/** Die drei Wege des Dialogs. `park` nimmt nichts an — er legt den Entwurf nur beiseite. */
-type Way = 'now' | 'from' | 'park'
-
-const WAYS: { value: Way; icon: typeof PlayCircle; label: string; hint: string }[] = [
+const WAYS: { value: AcceptWay; icon: typeof PlayCircle; label: string; hint: string }[] = [
   { value: 'now', icon: PlayCircle, label: 'Jetzt aktivieren', hint: 'Der Plan gilt ab heute. Ein Plan, der heute schon gilt, endet gestern.' },
   { value: 'from', icon: CalendarClock, label: 'Ab Datum aktivieren', hint: 'Der bisherige Plan gilt bis zum Vortag weiter.' },
   { value: 'park', icon: Archive, label: 'In die Ablage legen', hint: 'Der Entwurf wird eingefroren und kann später aktiviert werden.' },
@@ -62,7 +60,7 @@ export function AcceptDialog({ open, onOpenChange, draftId, warnings, openLesson
   const accept = useAcceptDraft(draftId, { quiet: (err) => isProblem(err, 'plan-overlap') || isProblem(err, 'draft-has-conflicts') })
   const park = usePatchDraft(draftId)
   const heute = today()
-  const [way, setWay] = useState<Way>('now')
+  const [way, setWay] = useState<AcceptWay>('now')
   const [validFrom, setValidFrom] = useState<string>(heute)
   const [useValidUntil, setUseValidUntil] = useState(false)
   const [validUntil, setValidUntil] = useState<string>(heute)
@@ -74,8 +72,9 @@ export function AcceptDialog({ open, onOpenChange, draftId, warnings, openLesson
   /** Das Datum, für das das Häkchen gesetzt wurde — ändert sich die Untergrenze, ist es wieder offen. */
   const [confirmedFor, setConfirmedFor] = useState<string | null>(null)
   const confirmed = confirmedFor === from
-  /** Zeitraum verdreht: das prüft die Oberfläche selbst, damit niemand für ein 400 auf den Server wartet. */
-  const rangeError = way === 'from' && useValidUntil && validUntil < validFrom ? 'Das Ende darf nicht vor dem Beginn liegen.' : undefined
+  /** Der Stand der Felder, aus dem Körper und Bereichsprüfung entstehen (lib/accept-input.ts). */
+  const input = { way, validFrom, useValidUntil, validUntil }
+  const rangeError = acceptRangeError(input)
 
   const openLessonCount = openCount(openLessons)
 
@@ -93,10 +92,19 @@ export function AcceptDialog({ open, onOpenChange, draftId, warnings, openLesson
   /**
    * Beim Schließen zurücksetzen: das nächste Öffnen fragt wieder nach (kein useEffect nötig). Auch der
    * Weg fällt auf „Jetzt aktivieren" zurück — sonst stünde beim nächsten Öffnen still die Wahl von
-   * vorhin, und wer den Dialog zweimal aufruft, legt versehentlich wieder ab statt anzunehmen.
+   * vorhin, und wer den Dialog zweimal aufruft, legt versehentlich wieder ab statt anzunehmen. Dasselbe
+   * gilt für die Datumsfelder: ein Zeitraum von vorhin, den niemand mehr sieht, weil der Weg wieder auf
+   * „Jetzt aktivieren" steht, darf beim nächsten „Ab Datum" nicht wieder auftauchen.
    */
   const setOpen = (o: boolean) => {
-    if (!o) { setConfirmedFor(null); setProblem(null); setWay('now') }
+    if (!o) {
+      setConfirmedFor(null)
+      setProblem(null)
+      setWay('now')
+      setValidFrom(heute)
+      setUseValidUntil(false)
+      setValidUntil(heute)
+    }
     onOpenChange(o)
   }
 
@@ -111,8 +119,7 @@ export function AcceptDialog({ open, onOpenChange, draftId, warnings, openLesson
       return
     }
     try {
-      const body = way === 'from' ? { validFrom, ...(useValidUntil ? { validUntil } : {}) } : undefined
-      const res = await accept.mutateAsync(body)
+      const res = await accept.mutateAsync(acceptBody(input))
       // Ab wann der Plan gilt, gehört in die Erfolgsmeldung: sonst wirkt die Woche davor wie ein Datenverlust.
       const gueltigAb = res.validFrom ?? (res.acceptedAt ? planValidFrom(res.acceptedAt) : heute)
       const bis = res.validUntil ? ` bis ${formatDayDate(res.validUntil)}` : ''
@@ -139,7 +146,7 @@ export function AcceptDialog({ open, onOpenChange, draftId, warnings, openLesson
       submitDisabled={submitDisabled}
       submitLabel={way === 'park' ? 'In die Ablage' : 'Annehmen'}
     >
-      <RadioGroup value={way} onValueChange={(v) => { setWay(v as Way); setProblem(null) }} className="grid gap-2">
+      <RadioGroup value={way} onValueChange={(v) => { setWay(v as AcceptWay); setProblem(null) }} className="grid gap-2">
         {WAYS.map((w) => (
           <div key={w.value} className={cn('rounded-md border p-3 transition-colors', way === w.value ? 'border-primary/50 bg-primary-soft/40' : 'bg-surface-sunken/40')}>
             <div className="flex items-center gap-2">

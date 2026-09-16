@@ -82,7 +82,9 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               <CommandGroup heading="Aktionen">
                 <CommandItem value="aktion entwurf berechnen" onSelect={() => go(draftAction('berechnen'))}><Calculator /> Entwurf berechnen</CommandItem>
                 <CommandItem value="aktion entwurf annehmen" onSelect={() => go(draftAction('annehmen'))}><CheckCheck /> Entwurf annehmen</CommandItem>
-                <CommandItem value="aktion neuen entwurf anlegen" onSelect={() => go('/entwurf')}><Plus /> Neuen Entwurf anlegen</CommandItem>
+                {/* Wie die beiden Aktionen darüber: der Weg nennt die Aktion, die Liste öffnet den Dialog.
+                    Ohne `aktion` landete man nur auf der Liste und müsste dort noch einmal klicken. */}
+                <CommandItem value="aktion neuen entwurf anlegen" onSelect={() => go('/entwurf?aktion=anlegen')}><Plus /> Neuen Entwurf anlegen</CommandItem>
                 <CommandItem value="aktion neue vertretung" onSelect={() => go(`/vertretung?datum=${today()}`)}><Replace /> Neue Vertretung</CommandItem>
                 {themeItem}
               </CommandGroup>

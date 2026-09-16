@@ -12,7 +12,9 @@ export function notFound(detail: string): ApiError {
 }
 
 export function conflict409(
-  suffix: 'in-use' | 'draft-exists' | 'solving' | 'master-data-incomplete' | 'pinned-contradiction' | 'data-exists' | 'exception-exists' | 'preset-missing' | 'protected-account' | 'draft-has-conflicts' | 'plan-overlap' | 'draft-finished',
+  // `draft-exists` stand hier bis 1.3.0 (ein Entwurf je Schule); seit #103 stehen Entwürfe nebeneinander
+  // und der Slug kommt nicht mehr vor.
+  suffix: 'in-use' | 'solving' | 'master-data-incomplete' | 'pinned-contradiction' | 'data-exists' | 'exception-exists' | 'preset-missing' | 'protected-account' | 'draft-has-conflicts' | 'plan-overlap' | 'draft-finished',
   title: string,
   detail: string,
   extra?: { missing?: string[]; conflicts?: ConflictDto[] },

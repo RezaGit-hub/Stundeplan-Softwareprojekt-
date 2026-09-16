@@ -81,7 +81,9 @@ export function DraftBanner({ draft, onSolve, onCancel, onAccept, onDiscard, pen
             {solving && <Button size="sm" variant="outline" onClick={onCancel} disabled={pending}><Square data-icon="inline-start" /> Abbrechen</Button>}
             {draft.status === 'FAILED' && (
               <>
-                <Button size="sm" onClick={onSolve} disabled={pending}><Play data-icon="inline-start" /> Erneut berechnen</Button>
+                {/* Dieselbe Sperre wie oben: in der Ablage (#116) ist Berechnen serverseitig gesperrt
+                    (409 `draft-finished`) — auch die Wiederholung nach einem Fehlschlag. */}
+                {!draft.finished && <Button size="sm" onClick={onSolve} disabled={pending}><Play data-icon="inline-start" /> Erneut berechnen</Button>}
                 <Button size="sm" variant="outline" onClick={onDiscard} disabled={pending}><Trash2 data-icon="inline-start" /> Verwerfen</Button>
               </>
             )}

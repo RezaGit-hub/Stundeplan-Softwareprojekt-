@@ -64,8 +64,12 @@ export function DraftPage() {
   const cancel = useCancelSolve(draftId)
   const repair = useRepairDraft(draftId)
 
-  const [solveOpen, setSolveOpen] = useState(aktion === 'berechnen')
-  const [acceptOpen, setAcceptOpen] = useState(aktion === 'annehmen')
+  // Aus der Befehlspalette („Entwurf berechnen", „Entwurf annehmen") kommt die Aktion als `aktion` in der
+  // Adresse. Der Dialog steht deshalb offen, solange der Parameter da ist — abgeleitet statt in einem
+  // Effekt gesetzt, damit auch eine Navigation auf die schon offene Seite wirkt. `closeAction` streicht
+  // den Parameter beim Schließen, der Dialog geht also nicht von selbst wieder auf.
+  const [solveOpen, setSolveOpen] = useState(false)
+  const [acceptOpen, setAcceptOpen] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [renameKey, setRenameKey] = useState(0)
   const [addTarget, setAddTarget] = useState<{ classId: number; timeslotId: number } | null>(null)
@@ -272,11 +276,11 @@ export function DraftPage() {
         onStartMove={view === 'CLASS' && editing ? (lessonId) => { setMoving(lessonId); setDetail(null) } : undefined}
         readOnly={!editing}
       />
-      <SolveDialog open={solveOpen} onOpenChange={closeAction(setSolveOpen)} draftId={draftId} classes={classes.data ?? []} defaultClassId={view === 'CLASS' ? id : null} />
+      <SolveDialog open={solveOpen || aktion === 'berechnen'} onOpenChange={closeAction(setSolveOpen)} draftId={draftId} classes={classes.data ?? []} defaultClassId={view === 'CLASS' ? id : null} />
       {/* Nach dem Annehmen in die erste Woche, in der der Plan gilt — nicht in die Woche von heute, die noch
           den vorherigen Stand zeigt (Befund 05.09.). */}
       <AcceptDialog
-        open={acceptOpen}
+        open={acceptOpen || aktion === 'annehmen'}
         onOpenChange={closeAction(setAcceptOpen)}
         draftId={draftId}
         warnings={d.warnings}

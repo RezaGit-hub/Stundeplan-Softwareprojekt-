@@ -20,6 +20,7 @@ import { DataTable } from '@/components/table/DataTable'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { NewDraftDialog } from '@/components/draft/NewDraftDialog'
 import { RenameDraftDialog } from '@/components/draft/RenameDraftDialog'
+import { useUrlState } from '@/components/plan/plan-params'
 import { formatDateTime } from '@/lib/dates'
 
 const SOURCE_LABEL: Record<DraftSummaryDto['source'], string> = {
@@ -91,7 +92,13 @@ function DraftRowActions({ draft }: { draft: DraftSummaryDto }) {
 export function DraftListPage() {
   const drafts = useDrafts()
   const navigate = useNavigate()
+  const { params, set } = useUrlState()
   const [newOpen, setNewOpen] = useState(0)
+
+  // „Neuen Entwurf anlegen" aus der Befehlspalette (⌘K) führt nach /entwurf?aktion=anlegen. Der Dialog
+  // steht offen, solange der Parameter da ist — abgeleitet statt in einem Effekt gesetzt; beim Schließen
+  // wird der Parameter gestrichen, sonst risse ihn jedes erneute Öffnen der Seite wieder auf.
+  const anlegen = params.get('aktion') === 'anlegen'
 
   if (drafts.isPending) return <PageSkeleton />
   if (drafts.isError) return <ErrorState problem={drafts.error} retry={() => void drafts.refetch()} />
@@ -103,7 +110,7 @@ export function DraftListPage() {
     <>
       <PageHeader
         title="Entwürfe"
-        description={rows.length === 0 ? 'Arbeitskopien neben dem aktiven Plan.' : `${rows.length} Entwürfe · ${inArbeit} in Arbeit · ${rows.length - inArbeit} in der Ablage`}
+        description={rows.length === 0 ? 'Arbeitskopien neben dem aktiven Plan.' : `${rows.length === 1 ? '1 Entwurf' : `${rows.length} Entwürfe`} · ${inArbeit} in Arbeit · ${rows.length - inArbeit} in der Ablage`}
         actions={<Button onClick={() => setNewOpen((k) => k + 1)}><Plus /> Neuer Entwurf</Button>}
       />
 
@@ -149,11 +156,11 @@ export function DraftListPage() {
         Angenommen wird ein Entwurf auf seiner eigenen Seite. Der <Link to="/plan" className="font-medium text-primary underline-offset-2 hover:underline">aktive Plan</Link> bleibt gültig, bis der neue seinen Zeitraum übernimmt.
       </p>
 
-      {newOpen > 0 && (
+      {(newOpen > 0 || anlegen) && (
         <NewDraftDialog
           key={newOpen}
           open
-          onOpenChange={(o) => { if (!o) setNewOpen(0) }}
+          onOpenChange={(o) => { if (!o) { setNewOpen(0); if (anlegen) set({ aktion: null }) } }}
           onCreated={(draft) => navigate(`/entwurf/${draft.id}`)}
         />
       )}

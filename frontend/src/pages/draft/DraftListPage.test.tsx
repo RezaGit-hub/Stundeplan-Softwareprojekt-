@@ -86,6 +86,20 @@ describe('Entwurfsliste (#103)', () => {
 
     await aktion('„Variante A" wieder öffnen', nutzer)
     await waitFor(() => expect(a.finished).toBe(false))
+    // Nicht nur der Bestand — die Liste muss den Entwurf auch wieder als offen zeigen: Kennzeichen „Ablage"
+    // weg, beide Entwürfe „in Arbeit", und der Knopf führt wieder in die Ablage statt zurück.
+    await waitFor(() => expect(screen.queryByText('Ablage')).toBeNull())
+    expect(screen.getAllByText('in Arbeit')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: '„Variante A" in die Ablage legen' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '„Variante A" wieder öffnen' })).toBeNull()
+  })
+
+  // Aus der Befehlspalette (⌘K) führt „Neuen Entwurf anlegen" nach /entwurf?aktion=anlegen — die Liste
+  // öffnet den Dialog selbst, sonst wäre der Weg ein Klick länger als die beiden Aktionen daneben.
+  it('öffnet den Anlegen-Dialog, wenn `aktion=anlegen` in der Adresse steht', async () => {
+    await renderPage(<DraftListPage />, { route: '/entwurf?aktion=anlegen', store: storeMitEntwuerfen() })
+
+    expect(await screen.findByRole('dialog', { name: 'Neuer Entwurf' })).toBeTruthy()
   })
 
   it('verwirft einen Entwurf erst nach Rückfrage — die anderen bleiben', async () => {
