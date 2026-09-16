@@ -1,6 +1,7 @@
 package de.wsp3_1.auth;
 
 import de.wsp3_1.shared.IntegrationTestBase;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,19 @@ class UserControllerIT extends IntegrationTestBase {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    /**
+     * Raeumt Konten weg, die eine andere Testklasse hinterlassen hat.
+     *
+     * <p>{@code PlanningITBase} loescht sie vor <b>ihren</b> Tests, nicht nach ihnen; wer danach laeuft,
+     * findet also noch ein Konto „meyer" vor. A-1 legt genau dieses an und bekam dann 409 statt 201 —
+     * je nachdem, in welcher Reihenfolge Gradle die Testklassen startet (gesehen am 16.09.). Die
+     * Transaktion dieser Klasse macht das Loeschen am Ende wieder rueckgaengig.</p>
+     */
+    @BeforeEach
+    void clearLeftoverAccounts() {
+        jdbc.execute("DELETE FROM user_account WHERE role <> 'PLANNING'");
+    }
 
     private String planungsToken() throws Exception {
         String antwort = mvc.perform(post("/api/auth/login")

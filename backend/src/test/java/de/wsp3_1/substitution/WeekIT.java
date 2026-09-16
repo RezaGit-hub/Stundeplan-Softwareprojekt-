@@ -19,17 +19,18 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * Testfall T-W4.1). Grundlage ist der Regelplan Montag/Dienstag aus dem Pflichtenheft — dieselben
  * sieben Stunden, die auch die Abnahme von Hand einplant.
  *
- * <p>Die Woche ist immer die <b>laufende</b>, und der Plan wird mit {@code validFrom} auf ihren Montag
+ * <p>Die Woche ist immer die <b>kommende</b>, und der Plan wird mit {@code validFrom} auf ihren Montag
  * angenommen. So haengt kein Testergebnis daran, an welchem Tag jemand die Tests startet — ein Plan
  * gilt erst ab seinem Beginn, und „heute" waere an einem Samstag schon zu spaet fuer den Montag
- * derselben Woche.</p>
+ * derselben Woche. Die laufende Woche geht seit dem 16.09. nicht mehr: {@code validFrom} vor heute ist
+ * 400 {@code validation}, und an jedem Tag ausser Montag laege ihr Montag in der Vergangenheit.</p>
  *
  * <p><b>Stand backend2 Teil 1:</b> jeder Eintrag ist {@code REGULAR}. Ereignisse und datierte Ausnahmen
  * (W-5, W-6) kommen in Teil 2; erst dann gibt es andere Arten.</p>
  */
 class WeekIT extends PlanningITBase {
 
-    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY);
+    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY).plusWeeks(1);
 
     /** Der Plan des Pflichtenhefts, angenommen mit Gueltigkeit ab dem Montag dieser Woche. */
     private Testdaten planDerWoche() throws Exception {

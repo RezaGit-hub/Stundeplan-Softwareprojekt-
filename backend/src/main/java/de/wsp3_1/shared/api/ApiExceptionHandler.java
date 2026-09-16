@@ -44,6 +44,14 @@ public class ApiExceptionHandler {
      */
     private static final String ONE_EXCEPTION_INDEX = "lesson_exception_unique";
 
+    /**
+     * Die Ausschlussbedingung aus V12: zwei aktive Plaene teilen sich keinen Tag. Sie meldet sich mit
+     * SQLState {@code 23P01} (Ausschluss), nicht mit {@code 23505} (doppelter Schluessel) — ohne diesen
+     * Fall landete sie im Auffangzweig und ergab 409 {@code in-use} („wird noch verwendet"), was mit dem
+     * Vorgang nichts zu tun hat (Befund 16.09.).
+     */
+    private static final String PLAN_OVERLAP_CONSTRAINT = "timetable_active_no_overlap";
+
     /** Bean-Validation an einem Request-Body: 400 mit Feldliste. */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ProblemDetail onValidation(MethodArgumentNotValidException ex) {
@@ -130,9 +138,12 @@ public class ApiExceptionHandler {
 
     /**
      * Eine Bedingung der Datenbank ist verletzt — der Fall, den die Pruefung im Dienst nicht abfangen
-     * konnte. Zwei Gruende kommen vor:
+     * konnte. Drei Gruende kommen vor:
      *
      * <ul>
+     *   <li><b>Ueberschneidende Zeitraeume</b> (23P01, {@code timetable_active_no_overlap}): zwei
+     *       gleichzeitige Annahmen wollen denselben Tag. 409 {@code plan-overlap} — derselbe Slug, den
+     *       auch die Pruefung in {@code DraftService.accept} wirft.</li>
      *   <li><b>Doppelter Schluessel</b> (SQLState 23505): zwei gleichzeitige Anfragen haben beide die
      *       Existenzpruefung bestanden und legen dieselbe Zeile an. Die Pruefung im Dienst bleibt —
      *       sie liefert die bessere Meldung; dieser Fall faengt nur das Wettrennen ab.</li>
@@ -146,6 +157,14 @@ public class ApiExceptionHandler {
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ProblemDetail onDataIntegrity(DataIntegrityViolationException ex) {
+        // Ein Wettrennen bei zwei gleichzeitigen POST …/accept mit sich ueberschneidenden Zeitraeumen:
+        // beide bestehen die Pruefung im Dienst, die Datenbank laesst nur einen durch. Derselbe Slug
+        // wie bei der Pruefung im Dienst, damit das Web nur einen Fall kennt.
+        if (mentions(ex, PLAN_OVERLAP_CONSTRAINT)) {
+            return ApiProblems.of(HttpStatus.CONFLICT, "plan-overlap", "Konflikt",
+                    "Der Zeitraum überschneidet sich mit einem gleichzeitig angenommenen Plan."
+                            + " Bitte erneut versuchen.");
+        }
         if ("23505".equals(sqlState(ex))) {
             // Ein Wettrennen bei zwei gleichzeitigen POST /api/exceptions auf dieselbe Stunde und
             // denselben Tag: der Vertrag nennt dafuer `exception-exists`, nicht `data-exists`.

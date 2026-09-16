@@ -37,6 +37,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -390,6 +391,28 @@ public class DraftService {
      *       still verschwinden; die Planung waehlt ein Enddatum vor seinem Beginn oder aendert ihn.</li>
      * </ol>
      *
+     * <p><b>Der Beginn wird immer geschrieben</b> — auch bei „ab sofort": dann steht dort der heutige
+     * Tag. Ein leeres {@code valid_from} waere in der Datenbank kein „ab heute", sondern
+     * {@code daterange(NULL, …)} und damit eine <b>nach unten offene</b> Untergrenze; die
+     * Ausschlussbedingung {@code timetable_active_no_overlap} saehe eine Ueberschneidung mit jedem
+     * anderen aktiven Plan — auch mit einem laengst abgelaufenen, den die Pruefung oben zu Recht in Ruhe
+     * laesst. Das endete in einer Bedingungsverletzung statt in einer Antwort (Befund 16.09.).</p>
+     *
+     * <p><b>Ein Beginn in der Vergangenheit ist 400</b> {@code validation}: er schriebe die Zeitleiste
+     * rueckwirkend um — Tage, deren Vertretungsplan laengst veroeffentlicht ist, bekaemen nachtraeglich
+     * einen anderen Regelplan.</p>
+     *
+     * <p><b>Zwei Annahmen gleichzeitig</b> gehen nicht aneinander vorbei: der Entwurf und alle aktiven
+     * Plaene werden mit Schreibsperre gelesen ({@code SELECT … FOR UPDATE}). Die zweite Anfrage wartet
+     * und sieht danach den fertigen Stand — derselbe Entwurf ist dann kein Entwurf mehr (404), ein
+     * ueberschneidender Zeitraum ist 409 {@code plan-overlap}. Die Ausschlussbedingung der Datenbank
+     * bleibt als letzte Sicherung ({@code ApiExceptionHandler}, SQLState 23P01).</p>
+     *
+     * <p><b>Abgelaufene Plaene werden nebenbei archiviert</b>: jeder aktive Plan, dessen Ende vor heute
+     * liegt, wird beim naechsten Annehmen {@code ARCHIVED}. Sonst bliebe er auf {@code ACTIVE} stehen,
+     * spraeche in {@code GET /api/timetables} mit und sperrte ueber die Zaehlabfragen in
+     * {@code ClassSubjectRepository} das Loeschen von Grunddaten.</p>
+     *
      * <p><b>Harte Konflikte blockieren</b> (409 {@code draft-has-conflicts}, seit #103): ein Plan mit
      * Doppelbelegung oder Sperrzeitverstoss darf nicht der gueltige werden — vorher loeschte das Web
      * nur die Warnung weg. Weiche Konflikte blockieren nicht; die Planung entscheidet.</p>
@@ -399,18 +422,27 @@ public class DraftService {
      * {@code warnings} ihre Anzahl; der Annehmen-Dialog zeigt dieselbe Zahl schon vorher aus
      * {@code openLessons} des Entwurfs (Befund 05.09.).</p>
      *
-     * @param validFrom  Kann-Option (E-40): der neue Plan gilt erst ab diesem Tag. Leer = ab sofort.
+     * @param validFrom  Kann-Option (E-40): der neue Plan gilt erst ab diesem Tag. Leer = ab heute;
+     *                   gespeichert wird in beiden Faellen ein Datum. Vor heute ist 400.
      * @param validUntil Kann-Option (#115): letzter Tag einschliesslich. Leer = unbegrenzt.
      */
     @Transactional
     public PlanViews.AcceptResultView accept(Long draftId, LocalDate validFrom, LocalDate validUntil) {
-        Timetable draft = requireDraft(draftId);
+        // Mit Schreibsperre, und die Vorgaenger unten ebenso: sonst laufen zwei gleichzeitige Annahmen
+        // beide durch die Pruefungen (Timetable traegt keine Fassungsnummer). Die zweite Anfrage wartet
+        // hier und findet den Entwurf danach nicht mehr als Entwurf — 404 statt eines zweiten Plans.
+        Timetable draft = timetables.findByIdAndStatusForUpdate(draftId, TimetableStatus.DRAFT)
+                .orElseThrow(() -> new NotFoundException("Entwurf " + draftId + " nicht gefunden."));
         requireNotSolving(draft);
         List<Lesson> rows = lessons.findAllOfTimetable(draft.getId());
         requireNoHardConflicts(rows);
 
         LocalDate heute = LocalDate.now();
         LocalDate from = validFrom == null ? heute : validFrom;
+        if (validFrom != null && validFrom.isBefore(heute)) {
+            throw new ValidationException("validFrom",
+                    "Der Beginn darf nicht in der Vergangenheit liegen");
+        }
         if (validUntil != null && validUntil.isBefore(from)) {
             throw new ValidationException("validUntil",
                     "Das Ende darf nicht vor dem Beginn liegen");
@@ -418,7 +450,8 @@ public class DraftService {
 
         // Erst pruefen, dann schreiben: bei 409 plan-overlap soll kein Vorgaenger halb verkuerzt sein.
         // Die Transaktion raeumte das zwar ohnehin weg, aber die Absicht steht so in den Zeilen.
-        List<Timetable> betroffen = planReader.activePlansByStart().stream()
+        List<Timetable> aktive = activePlansForUpdate();
+        List<Timetable> betroffen = aktive.stream()
                 .filter(plan -> overlaps(PlanReader.startOf(plan), plan.getValidUntil(), from, validUntil))
                 .toList();
         for (Timetable plan : betroffen) {
@@ -426,6 +459,8 @@ public class DraftService {
                 throw new ConflictException("plan-overlap", overlapMessage(plan));
             }
         }
+
+        archiveExpired(aktive, heute);
 
         // „Der bisherige Plan" fuer Verlaufseintrag und Vertretungen: der, der am Tag des Beginns galt.
         // Bei „jetzt aktivieren" ueber einen erst kuenftig beginnenden Plan hinweg gibt es den nicht —
@@ -455,7 +490,7 @@ public class DraftService {
 
         draft.setStatus(TimetableStatus.ACTIVE);
         draft.setAcceptedAt(Instant.now());
-        draft.setValidFrom(validFrom);
+        draft.setValidFrom(from);
         draft.setValidUntil(validUntil);
         draft.setFinished(false);
         timetables.saveAndFlush(draft);
@@ -472,6 +507,40 @@ public class DraftService {
         }
         warnings.addAll(expiringSubstitutions(validFrom, previous, draft, rows));
         return new PlanViews.AcceptResultView(planReader.planOf(draft), warnings);
+    }
+
+    /**
+     * Die aktiven Plaene mit Schreibsperre, fruehester Beginn zuerst — dieselbe Reihenfolge wie
+     * {@link PlanReader#activePlansByStart()}, nur gesperrt. Gesperrt wird in der Datenbank nach
+     * Kennung, damit zwei gleichzeitige Annahmen dieselbe Folge nehmen und sich nicht verklemmen;
+     * sortiert wird danach in Java.
+     */
+    private List<Timetable> activePlansForUpdate() {
+        return timetables.findAllByStatusForUpdate(TimetableStatus.ACTIVE).stream()
+                .sorted(Comparator.comparing(PlanReader::startOf).thenComparing(Timetable::getId))
+                .toList();
+    }
+
+    /**
+     * Legt jeden aktiven Plan still, dessen Ende vor heute liegt — beilaeufig, beim Annehmen.
+     *
+     * <p>Es gibt keinen Zeitgeber, der einen Plan an seinem letzten Tag umstellt; ohne diese Zeilen
+     * bliebe ein abgelaufener Plan auf {@code ACTIVE} stehen. Er stuende dann weiter in
+     * {@code GET /api/timetables}, und die Zaehlabfragen in {@code ClassSubjectRepository}
+     * ({@code status <> 'ARCHIVED'}) verhinderten das Loeschen von Grunddaten, die niemand mehr
+     * braucht. Auf die Zeitleiste hat der Wechsel keine Wirkung: {@link PlanReader#acceptedTimeline()}
+     * liest aktive und archivierte Plaene gleichermassen.</p>
+     *
+     * <p>Beruehrte Vorgaenger sind hier nie dabei: die enden fruehestens am Tag vor {@code from}, und
+     * {@code from} liegt nie vor heute.</p>
+     */
+    private void archiveExpired(List<Timetable> aktive, LocalDate heute) {
+        for (Timetable plan : aktive) {
+            if (plan.getValidUntil() != null && plan.getValidUntil().isBefore(heute)) {
+                plan.setStatus(TimetableStatus.ARCHIVED);
+                timetables.saveAndFlush(plan);
+            }
+        }
     }
 
     /**
@@ -732,7 +801,7 @@ public class DraftService {
         Set<String> taken = timetables.findAllByStatusOrderByIdDesc(TimetableStatus.DRAFT).stream()
                 .map(Timetable::getName)
                 .collect(Collectors.toSet());
-        int n = taken.size() + 1;
+        int n = 1;
         while (taken.contains("Entwurf " + n)) {
             n++;
         }

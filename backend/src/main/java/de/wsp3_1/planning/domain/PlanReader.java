@@ -34,6 +34,13 @@ import java.util.Optional;
 @Service
 public class PlanReader {
 
+    /**
+     * Die Zeitzone der Schule. Sie steht hier fest und nicht als {@code ZoneId.systemDefault()}: die
+     * Backfill-Abfrage in V12 rechnet {@code accepted_at AT TIME ZONE 'Europe/Berlin'}, und der Tag
+     * eines Plans muss derselbe sein, egal in welcher Zeitzone die Java-Maschine laeuft (Befund 16.09.).
+     */
+    private static final ZoneId SCHULZEIT = ZoneId.of("Europe/Berlin");
+
     private final TimetableRepository timetables;
     private final LessonRepository lessons;
     private final ConflictService conflicts;
@@ -62,6 +69,11 @@ public class PlanReader {
      *
      * <p>{@code current} traegt genau einer — der, der heute gilt. Am Ende eines Zeitraums und vor
      * dem Beginn des naechsten traegt ihn keiner; das ist ein Zustand, kein Fehler.</p>
+     *
+     * <p>Ein abgelaufener Plan bleibt in dieser Liste, solange er auf {@code ACTIVE} steht: die Web-App
+     * faellt auf den letzten Eintrag zurueck, wenn heute keiner gilt, und vergangene Wochen muessen
+     * erreichbar bleiben. Aus dem Zustand herausgeholt wird er beim naechsten Annehmen — dort archiviert
+     * {@code DraftService.accept} jeden Plan, dessen Ende vor heute liegt.</p>
      */
     @Transactional(readOnly = true)
     public List<PlanSummaryView> activePlans() {
@@ -202,7 +214,7 @@ public class PlanReader {
         }
         return plan.getAcceptedAt() == null
                 ? LocalDate.MIN
-                : plan.getAcceptedAt().atZone(ZoneId.systemDefault()).toLocalDate();
+                : plan.getAcceptedAt().atZone(SCHULZEIT).toLocalDate();
     }
 
     /** Welcher Plan gilt und welche Stunden er hat. {@code timetableId} ist leer, wenn es keinen gibt. */

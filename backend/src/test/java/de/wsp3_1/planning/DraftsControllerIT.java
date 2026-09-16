@@ -35,7 +35,10 @@ class DraftsControllerIT extends PlanningITBase {
 
         assertThat(getJson("/api/drafts/" + a).get("lessons")).hasSize(1);
         assertThat(getJson("/api/drafts/" + b).get("lessons")).isEmpty();
-        assertThat(getJson("/api/drafts/" + b).get("name").asText()).isEqualTo("Entwurf 2");
+        // Die Vorgabe ist die erste freie Nummer: „Entwurf 1" ist frei, auch wenn schon ein Entwurf
+        // („Variante A") steht. Bis zum 16.09. zaehlte sie von der Anzahl aufwaerts und sagte hier
+        // „Entwurf 2" — die Nummer sprang, ohne dass es eine Eins gab.
+        assertThat(getJson("/api/drafts/" + b).get("name").asText()).isEqualTo("Entwurf 1");
 
         JsonNode list = getJson("/api/drafts");
         assertThat(list).hasSize(2);
@@ -152,11 +155,13 @@ class DraftsControllerIT extends PlanningITBase {
         assertThat(tooLong.get("errors").get(0).get("field").asText()).isEqualTo("name");
         assertThat(tooLong.get("errors").get(0).get("message").asText()).isEqualTo("hoechstens 80 Zeichen");
 
-        // Die Vorgabe „Entwurf n" ueberspringt vergebene Namen.
+        // Die Vorgabe ist die erste freie Nummer: „Entwurf 1" ist vergeben, also heisst der naechste
+        // „Entwurf 2". Bis zum 16.09. zaehlte die Vorgabe von der Anzahl der Entwuerfe aufwaerts und
+        // sprang dabei ueber freie Nummern hinweg — hier waere „Entwurf 3" herausgekommen.
         call(patch("/api/drafts/" + id).content("""
-                {"name":"Entwurf 2"}"""), 200);
+                {"name":"Entwurf 1"}"""), 200);
         assertThat(call(post("/api/drafts").content("""
-                {"source":"EMPTY"}"""), 201).get("name").asText()).isEqualTo("Entwurf 3");
+                {"source":"EMPTY"}"""), 201).get("name").asText()).isEqualTo("Entwurf 2");
     }
 
     @Test

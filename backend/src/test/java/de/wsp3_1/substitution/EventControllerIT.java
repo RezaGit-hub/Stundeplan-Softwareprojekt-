@@ -26,7 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 class EventControllerIT extends PlanningITBase {
 
-    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY);
+    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY).plusWeeks(1);
     private static final LocalDate MITTWOCH = MONTAG.plusDays(2);
     private static final DateTimeFormatter DEUTSCH = DateTimeFormatter.ofPattern("dd.MM.yyyy");
 

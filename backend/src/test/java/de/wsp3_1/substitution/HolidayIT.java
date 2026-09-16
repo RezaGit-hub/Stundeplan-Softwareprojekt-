@@ -22,7 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 class HolidayIT extends PlanningITBase {
 
-    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY);
+    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY).plusWeeks(1);
     private static final LocalDate FREITAG = MONTAG.plusDays(4);
 
     @Test

@@ -21,14 +21,21 @@ ALTER TABLE timetable ADD COLUMN finished boolean NOT NULL DEFAULT false;
 -- Bestand: ein archivierter Plan endete bisher stillschweigend dort, wo der naechste angenommene
 -- Plan begann. Genau das wird jetzt hingeschrieben, damit die Zeitleiste dieselbe bleibt wie vor
 -- dieser Migration. Der aktive Plan behaelt valid_until NULL — er gilt unbegrenzt weiter.
+--
+-- Gerechnet wird in der Reihenfolge der ANNAHME, nicht der Beginne: ein archivierter Plan endet am
+-- Tag vor dem Beginn des Plans, der NACH ihm angenommen wurde. Genau das heisst „ersetzt". Nach
+-- Beginnen sortiert kaeme der alte Fehler zurueck — ein fuer spaeter angenommener Plan, den ein
+-- „jetzt aktivieren" abgeloest hat, bekaeme ein Ende hinter seinem eigenen Beginn und tauchte ab
+-- seinem Stichtag wieder auf. Liegt das Ende vor dem eigenen Beginn, ist der Zeitraum leer und der
+-- Plan loest an keinem Tag mehr auf (PlanReader.timetableIdAt) — so soll es sein.
 WITH s AS (
-    SELECT id,
+    SELECT id, accepted_at,
            COALESCE(valid_from, (accepted_at AT TIME ZONE 'Europe/Berlin')::date) AS start
       FROM timetable
      WHERE status IN ('ACTIVE', 'ARCHIVED')
 ),
 n AS (
-    SELECT id, LEAD(start) OVER (ORDER BY start, id) AS next_start FROM s
+    SELECT id, LEAD(start) OVER (ORDER BY accepted_at, id) AS next_start FROM s
 )
 UPDATE timetable t
    SET valid_until = n.next_start - 1

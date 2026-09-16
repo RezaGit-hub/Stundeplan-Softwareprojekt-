@@ -18,7 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Datenbank: geprueft wird, welchen Status und welchen Slug der Handler aus dem Fehlerschluessel macht.
  *
  * <p>Die Schluessel sind die von PostgreSQL: {@code 23505} doppelter Schluessel, {@code 23503}
- * verletzter Fremdschluessel. Vor diesem Handler wurden beide zu 500.</p>
+ * verletzter Fremdschluessel, {@code 23P01} verletzte Ausschlussbedingung. Vor diesem Handler wurden
+ * alle drei zu 500 beziehungsweise zu einem irrefuehrenden {@code in-use}.</p>
  */
 class ApiExceptionHandlerTest {
 
@@ -58,6 +59,25 @@ class ApiExceptionHandlerTest {
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
         assertThat(problem.getType()).hasToString("urn:pushnpull:problem:exception-exists");
         assertThat(problem.getDetail()).contains("Erst aufheben, dann neu anlegen.");
+    }
+
+    /**
+     * Die Ausschlussbedingung aus V12 meldet sich mit {@code 23P01}, nicht mit {@code 23505} — der Zweig
+     * fuer doppelte Schluessel greift also nicht. Ohne einen eigenen Fall fiel sie in den Auffangzweig
+     * und ergab 409 {@code in-use} („wird noch verwendet"), was den Zeitraum gar nicht erwaehnt.
+     */
+    @Test
+    @DisplayName("Die Ausschlussbedingung der Zeitraeume (23P01) ergibt 409 plan-overlap, nicht in-use")
+    void overlappingActivePlansIsConflictPlanOverlap() {
+        SQLException datenbank = new SQLException(
+                "ERROR: conflicting key value violates exclusion constraint"
+                        + " \"timetable_active_no_overlap\"", "23P01");
+        ProblemDetail problem = handler.onDataIntegrity(new DataIntegrityViolationException(
+                "could not execute statement", new RuntimeException("Hibernate-Huelle", datenbank)));
+
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
+        assertThat(problem.getType()).hasToString("urn:pushnpull:problem:plan-overlap");
+        assertThat(problem.getDetail()).contains("überschneidet sich");
     }
 
     @Test
