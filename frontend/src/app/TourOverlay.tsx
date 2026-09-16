@@ -205,6 +205,8 @@ export function TourOverlay() {
   const platzUnten = loch ? window.innerHeight - (loch.top + loch.height) : 0
   const platzOben = loch ? loch.top : 0
   const links = loch ? Math.max(RAND, Math.min(loch.left, window.innerWidth - PANEL_BREITE - RAND)) : 0
+  // Passt das Schildchen rechts neben das Ziel? Sonst sitzt es darueber.
+  const rechtsPlatz = !!loch && window.innerWidth - (loch.left + loch.width) > 120
   const panelStil: CSSProperties = loch && sperren && Math.max(platzUnten, platzOben) > PANEL_PLATZ
     ? platzUnten > PANEL_PLATZ
       ? { top: loch.top + loch.height + RAND, left: links, maxHeight: platzUnten - 2 * RAND, overflowY: 'auto' }
@@ -222,9 +224,22 @@ export function TourOverlay() {
           <div className="absolute bg-foreground/45" style={{ pointerEvents: 'auto', top: loch.top, left: 0, width: loch.left, height: loch.height }} />
           <div className="absolute bg-foreground/45" style={{ pointerEvents: 'auto', top: loch.top, left: loch.left + loch.width, right: 0, height: loch.height }} />
           <div
-            className="absolute rounded-lg ring-2 ring-primary ring-offset-2 ring-offset-background motion-safe:animate-pulse"
+            className="tour-ziel absolute rounded-lg ring-2 ring-primary"
             style={{ top: loch.top, left: loch.left, width: loch.width, height: loch.height }}
           />
+          {current.weiter !== 'lesen' && (
+            // Schildchen am Ziel: „Weiter" im Erklaerfenster sah bisher aus wie der naechste Schritt, und
+            // genau das wurde geklickt. Die Beschriftung sagt jetzt am Element selbst, was gemeint ist.
+            // Es steht rechts neben dem Ziel — unter dem Ziel liegt das Erklaerfenster und verdeckte es.
+            <span
+              className="tour-ziel absolute rounded-full bg-primary px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-primary-foreground shadow-lg"
+              style={rechtsPlatz
+                ? { top: loch.top + loch.height / 2 - 11, left: loch.left + loch.width + 8 }
+                : { top: loch.top - 26, left: loch.left }}
+            >
+              Hier klicken
+            </span>
+          )}
         </div>
       )}
 
@@ -261,13 +276,16 @@ export function TourOverlay() {
         )}
 
         <div className="mt-4 flex items-center justify-between gap-2">
-          <Button variant="ghost" size="sm" onClick={beenden}>Überspringen</Button>
+          <Button variant="ghost" size="sm" onClick={beenden}>Rundgang beenden</Button>
           <div className="flex gap-2">
             {step > 0 && <Button variant="outline" size="sm" onClick={() => geheZu(step - 1)}>Zurück</Button>}
-            {/* Am letzten Schritt immer „Fertig": sonst haengt fest, wer das Ziel nicht anklicken kann. */}
+            {/* Am letzten Schritt immer „Fertig": sonst haengt fest, wer das Ziel nicht anklicken kann.
+                Solange die Aufgabe offen ist, tritt der Knopf zurueck — sonst klickt jeder ihn statt des Ziels. */}
             {letzter
               ? <Button size="sm" onClick={beenden}>Fertig</Button>
-              : <Button size="sm" onClick={() => geheZu(step + 1)}>Weiter</Button>}
+              : phase === 'anleitung'
+                ? <Button variant="ghost" size="sm" className="text-foreground-subtle" onClick={() => geheZu(step + 1)}>Schritt überspringen</Button>
+                : <Button size="sm" onClick={() => geheZu(step + 1)}>Weiter</Button>}
           </div>
         </div>
       </div>

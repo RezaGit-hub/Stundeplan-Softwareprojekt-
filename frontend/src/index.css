@@ -377,6 +377,16 @@
 body { background: var(--background); color: var(--foreground); color-scheme: light; }
 .dark body { color-scheme: dark; }
 
+/* Rundgang (#139): Das Ziel des Schritts pulsiert, damit klar ist, wo geklickt werden soll. Ein blosser
+   Rahmen mit animate-pulse blendet nur die Deckkraft aus und wird uebersehen — hier waechst ein Ring nach
+   aussen weg, wie bei einem Tropfen ins Wasser. Bei reduzierter Bewegung steht er still (Regel unten). */
+@keyframes tour-puls {
+  0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 70%, transparent); }
+  70%  { box-shadow: 0 0 0 12px color-mix(in oklab, var(--primary) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 0%, transparent); }
+}
+.tour-ziel { animation: tour-puls 1.6s cubic-bezier(.4, 0, .6, 1) infinite; }
+
 /* Bewegung respektiert die Systemeinstellung */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
