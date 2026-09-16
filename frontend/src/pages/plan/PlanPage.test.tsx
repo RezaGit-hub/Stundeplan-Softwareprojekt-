@@ -74,4 +74,19 @@ describe('Aktiver Plan – Gültigkeitszeitraum (#115)', () => {
 
     expect(await screen.findByText(new RegExp(`7 Stunden · gilt ab ${formatDayDate(beginnNeu)}$`))).toBeTruthy()
   })
+
+  // Läuft der letzte angenommene Plan aus, kennt `GET /api/timetable` keinen mehr — `GET /api/timetables`
+  // schon. Der leere Zustand „Noch kein Plan angenommen" wäre dann falsch und nähme obendrein die
+  // Planwahl weg, mit der man den ausgelaufenen Plan wieder ansehen könnte.
+  it('zeigt den jüngsten Plan der Liste, wenn heute keiner mehr gilt', async () => {
+    const s = testStore()
+    const alt = s.timetables.find((x) => x.status === 'ACTIVE')!
+    alt.validUntil = addDaysIso(heute, -1)
+
+    await renderPage(<PlanPage />, { route: '/plan', store: s })
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Aktiver Plan' })).toBeTruthy()
+    expect(screen.queryByText('Noch kein Plan angenommen')).toBeNull()
+    expect(screen.getByText(new RegExp(`7 Stunden · gilt .* – ${formatDayDate(alt.validUntil)}$`))).toBeTruthy()
+  })
 })

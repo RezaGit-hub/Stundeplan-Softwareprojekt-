@@ -44,9 +44,17 @@ export function PlanPage() {
   // dieselbe Ansicht wieder öffnet.
   const timetables = useTimetables()
   const plans = timetables.data ?? []
-  const defaultPlanId = timetable.data?.id ?? null
+  const currentId = timetable.data?.id ?? null
+  // `GET /api/timetable` schweigt, wenn heute keiner gilt und auch keiner mehr kommt — etwa wenn der
+  // letzte Plan ein Ende hatte, das vorbei ist. Die Liste kennt ihn trotzdem. Dann tritt der jüngste aus
+  // der Liste an seine Stelle (sie kommt nach Beginn aufsteigend), statt „Noch kein Plan angenommen" zu
+  // behaupten und die Planwahl mit dem leeren Zustand wegzunehmen.
+  const newestId = plans.length > 0 ? plans[plans.length - 1].id : null
+  const defaultPlanId = currentId ?? newestId
   const pickedId = parseId(params.get('plan'))
-  const otherId = pickedId != null && pickedId !== defaultPlanId && plans.some((p) => p.id === pickedId) ? pickedId : null
+  const shownId = pickedId != null && plans.some((p) => p.id === pickedId) ? pickedId : defaultPlanId
+  // Alles außer dem Plan aus `GET /api/timetable` wird einzeln nachgeladen.
+  const otherId = shownId != null && shownId !== currentId ? shownId : null
   const otherPlan = usePlanById(otherId)
   const plan = otherId != null ? (otherPlan.data ?? null) : (timetable.data ?? null)
   // Ab wann der Plan gilt: sein Stichtag „Gültig ab" (E-40), sonst der Tag seiner Annahme. Ohne `woche`
@@ -75,8 +83,10 @@ export function PlanPage() {
   )
 
   // `otherPlan` ist abgeschaltet, solange niemand einen anderen Plan gewählt hat — eine abgeschaltete
-  // Abfrage steht dauerhaft auf `isPending`, deshalb hier zusätzlich `otherId` prüfen.
-  if (timegrid.isPending || timetable.isPending || (otherId != null && otherPlan.isPending)) return <PageSkeleton />
+  // Abfrage steht dauerhaft auf `isPending`, deshalb hier zusätzlich `otherId` prüfen. Kennt
+  // `GET /api/timetable` keinen Plan, muss außerdem die Liste da sein, bevor der leere Zustand steht:
+  // sonst blitzt „Noch kein Plan angenommen" auf, obwohl gleich der jüngste aus der Liste einspringt.
+  if (timegrid.isPending || timetable.isPending || (currentId == null && timetables.isPending) || (otherId != null && otherPlan.isPending)) return <PageSkeleton />
   if (timegrid.isError) return <ErrorState problem={timegrid.error} retry={() => void timegrid.refetch()} />
   if (timetable.isError) return <ErrorState problem={timetable.error} retry={() => void timetable.refetch()} />
   if (otherPlan.isError) return <ErrorState problem={otherPlan.error} retry={() => void otherPlan.refetch()} />
