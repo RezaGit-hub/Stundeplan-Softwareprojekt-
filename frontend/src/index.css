@@ -387,6 +387,17 @@ body { background: var(--background); color: var(--foreground); color-scheme: li
 }
 .tour-ziel { animation: tour-puls 1.6s cubic-bezier(.4, 0, .6, 1) infinite; }
 
+/* Das Ziel selbst waehrend eines Schritts: die Flaeche, die sonst beim Darueberfahren grau wird, ist
+   satt violett und pulsiert. Gesetzt wird die Klasse am echten Bedienelement (TourOverlay.tsx), damit
+   Form und Rundung genau stimmen — ein nachgebautes Rechteck darueber traefe nie exakt. */
+.tour-ziel-aktiv,
+.tour-ziel-aktiv:hover {
+  background-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+  animation: tour-puls 1.6s cubic-bezier(.4, 0, .6, 1) infinite;
+}
+.tour-ziel-aktiv * { color: inherit !important; }
+
 /* Bewegung respektiert die Systemeinstellung */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

@@ -27,15 +27,15 @@ import { Progress } from '@/components/ui/progress'
 import { useAuth } from './auth'
 import { TOUR_STEPS, type TourStep } from './tour-steps'
 
-/** Luft zwischen Bedienelement und Sperrflaeche: sichtbarer Rahmen, ohne den Nachbarknopf freizugeben. */
-const LUFT = 6
+/** Der Ausschnitt ist genau die Flaeche des Bedienelements — dieselbe, die beim Darueberfahren grau wird. */
+const LUFT = 0
 /** Breite des Erklaerfensters (22rem) — fuer die Begrenzung auf den sichtbaren Bereich. */
 const PANEL_BREITE = 352
 const RAND = 12
 /** Darunter passt das Fenster weder ueber noch unter das Ziel; dann steht es unten rechts. */
 const PANEL_PLATZ = 280
-/** Eckenrundung des Ausschnitts — etwas mehr als die Knoepfe selbst, damit der Rahmen sie umschliesst. */
-const LOCH_RUNDUNG = 12
+/** Rueckfall, falls sich die Rundung des Bedienelements nicht auslesen laesst. */
+const LOCH_RUNDUNG = 8
 
 interface Rect { top: number; left: number; width: number; height: number }
 
@@ -150,6 +150,19 @@ export function TourOverlay() {
     // `rect` haengt mit drin, damit der Horcher nachgezogen wird, sobald das Ziel auftaucht.
   }, [sichtbar, phase, current.weiter, current.target, hinfuehren, rect])
 
+  // Das Ziel selbst faerben: violett und pulsierend, genau auf seiner eigenen Flaeche. Die Klasse sitzt am
+  // echten Bedienelement und verschwindet mit dem Schritt — nichts bleibt zurueck, auch nicht beim Abbruch.
+  const [rundung, setRundung] = useState<string | null>(null)
+  useEffect(() => {
+    if (!sichtbar || phase !== 'anleitung') { setRundung(null); return }
+    const el = zielFinden(ziel)
+    if (!el) { setRundung(null); return }
+    el.classList.add('tour-ziel-aktiv')
+    setRundung(getComputedStyle(el).borderRadius || null)
+    return () => el.classList.remove('tour-ziel-aktiv')
+    // `rect` haengt mit drin, damit die Klasse nachgezogen wird, sobald das Ziel auftaucht.
+  }, [sichtbar, phase, ziel, rect])
+
   // Ziel ins Bild holen, sonst zeigt der Rundgang auf etwas, das ausserhalb des Fensters liegt.
   useEffect(() => {
     if (!sichtbar || phase !== 'anleitung') return
@@ -231,13 +244,8 @@ export function TourOverlay() {
             className="absolute"
             style={{
               top: loch.top, left: loch.left, width: loch.width, height: loch.height,
-              borderRadius: LOCH_RUNDUNG, boxShadow: '0 0 0 9999px color-mix(in oklab, var(--foreground) 45%, transparent)',
+              borderRadius: rundung ?? LOCH_RUNDUNG, boxShadow: '0 0 0 9999px color-mix(in oklab, var(--foreground) 55%, transparent)',
             }}
-          />
-          {/* Das Ziel selbst pulsiert violett: Rahmen, leichter Farbschleier und ein Ring, der nach aussen weggeht. */}
-          <div
-            className="tour-ziel absolute bg-primary/10 ring-2 ring-primary"
-            style={{ top: loch.top, left: loch.left, width: loch.width, height: loch.height, borderRadius: LOCH_RUNDUNG }}
           />
         </div>
       )}
@@ -246,8 +254,12 @@ export function TourOverlay() {
         ref={panel}
         role="dialog"
         aria-label="Rundgang"
-        className="print-hide fixed z-50 w-[22rem] max-w-[calc(100%-2rem)] rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10"
-        style={panelStil}
+        // z-[100] statt z-50: Ein Dialog der Anwendung (Radix) liegt selbst auf z-50 samt eigener Verdunkelung —
+        // darunter waere die Anleitung grau und unlesbar, genau wenn sie gebraucht wird. `pointerEvents: auto`
+        // aus demselben Grund: ein modaler Dialog setzt `pointer-events: none` auf den Body, sonst waeren die
+        // Knoepfe des Rundgangs tot, solange das Formular offen ist.
+        className="print-hide fixed z-[100] w-[22rem] max-w-[calc(100%-2rem)] rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10"
+        style={{ ...panelStil, pointerEvents: 'auto' }}
       >
         <div className="flex items-center gap-2 text-xs text-foreground-subtle">
           <Compass className="size-3.5" aria-hidden />
