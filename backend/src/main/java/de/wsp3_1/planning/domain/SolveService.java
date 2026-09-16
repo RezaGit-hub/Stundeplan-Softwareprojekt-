@@ -98,6 +98,7 @@ public class SolveService {
     public void start(Long draftId, Long classId) {
         Timetable draft = draftService.requireDraft(draftId);
         draftService.requireNotSolving(draft);
+        draftService.requireNotFinished(draft);
         requireCompleteMasterData();
         if (classId != null) {
             classes.findById(classId)
@@ -149,6 +150,7 @@ public class SolveService {
     public void solveBlocking(Long draftId, int seconds) {
         Timetable draft = draftService.requireDraft(draftId);
         draftService.requireNotSolving(draft);
+        draftService.requireNotFinished(draft);
         requireCompleteMasterData();
         draftService.syncRequiredLessons(draft);
 

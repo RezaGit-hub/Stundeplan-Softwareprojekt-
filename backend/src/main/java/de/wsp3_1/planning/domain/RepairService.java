@@ -81,7 +81,10 @@ public class RepairService {
     public List<RepairProposal> propose(Long draftId, Long lessonId) {
         // Erst vormerken, dann laden. Umgekehrt koennte zwischen Laden und Vormerken noch ein PATCH
         // committen, und die Serie rechnete auf einem veralteten Stand (Zweitpruefung 11.09.).
-        readOnly.execute(status -> draftService.requireDraft(draftId));
+        readOnly.execute(status -> {
+            draftService.requireNotFinished(draftService.requireDraft(draftId));
+            return null;
+        });
         if (!runner.reserve(draftId)) {
             throw new ConflictException("solving",
                     "Der Entwurf wird gerade berechnet. Bitte warten oder die Berechnung abbrechen.");

@@ -31,12 +31,15 @@ class ApplicationIT extends IntegrationTestBase {
     private ObjectMapper objectMapper;
 
     @Test
-    @DisplayName("Flyway hat V1 bis V9 angewendet")
+    @DisplayName("Flyway hat V1 bis V12 angewendet")
     void allMigrationsApplied() {
         List<String> versionen = jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
 
-        assertThat(versionen).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9");
+        // V10 gibt es nicht: die Nummer fiel beim Zusammenfuehren zweier Zweige aus (Flyway stoert
+        // eine Luecke nicht). V11 = mehrere Entwuerfe (#103), V12 = Gueltigkeitszeitraum und
+        // Ablage (#115, #116).
+        assertThat(versionen).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "11", "12");
     }
 
     /**

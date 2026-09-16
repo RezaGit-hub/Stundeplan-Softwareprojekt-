@@ -5,7 +5,7 @@ import de.wsp3_1.planning.api.PlanningDtos.AcceptDraftResponse;
 import de.wsp3_1.planning.api.PlanningDtos.AddLessonInput;
 import de.wsp3_1.planning.api.PlanningDtos.CreateDraft;
 import de.wsp3_1.planning.api.PlanningDtos.DraftDto;
-import de.wsp3_1.planning.api.PlanningDtos.DraftNameInput;
+import de.wsp3_1.planning.api.PlanningDtos.DraftPatchInput;
 import de.wsp3_1.planning.api.PlanningDtos.DraftSummaryDto;
 import de.wsp3_1.planning.api.PlanningDtos.PatchLessonInput;
 import de.wsp3_1.planning.api.PlanningDtos.RepairInput;
@@ -71,9 +71,11 @@ public class DraftsController {
         return DraftDto.of(draftService.get(id));
     }
 
+    /** Umbenennen und/oder Ablage (#116). Nur gesendete Felder wirken; leerer Rumpf ist 400. */
     @PatchMapping("/{id}")
-    public DraftDto rename(@PathVariable Long id, @RequestBody DraftNameInput input) {
-        return DraftDto.of(draftService.rename(id, input.name()));
+    public DraftDto patch(@PathVariable Long id, @RequestBody(required = false) DraftPatchInput input) {
+        DraftPatchInput body = input == null ? new DraftPatchInput(null, null) : input;
+        return DraftDto.of(draftService.patch(id, body.name(), body.finished()));
     }
 
     @DeleteMapping("/{id}")
@@ -127,9 +129,15 @@ public class DraftsController {
 
     // ------------------------------------------------------------------ Annehmen (W-8)
 
-    /** Andere Entwuerfe bleiben stehen; harte Konflikte sind 409 {@code draft-has-conflicts}. */
+    /**
+     * Andere Entwuerfe bleiben stehen; harte Konflikte sind 409 {@code draft-has-conflicts}, ein
+     * kuenftiger Plan im Weg 409 {@code plan-overlap} (#115). Ein Entwurf aus der Ablage darf
+     * angenommen werden.
+     */
     @PostMapping("/{id}/accept")
     public AcceptDraftResponse accept(@PathVariable Long id, @RequestBody(required = false) AcceptDraftInput input) {
-        return AcceptDraftResponse.of(draftService.accept(id, input == null ? null : input.validFrom()));
+        return AcceptDraftResponse.of(draftService.accept(id,
+                input == null ? null : input.validFrom(),
+                input == null ? null : input.validUntil()));
     }
 }

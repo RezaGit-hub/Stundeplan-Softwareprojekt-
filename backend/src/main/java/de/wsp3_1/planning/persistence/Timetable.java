@@ -16,10 +16,13 @@ import java.time.Instant;
 import java.time.LocalDate;
 
 /**
- * Ein Plan — Entwurf, aktiver Plan oder Archiv (Tabelle {@code timetable}, Migration V3, V5 und V11).
+ * Ein Plan — Entwurf, aktiver Plan oder Archiv (Tabelle {@code timetable}, Migration V3, V5, V11, V12).
  *
  * <p>Seit V11 (#103) darf es mehrere Entwuerfe nebeneinander geben; {@code name} unterscheidet sie in der
  * Oberflaeche. Aktive und archivierte Plaene tragen keinen Namen.</p>
+ *
+ * <p>Seit V12 (#115) darf es auch mehrere <b>aktive</b> Plaene geben — mit getrennten Zeitraeumen
+ * ({@code validFrom}/{@code validUntil}). {@code ARCHIVED} heisst seitdem „ersetzt oder abgelaufen".</p>
  *
  * <p>Konflikte stehen bewusst nicht hier: sie werden bei jedem Lesen neu berechnet (E-31). Die vier
  * {@code solve*}-Spalten sind nur Spur des letzten Laufs; ob gerade gerechnet wird, weiss allein der
@@ -64,6 +67,23 @@ public class Timetable {
     /** Kann-Option „Gueltig ab" beim Annehmen (E-40); leer = gilt sofort. */
     @Column(name = "valid_from")
     private LocalDate validFrom;
+
+    /**
+     * Letzter Tag, an dem dieser Plan gilt — einschliesslich; leer = unbegrenzt (V12, #115).
+     *
+     * <p>Zusammen mit {@link #validFrom} der Gueltigkeitszeitraum. Zwei aktive Plaene duerfen sich
+     * keinen Tag teilen; das sichert die Ausschlussbedingung {@code timetable_active_no_overlap}
+     * in der Datenbank, nicht die Anwendung.</p>
+     */
+    @Column(name = "valid_until")
+    private LocalDate validUntil;
+
+    /**
+     * Die Ablage (#116): ein Entwurf ist eingefroren und wird nicht mehr bearbeitet, bleibt aber
+     * annehmbar. Nur bei {@code DRAFT} bedeutsam (V12).
+     */
+    @Column(name = "finished", nullable = false)
+    private boolean finished;
 
     /** Bewertung des letzten Laufs als Text, z. B. „0hard/0medium/-2soft". */
     @Column(name = "solve_last_score", length = 60)
@@ -140,6 +160,22 @@ public class Timetable {
 
     public void setValidFrom(LocalDate validFrom) {
         this.validFrom = validFrom;
+    }
+
+    public LocalDate getValidUntil() {
+        return validUntil;
+    }
+
+    public void setValidUntil(LocalDate validUntil) {
+        this.validUntil = validUntil;
+    }
+
+    public boolean isFinished() {
+        return finished;
+    }
+
+    public void setFinished(boolean finished) {
+        this.finished = finished;
     }
 
     public String getSolveLastScore() {

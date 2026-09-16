@@ -251,7 +251,7 @@ public class SampleDataLoader {
         // angenommen — ein schon vorhandener Entwurf der Planung bleibt unberuehrt.
         DraftView entwurf = draftService.create("Beispielplan", DraftSource.EMPTY);
         solveService.solveBlocking(entwurf.id(), planSolveSeconds);
-        draftService.accept(entwurf.id(), null);
+        draftService.accept(entwurf.id(), null, null);
     }
 
     /**

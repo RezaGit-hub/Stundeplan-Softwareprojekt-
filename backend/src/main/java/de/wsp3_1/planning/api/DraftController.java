@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code /api/draft**} — der <b>juengste</b> Entwurf (Vertrag v1, Rolle PLANNING).
  *
  * <p>Bis Vertrag 1.3.0 gab es genau einen Entwurf, und diese Pfade waren der einzige Weg zu ihm. Seit
- * #103 (1.4.0, E-52) stehen mehrere Entwuerfe nebeneinander unter {@code /api/drafts/{id}}
+ * #103 (1.3.0, E-52) stehen mehrere Entwuerfe nebeneinander unter {@code /api/drafts/{id}}
  * ({@link DraftsController}); die Singular-Pfade bleiben fuer alte Clients (App) stehen und meinen den
  * Entwurf mit der hoechsten Kennung ({@link DraftService#currentDraftId()}). Nur {@code POST} legt
  * weiter einen neuen Entwurf an — jetzt ohne 409 {@code draft-exists}.</p>
@@ -122,6 +122,7 @@ public class DraftController {
     @PostMapping("/accept")
     public AcceptDraftResponse accept(@RequestBody(required = false) AcceptDraftInput input) {
         return AcceptDraftResponse.of(draftService.accept(draftService.currentDraftId(),
-                input == null ? null : input.validFrom()));
+                input == null ? null : input.validFrom(),
+                input == null ? null : input.validUntil()));
     }
 }
