@@ -289,7 +289,8 @@ public class ImportService {
 
     private void importRooms(List<RoomDto> rows, IdMap ids) {
         for (RoomDto r : rows) {
-            RoomDto neu = rooms.create(new RoomInput(r.name(), r.roomType(), r.active()));
+            RoomDto neu = rooms.create(new RoomInput(
+        r.name(), r.roomType(), r.active(), r.blockedTimeslotIds()));
             ids.room(r.id(), neu.id());
         }
     }
@@ -378,11 +379,12 @@ public class ImportService {
                     .filter(x -> x.name().equalsIgnoreCase(r.name()))
                     .findFirst();
             if (vorhanden.isPresent()) {
-                rooms.update(vorhanden.get().id(), new RoomInput(r.name(), r.roomType(), r.active()));
+                rooms.update(vorhanden.get().id(), new RoomInput(
+                    r.name(), r.roomType(), r.active(), r.blockedTimeslotIds()));
                 updated++;
             } else {
-                rooms.create(new RoomInput(r.name(), r.roomType(), r.active()));
-                created++;
+                rooms.create(new RoomInput(
+                    r.name(), r.roomType(), r.active(), r.blockedTimeslotIds()));
             }
         }
         return new SectionImportResult("rooms", created, updated, List.of());
