@@ -1,7 +1,7 @@
 // Geltungsbeginn eines angenommenen Plans: erste Schulwoche und Hinweis „vorheriger Stand".
 import { describe, expect, it } from 'vitest'
 import { firstWeekMonday, planValidFrom } from './dates'
-import { defaultPlanMonday, showsPreviousPlan } from './plan-validity'
+import { defaultPlanMonday, planPeriodLabel, planStartOf, showsPreviousPlan, validityText } from './plan-validity'
 
 describe('firstWeekMonday', () => {
   it('nimmt an Werktagen den Montag derselben Woche', () => {
@@ -61,5 +61,43 @@ describe('showsPreviousPlan', () => {
     expect(showsPreviousPlan({ ...base, monday: '2026-09-07' })).toBe(false)
     // Geltungsbeginn mitten in der Woche (Mi): die Woche ist teilweise gültig, kein Hinweis.
     expect(showsPreviousPlan({ ...base, monday: '2026-08-31', validFrom: '2026-09-02' })).toBe(false)
+  })
+})
+
+// ------------------------------------------------------------------ Gültigkeitszeitraum (#115)
+describe('planStartOf', () => {
+  it('nimmt den Stichtag, wenn er gesetzt ist', () => {
+    expect(planStartOf({ validFrom: '2026-09-07', acceptedAt: '2026-09-05T10:00:00Z' })).toBe('2026-09-07')
+  })
+
+  it('sonst den Kalendertag der Annahme in Berlin', () => {
+    expect(planStartOf({ validFrom: null, acceptedAt: '2026-09-05T23:30:00Z' })).toBe('2026-09-06')
+  })
+
+  it('ohne beides ist der Beginn unbekannt', () => {
+    expect(planStartOf({ validFrom: null, acceptedAt: null })).toBeNull()
+  })
+})
+
+describe('validityText', () => {
+  it('nennt nur den Beginn, solange kein Ende gesetzt ist', () => {
+    expect(validityText('2026-09-07', null)).toBe('gilt ab Mo 07.09.2026')
+  })
+
+  it('nennt beide Ränder, sobald der Plan endet', () => {
+    expect(validityText('2026-09-07', '2027-01-31')).toBe('gilt Mo 07.09.2026 – So 31.01.2027')
+  })
+
+  it('schweigt ohne Beginn und ohne Ende', () => {
+    expect(validityText(null, null)).toBe('')
+  })
+})
+
+describe('planPeriodLabel', () => {
+  it('kürzt den Zeitraum für die Planwahl', () => {
+    expect(planPeriodLabel('2026-09-07', '2027-01-31')).toBe('07.09.2026 – 31.01.2027')
+    expect(planPeriodLabel('2027-02-01', null)).toBe('ab 01.02.2027')
+    expect(planPeriodLabel(null, '2027-01-31')).toBe('bis 31.01.2027')
+    expect(planPeriodLabel(null, null)).toBe('unbegrenzt')
   })
 })
