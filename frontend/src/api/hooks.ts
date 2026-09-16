@@ -2,6 +2,7 @@
 // Kein Zustand außerhalb von Query + URL + lokalem useState. Fehler-Toasts kommen aus dem onError jeder Mutation (errors.ts);
 // 400-Feldfehler fängt die Seite mit useFieldErrors().handle(err) im catch. Fehler, die die Seite selbst darstellt
 // (409 in-use als Dialog, 409 data-exists als Rückfrage), schaltet sie mit { quiet: (err) => boolean } stumm.
+import { QueryClient, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query'
 import {
   ApiError,
   type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput,
