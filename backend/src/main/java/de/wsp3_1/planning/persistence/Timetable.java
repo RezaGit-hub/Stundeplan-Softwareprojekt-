@@ -16,7 +16,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 
 /**
- * Ein Plan — Entwurf, aktiver Plan oder Archiv (Tabelle {@code timetable}, Migration V3 und V5).
+ * Ein Plan — Entwurf, aktiver Plan oder Archiv (Tabelle {@code timetable}, Migration V3, V5 und V11).
+ *
+ * <p>Seit V11 (#103) darf es mehrere Entwuerfe nebeneinander geben; {@code name} unterscheidet sie in der
+ * Oberflaeche. Aktive und archivierte Plaene tragen keinen Namen.</p>
  *
  * <p>Konflikte stehen bewusst nicht hier: sie werden bei jedem Lesen neu berechnet (E-31). Die vier
  * {@code solve*}-Spalten sind nur Spur des letzten Laufs; ob gerade gerechnet wird, weiss allein der
@@ -35,6 +38,10 @@ public class Timetable {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 10)
     private TimetableStatus status;
+
+    /** Name eines Entwurfs („Entwurf 1", „Variante B"); bei aktiven und archivierten Plaenen leer (V11). */
+    @Column(name = "name", length = 80)
+    private String name;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -85,6 +92,14 @@ public class Timetable {
 
     public void setStatus(TimetableStatus status) {
         this.status = status;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
     public Instant getCreatedAt() {

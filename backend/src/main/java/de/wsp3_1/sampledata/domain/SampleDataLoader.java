@@ -2,6 +2,7 @@ package de.wsp3_1.sampledata.domain;
 
 import de.wsp3_1.planning.domain.DraftService;
 import de.wsp3_1.planning.domain.DraftSource;
+import de.wsp3_1.planning.domain.PlanViews.DraftView;
 import de.wsp3_1.planning.domain.SolveService;
 import de.wsp3_1.shared.domain.ConflictException;
 import org.springframework.beans.factory.annotation.Value;
@@ -246,9 +247,11 @@ public class SampleDataLoader {
      * dieselbe Konfliktpruefung, derselbe Verlaufseintrag.
      */
     private void entwurfRechnenUndAnnehmen() {
-        draftService.create(DraftSource.EMPTY);
-        solveService.solveBlocking(planSolveSeconds);
-        draftService.accept(null);
+        // Seit #103 gibt es mehrere Entwuerfe; der hier angelegte wird ueber seine Kennung gerechnet und
+        // angenommen — ein schon vorhandener Entwurf der Planung bleibt unberuehrt.
+        DraftView entwurf = draftService.create("Beispielplan", DraftSource.EMPTY);
+        solveService.solveBlocking(entwurf.id(), planSolveSeconds);
+        draftService.accept(entwurf.id(), null);
     }
 
     /**

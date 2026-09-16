@@ -11,6 +11,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 /**
  * Der Lebenslauf des Plans gegen die echte Datenbank: kopieren, annehmen, archivieren, Verlauf
@@ -24,15 +25,19 @@ class DraftServiceIT extends PlanningITBase {
     void copyActivePinsOnlyConflictFreeLessons() throws Exception {
         Testdaten daten = pflichtenheftGrunddaten();
         planMoDiInEntwurf(daten);
-        // Eine achte Stunde erzeugt bewusst einen Raumkonflikt; Konflikte verhindern das Annehmen nicht.
-        JsonNode withConflict = addLesson(daten.klasse9c, daten.mathe, daten.slot("MO", 1), daten.r101);
-        assertThat(withConflict.get("conflicts")).hasSize(1);
         call(post("/api/draft/accept").content("{}"), 200);
+        // Der Konflikt entsteht erst NACH dem Annehmen durch eine Grunddatenaenderung (der Muss-Ablauf
+        // des Pflichtenhefts): R101 wird Montag 1. Stunde gesperrt (#133) — die 7a-Mathestunde des
+        // aktiven Plans liegt genau dort. Vor #103 kam der Konflikt beim Annehmen mit hinein; seit
+        // #103 lehnt das Annehmen harte Konflikte ab (409 draft-has-conflicts, DraftsControllerIT).
+        call(put("/api/rooms/" + daten.r101).content("""
+                {"name":"R101","roomType":"Klassenraum","active":true,"blockedTimeslotIds":[%d]}"""
+                .formatted(daten.slot("MO", 1))), 200);
 
         JsonNode copy = call(post("/api/draft").content("""
                 {"source":"COPY_ACTIVE"}"""), 201);
 
-        assertThat(copy.get("lessons")).hasSize(8);
+        assertThat(copy.get("lessons")).hasSize(7);
         long unpinned = 0;
         for (JsonNode lesson : copy.get("lessons")) {
             boolean inConflictSlot = !lesson.get("timeslotId").isNull()
@@ -43,8 +48,9 @@ class DraftServiceIT extends PlanningITBase {
                 unpinned++;
             }
         }
-        assertThat(unpinned).isEqualTo(2);
+        assertThat(unpinned).isEqualTo(1);
         assertThat(copy.get("conflicts")).hasSize(1);
+        assertThat(copy.get("conflicts").get(0).get("type").asText()).isEqualTo("ROOM_BLOCKED_TIME");
     }
 
     @Test

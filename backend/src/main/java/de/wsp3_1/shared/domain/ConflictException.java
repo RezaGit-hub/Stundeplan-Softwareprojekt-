@@ -6,8 +6,10 @@ import java.util.Map;
  * Fachlicher Konflikt, der das Speichern verhindert (409).
  * Der {@code slug} landet im {@code type} des ProblemDetail, die {@code extras} als zusaetzliche Felder
  * (etwa {@code missing[]} bei {@code master-data-incomplete} oder {@code conflicts[]} bei {@code pinned-contradiction}).
- * Erlaubte Slugs laut api.md: in-use, draft-exists, solving, master-data-incomplete, pinned-contradiction, data-exists,
- * exception-exists, protected-account; dazu preset-missing (POST /api/holidays/preset ohne Vorlage zu Land und Schuljahr, E-51).
+ * Erlaubte Slugs laut api.md: in-use, solving, master-data-incomplete, pinned-contradiction, data-exists,
+ * exception-exists, protected-account; dazu preset-missing (POST /api/holidays/preset ohne Vorlage zu Land und Schuljahr, E-51) und
+ * draft-has-conflicts (Annehmen eines Entwurfs mit harten Konflikten, #103, Vertrag 1.3.0). draft-exists gab es bis
+ * Vertrag 1.2.0 (ein Entwurf); seit V11 duerfen mehrere nebeneinander stehen.
  */
 public class ConflictException extends RuntimeException {
 

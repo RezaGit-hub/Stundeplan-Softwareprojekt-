@@ -41,27 +41,11 @@ class ApiExceptionHandlerTest {
     }
 
     /**
-     * Der eine Entwurf hat einen eigenen Slug. Zwei gleichzeitige {@code POST /api/draft} bestehen beide
-     * die Pruefung im Dienst; der zweite laeuft in den Teilindex {@code timetable_one_draft}. Ohne diesen
-     * Fall bekaeme das Web „data-exists" und zeigte die falsche Meldung.
-     */
-    @Test
-    @DisplayName("Der Teilindex des Entwurfs ergibt 409 draft-exists, nicht data-exists")
-    void duplicateDraftIsConflictDraftExists() {
-        SQLException datenbank = new SQLException(
-                "ERROR: duplicate key value violates unique constraint \"timetable_one_draft\"", "23505");
-        ProblemDetail problem = handler.onDataIntegrity(new DataIntegrityViolationException(
-                "could not execute statement", new RuntimeException("Hibernate-Huelle", datenbank)));
-
-        assertThat(problem.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
-        assertThat(problem.getType()).hasToString("urn:pushnpull:problem:draft-exists");
-        assertThat(problem.getDetail()).isEqualTo("Es gibt bereits einen Entwurf. Erst annehmen oder verwerfen.");
-    }
-
-    /**
-     * Dasselbe fuer die Ausnahme eines Kalendertags: zwei gleichzeitige {@code POST /api/exceptions}
+     * Die Ausnahme eines Kalendertags hat einen eigenen Slug: zwei gleichzeitige {@code POST /api/exceptions}
      * auf dieselbe Stunde und denselben Tag laufen in {@code lesson_exception_unique}. Der Vertrag nennt
-     * dafuer {@code exception-exists}; ohne diesen Fall bekaeme das Web {@code data-exists}.
+     * dafuer {@code exception-exists}; ohne diesen Fall bekaeme das Web {@code data-exists}. (Den
+     * gleichen Fall fuer den einen Entwurf, {@code timetable_one_draft} → {@code draft-exists}, gab es
+     * bis V10; seit #103 duerfen mehrere Entwuerfe nebeneinander stehen.)
      */
     @Test
     @DisplayName("Die Bedingung der Ausnahme ergibt 409 exception-exists, nicht data-exists")

@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
 public class SolveService {
 
     /**
-     * Obergrenze fuer einen blockierenden Lauf ({@link #solveBlocking(int)}). Die Rechenzeit kommt sonst
+     * Obergrenze fuer einen blockierenden Lauf ({@link #solveBlocking(Long, int)}). Die Rechenzeit kommt sonst
      * aus {@code SystemConfig}; dort steht sie als Daten und darf gross sein. Ein blockierender Lauf
      * haelt aber Transaktion und Datenbankverbindung offen — eine Minute ist die Grenze, ab der das
      * niemandem mehr nutzt.
@@ -89,13 +89,14 @@ public class SolveService {
      * Prueft die Vorbedingungen, ergaenzt die fehlenden Stunden und startet den Lauf. Kehrt sofort
      * zurueck (HTTP 202); den Stand liefert {@code GET /api/draft}.
      *
+     * @param draftId der Entwurf, der gerechnet wird (#103: mehrere nebeneinander, je einer pro Lauf)
      * @param classId Kann-Option (E-40): nur diese Klasse neu berechnen. Alle Stunden anderer Klassen
      *                gelten fuer diesen Lauf als festgelegt — nur im Eingaberecord, nicht in der
      *                Datenbank. Leer = ganzer Plan.
      */
     @Transactional
-    public void start(Long classId) {
-        Timetable draft = draftService.requireDraft();
+    public void start(Long draftId, Long classId) {
+        Timetable draft = draftService.requireDraft(draftId);
         draftService.requireNotSolving(draft);
         requireCompleteMasterData();
         if (classId != null) {
@@ -112,7 +113,6 @@ public class SolveService {
         draft.setSolveLimitSeconds(seconds);
         draft.setSolveError(null);
 
-        Long draftId = draft.getId();
         SolveInput input = buildInput(draft, classId);
 
         // Vormerken, solange die Transaktion noch offen ist. requireNotSolving oben allein reicht nicht:
@@ -134,8 +134,8 @@ public class SolveService {
      * Laeuft nichts, aendert sich nichts — die Antwort ist trotzdem 202.
      */
     @Transactional(readOnly = true)
-    public void cancel() {
-        runner.cancel(draftService.requireDraft().getId());
+    public void cancel(Long draftId) {
+        runner.cancel(draftService.requireDraft(draftId).getId());
     }
 
     /**
@@ -146,14 +146,13 @@ public class SolveService {
      * Vorbedingungen.
      */
     @Transactional
-    public void solveBlocking(int seconds) {
-        Timetable draft = draftService.requireDraft();
+    public void solveBlocking(Long draftId, int seconds) {
+        Timetable draft = draftService.requireDraft(draftId);
         draftService.requireNotSolving(draft);
         requireCompleteMasterData();
         draftService.syncRequiredLessons(draft);
 
         int limit = Math.min(seconds, MAX_BLOCKING_SECONDS);
-        Long draftId = draft.getId();
         requireReservation(draftId);
         try {
             SolveResult result = runner.solveBlocking(draftId, buildInput(draft, null), limit);

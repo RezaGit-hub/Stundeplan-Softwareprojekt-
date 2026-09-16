@@ -146,17 +146,19 @@ class DraftControllerIT extends PlanningITBase {
     }
 
     @Test
-    @DisplayName("Ein zweiter Entwurf wird abgelehnt (409 draft-exists)")
-    void secondDraftIsRejected() throws Exception {
+    @DisplayName("Ein zweiter POST /api/draft legt einen zweiten Entwurf an; der Singular-Pfad meint den juengsten (#103, E-52)")
+    void secondDraftIsAllowedAndSingularPathMeansTheNewest() throws Exception {
         pflichtenheftGrunddaten();
-        call(post("/api/draft").content("""
+        JsonNode first = call(post("/api/draft").content("""
+                {"source":"EMPTY"}"""), 201);
+        JsonNode second = call(post("/api/draft").content("""
                 {"source":"EMPTY"}"""), 201);
 
-        JsonNode problem = call(post("/api/draft").content("""
-                {"source":"EMPTY"}"""), 409);
-        assertThat(problem.get("type").asText()).isEqualTo("urn:pushnpull:problem:draft-exists");
-        assertThat(problem.get("detail").asText())
-                .isEqualTo("Es gibt bereits einen Entwurf. Erst annehmen oder verwerfen.");
+        assertThat(second.get("id").asLong()).isGreaterThan(first.get("id").asLong());
+        assertThat(first.get("name").asText()).isEqualTo("Entwurf 1");
+        assertThat(second.get("name").asText()).isEqualTo("Entwurf 2");
+        assertThat(getJson("/api/draft").get("id").asLong()).isEqualTo(second.get("id").asLong());
+        assertThat(getJson("/api/drafts")).hasSize(2);
     }
 
     @Test

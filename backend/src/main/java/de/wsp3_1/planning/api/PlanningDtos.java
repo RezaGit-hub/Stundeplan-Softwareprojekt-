@@ -6,6 +6,7 @@ import de.wsp3_1.planning.domain.DraftSource;
 import de.wsp3_1.planning.domain.DraftStatus;
 import de.wsp3_1.planning.domain.ObjectKind;
 import de.wsp3_1.planning.domain.PlanViews.AcceptResultView;
+import de.wsp3_1.planning.domain.PlanViews.DraftSummaryView;
 import de.wsp3_1.planning.domain.PlanViews.DraftView;
 import de.wsp3_1.planning.domain.PlanViews.LessonView;
 import de.wsp3_1.planning.domain.PlanViews.OpenLessonView;
@@ -21,7 +22,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * Die Datensaetze der Schnittstelle {@code /api/timetable} und {@code /api/draft} — Feldnamen,
+ * Die Datensaetze der Schnittstelle {@code /api/timetable}, {@code /api/draft} und {@code /api/drafts} — Feldnamen,
  * Reihenfolge und Typen 1:1 wie im Vertrag {@code api-contract/openapi.yaml} und in
  * {@code frontend/src/api/types.ts}.
  *
@@ -112,17 +113,28 @@ public final class PlanningDtos {
         }
     }
 
-    public record DraftDto(Long id, Instant createdAt, DraftStatus status, SolveInfoDto solve,
+    /** Ein Entwurf; {@code name} kam mit #103 (Vertrag 1.4.0) additiv dazu. */
+    public record DraftDto(Long id, String name, Instant createdAt, DraftStatus status, SolveInfoDto solve,
                            List<LessonDto> lessons, List<ConflictDto> conflicts,
                            List<OpenLessonDto> openLessons, List<String> warnings,
                            long expiringExceptions) {
 
         public static DraftDto of(DraftView view) {
-            return new DraftDto(view.id(), view.createdAt(), view.status(), SolveInfoDto.of(view.solve()),
+            return new DraftDto(view.id(), view.name(), view.createdAt(), view.status(), SolveInfoDto.of(view.solve()),
                     view.lessons().stream().map(LessonDto::of).toList(),
                     view.conflicts().stream().map(ConflictDto::of).toList(),
                     view.openLessons().stream().map(OpenLessonDto::of).toList(),
                     view.warnings(), view.expiringExceptions());
+        }
+    }
+
+    /** Eine Zeile von {@code GET /api/drafts} (#103): Kennzahlen ohne Stunden. */
+    public record DraftSummaryDto(Long id, String name, Instant createdAt, DraftSource source, DraftStatus status,
+                                  int hardConflicts) {
+
+        public static DraftSummaryDto of(DraftSummaryView view) {
+            return new DraftSummaryDto(view.id(), view.name(), view.createdAt(), view.source(), view.status(),
+                    view.hardConflicts());
         }
     }
 
@@ -154,7 +166,12 @@ public final class PlanningDtos {
 
     // ------------------------------------------------------------------ Eingaben
 
-    public record CreateDraft(@NotNull(message = "darf nicht leer sein") DraftSource source) {
+    /** {@code name} ist Kann (#103): fehlt er, heisst der Entwurf „Entwurf n". */
+    public record CreateDraft(String name, @NotNull(message = "darf nicht leer sein") DraftSource source) {
+    }
+
+    /** Rumpf von {@code PATCH /api/drafts/{id}} (#103): der neue Name, geprueft im Dienst. */
+    public record DraftNameInput(String name) {
     }
 
     /** Die Konfliktstunde, fuer die Vorschlaege gerechnet werden (#110). */

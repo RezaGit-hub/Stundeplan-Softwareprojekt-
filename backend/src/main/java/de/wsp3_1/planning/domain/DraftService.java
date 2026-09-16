@@ -9,6 +9,7 @@ import de.wsp3_1.masterdata.persistence.RoomRepository;
 import de.wsp3_1.masterdata.persistence.SchoolClassRepository;
 import de.wsp3_1.masterdata.persistence.Timeslot;
 import de.wsp3_1.masterdata.persistence.TimeslotRepository;
+import de.wsp3_1.planning.domain.PlanViews.DraftSummaryView;
 import de.wsp3_1.planning.domain.PlanViews.DraftView;
 import de.wsp3_1.planning.domain.PlanViews.LessonView;
 import de.wsp3_1.planning.domain.PlanViews.OpenLessonView;
@@ -19,6 +20,7 @@ import de.wsp3_1.planning.persistence.Timetable;
 import de.wsp3_1.planning.persistence.TimetableRepository;
 import de.wsp3_1.planning.persistence.TimetableStatus;
 import de.wsp3_1.shared.CurrentUser;
+import de.wsp3_1.shared.Severity;
 import de.wsp3_1.shared.domain.ExpiringExceptions;
 import de.wsp3_1.shared.domain.ConflictException;
 import de.wsp3_1.shared.domain.NotFoundException;
@@ -42,11 +44,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * Der Lebenslauf des Plans: Entwurf anlegen, Stunden von Hand bauen, festlegen, verwerfen, annehmen
- * (W-1, W-3, W-8, W-9). Es gibt hoechstens einen Entwurf — das sichert ein Teilindex in der Datenbank,
- * geprueft wird es hier nur, um die bessere Meldung zu liefern.
+ * (W-1, W-3, W-8, W-9). Seit #103 (V11, E-52) gibt es mehrere Entwuerfe nebeneinander, jeder mit Namen
+ * und eigener Kennung; jede Methode nennt deshalb den Entwurf, den sie meint. Die Singular-Pfade
+ * {@code /api/draft} zeigen auf den juengsten ({@link #currentDraftId()}).
  *
  * <p><b>Waehrend einer Berechnung wird nichts geaendert.</b> Jede schreibende Methode fragt vorher den
  * {@link SolverRunner}; laeuft ein Lauf, kommt 409 {@code solving}. Sonst schriebe der Solver-Thread
@@ -62,6 +66,9 @@ public class DraftService {
 
     /** So lang ist die Spalte {@code timetable.solve_error} (V5). */
     private static final int MAX_ERROR_LENGTH = 500;
+
+    /** So lang ist die Spalte {@code timetable.name} (V11). */
+    private static final int MAX_NAME_LENGTH = 80;
 
     private final TimetableRepository timetables;
     private final LessonRepository lessons;
@@ -96,35 +103,50 @@ public class DraftService {
     // ------------------------------------------------------------------ Lesen
 
     @Transactional(readOnly = true)
-    public DraftView get() {
-        return view(requireDraft());
+    public DraftView get(Long draftId) {
+        return view(requireDraft(draftId));
     }
 
-    /** Der Entwurf, wenn es einen gibt — {@code SolveService} braucht ihn ohne 404. */
+    /** Alle Entwuerfe, juengster zuerst — die Uebersicht ({@code GET /api/drafts}). */
     @Transactional(readOnly = true)
-    public Optional<Timetable> findDraft() {
-        return timetables.findByStatus(TimetableStatus.DRAFT);
+    public List<DraftSummaryView> list() {
+        return timetables.findAllByStatusOrderByIdDesc(TimetableStatus.DRAFT).stream()
+                .map(this::summary)
+                .toList();
+    }
+
+    /**
+     * Der juengste Entwurf (hoechste Kennung) — das Ziel der Singular-Pfade {@code /api/draft} (E-52);
+     * 404, wenn es keinen gibt. Fuer das Web ist „kein Entwurf" ein Zustand, kein Fehler.
+     */
+    @Transactional(readOnly = true)
+    public Long currentDraftId() {
+        return timetables.findFirstByStatusOrderByIdDesc(TimetableStatus.DRAFT)
+                .map(Timetable::getId)
+                .orElseThrow(() -> new NotFoundException("Kein Entwurf vorhanden."));
     }
 
     // ------------------------------------------------------------------ Anlegen und verwerfen
 
     /**
-     * Legt den einen Entwurf an. {@code COPY_ACTIVE} uebernimmt die Stunden des aktiven Plans und legt
+     * Legt einen Entwurf an. {@code COPY_ACTIVE} uebernimmt die Stunden des aktiven Plans und legt
      * dabei genau die fest, die <b>belegt</b> und konfliktfrei sind (W-1): was schon im aktiven Plan
      * kollidiert, soll der Solver neu anfassen duerfen.
+     *
+     * <p>Andere Entwuerfe bleiben unberuehrt — seit #103 gibt es beliebig viele nebeneinander, ein
+     * 409 {@code draft-exists} gibt es nicht mehr. Ohne {@code name} heisst der Entwurf „Entwurf n".</p>
      *
      * <p>Eine <b>offene</b> Stunde des aktiven Plans hat keinen Konflikt — festlegen hiesse aber „bleib
      * fuer immer offen", und Timefold lehnt eine festgelegte Stunde ohne Raum ohnehin ab. Sie kommt
      * deshalb unfestgelegt in den Entwurf, damit der naechste Lauf sie einplanen kann (Befund 05.09.).</p>
      */
     @Transactional
-    public DraftView create(DraftSource source) {
-        if (timetables.findByStatus(TimetableStatus.DRAFT).isPresent()) {
-            throw new ConflictException("draft-exists", "Es gibt bereits einen Entwurf. Erst annehmen oder verwerfen.");
-        }
+    public DraftView create(String name, DraftSource source) {
         Optional<Timetable> active = timetables.findByStatus(TimetableStatus.ACTIVE);
-        Timetable draft = timetables.save(new Timetable(TimetableStatus.DRAFT, Instant.now(),
-                source == DraftSource.COPY_ACTIVE ? active.orElse(null) : null));
+        Timetable draft = new Timetable(TimetableStatus.DRAFT, Instant.now(),
+                source == DraftSource.COPY_ACTIVE ? active.orElse(null) : null);
+        draft.setName(name == null || name.isBlank() ? defaultName() : validName(name));
+        draft = timetables.save(draft);
 
         if (source == DraftSource.COPY_ACTIVE && active.isPresent()) {
             List<Lesson> originals = lessons.findAllOfTimetable(active.get().getId());
@@ -142,10 +164,18 @@ public class DraftService {
         return view(draft);
     }
 
-    /** Verwirft den Entwurf mit allen Stunden; der aktive Plan bleibt unberuehrt. */
+    /** Benennt den Entwurf um; leer oder laenger als 80 Zeichen ist 400 {@code validation}. */
     @Transactional
-    public void discard() {
-        Timetable draft = requireDraft();
+    public DraftView rename(Long draftId, String name) {
+        Timetable draft = requireDraft(draftId);
+        draft.setName(validName(name));
+        return view(draft);
+    }
+
+    /** Verwirft den Entwurf mit allen Stunden; aktiver Plan und andere Entwuerfe bleiben unberuehrt. */
+    @Transactional
+    public void discard(Long draftId) {
+        Timetable draft = requireDraft(draftId);
         requireNotSolving(draft);
         lessons.deleteAll(lessons.findAllOfTimetable(draft.getId()));
         timetables.delete(draft);
@@ -158,8 +188,8 @@ public class DraftService {
      * der Klasse (E-18). Konflikte blockieren nicht — sie stehen in der Antwort (T-W3.1).
      */
     @Transactional
-    public DraftView addLesson(Long classId, Long subjectId, Long timeslotId, Long roomId) {
-        Timetable draft = requireDraft();
+    public DraftView addLesson(Long draftId, Long classId, Long subjectId, Long timeslotId, Long roomId) {
+        Timetable draft = requireDraft(draftId);
         requireNotSolving(draft);
 
         List<FieldError> errors = new ArrayList<>();
@@ -200,8 +230,8 @@ public class DraftService {
      * (Abweichung D-9: er raet keinen Raum).</p>
      */
     @Transactional
-    public DraftView patchLesson(Long lessonId, Long timeslotId, Long roomId, Boolean pinned) {
-        Timetable draft = requireDraft();
+    public DraftView patchLesson(Long draftId, Long lessonId, Long timeslotId, Long roomId, Boolean pinned) {
+        Timetable draft = requireDraft(draftId);
         requireNotSolving(draft);
         Lesson lesson = lessons.findInTimetable(lessonId, draft.getId())
                 .orElseThrow(() -> new NotFoundException("Stunde " + lessonId + " nicht im Entwurf"));
@@ -234,8 +264,8 @@ public class DraftService {
 
     /** Entfernt die Stunde aus dem Wochenmuster; das Zeitfenster ist danach wieder frei. */
     @Transactional
-    public DraftView removeLesson(Long lessonId) {
-        Timetable draft = requireDraft();
+    public DraftView removeLesson(Long draftId, Long lessonId) {
+        Timetable draft = requireDraft(draftId);
         requireNotSolving(draft);
         Lesson lesson = lessons.findInTimetable(lessonId, draft.getId())
                 .orElseThrow(() -> new NotFoundException("Stunde " + lessonId + " nicht im Entwurf"));
@@ -323,8 +353,12 @@ public class DraftService {
 
     /**
      * Nimmt den Entwurf an — eine Transaktion: bisheriger aktiver Plan wird archiviert, der Entwurf wird
-     * der aktive Plan, ein Verlaufseintrag {@code TIMETABLE_ACCEPTED} entsteht. Konflikte blockieren
-     * nicht; die Planung entscheidet.
+     * der aktive Plan, ein Verlaufseintrag {@code TIMETABLE_ACCEPTED} entsteht. Andere Entwuerfe bleiben
+     * stehen (#103) — die Planung kann sie spaeter annehmen oder verwerfen.
+     *
+     * <p><b>Harte Konflikte blockieren</b> (409 {@code draft-has-conflicts}, seit #103): ein Plan mit
+     * Doppelbelegung oder Sperrzeitverstoss darf nicht der gueltige werden — vorher loeschte das Web
+     * nur die Warnung weg. Weiche Konflikte blockieren nicht; die Planung entscheidet.</p>
      *
      * <p><b>Offene Stunden wandern mit</b> (ohne Zeitfenster und Raum) und tauchen danach in keiner
      * Wochensicht auf — sie waeren sonst still verloren. Damit das niemand uebersieht, nennt
@@ -334,9 +368,11 @@ public class DraftService {
      * @param validFrom Kann-Option (E-40): der neue Plan gilt erst ab diesem Tag. Leer = ab sofort.
      */
     @Transactional
-    public PlanViews.AcceptResultView accept(LocalDate validFrom) {
-        Timetable draft = requireDraft();
+    public PlanViews.AcceptResultView accept(Long draftId, LocalDate validFrom) {
+        Timetable draft = requireDraft(draftId);
         requireNotSolving(draft);
+        List<Lesson> rows = lessons.findAllOfTimetable(draft.getId());
+        requireNoHardConflicts(rows);
 
         Optional<Timetable> previous = timetables.findByStatus(TimetableStatus.ACTIVE);
         previous.ifPresent(plan -> {
@@ -351,7 +387,6 @@ public class DraftService {
         draft.setValidFrom(validFrom);
         timetables.saveAndFlush(draft);
 
-        List<Lesson> rows = lessons.findAllOfTimetable(draft.getId());
         long placed = rows.stream().filter(lesson -> lesson.getTimeslot() != null).count();
         writeChangelogEntry(previous.orElse(null), validFrom, placed);
 
@@ -528,7 +563,7 @@ public class DraftService {
             }
         }
 
-        return new DraftView(draft.getId(), draft.getCreatedAt(), status,
+        return new DraftView(draft.getId(), draft.getName(), draft.getCreatedAt(), status,
                 new SolveInfoView(draft.getSolveStartedAt(), draft.getSolveLimitSeconds(),
                         draft.getSolveLastScore(), draft.getSolveError()),
                 rows.stream().map(LessonView::of).toList(),
@@ -568,10 +603,60 @@ public class DraftService {
 
     // ------------------------------------------------------------------ kleine Helfer
 
-    /** Der Entwurf oder 404 — fuer das Web ist „kein Entwurf" ein Zustand, kein Fehler. */
-    public Timetable requireDraft() {
-        return timetables.findByStatus(TimetableStatus.DRAFT)
-                .orElseThrow(() -> new NotFoundException("Kein Entwurf vorhanden."));
+    /** Der Entwurf mit dieser Kennung oder 404 — ein angenommener oder verworfener ist keiner mehr. */
+    public Timetable requireDraft(Long draftId) {
+        return timetables.findByIdAndStatus(draftId, TimetableStatus.DRAFT)
+                .orElseThrow(() -> new NotFoundException("Entwurf " + draftId + " nicht gefunden."));
+    }
+
+    /** Harte Konflikte sperren das Annehmen (409 {@code draft-has-conflicts}); die Liste steht in der Antwort. */
+    private void requireNoHardConflicts(List<Lesson> rows) {
+        List<ConflictView> hard = conflicts.check(rows.stream().map(Assignment::of).toList()).stream()
+                .filter(conflict -> conflict.severity() == Severity.HARD)
+                .toList();
+        if (!hard.isEmpty()) {
+            throw new ConflictException("draft-has-conflicts",
+                    hard.size() == 1
+                            ? "Der Entwurf hat einen harten Konflikt. Erst lösen, dann annehmen."
+                            : "Der Entwurf hat " + hard.size() + " harte Konflikte. Erst lösen, dann annehmen.",
+                    Map.of("conflicts", hard));
+        }
+    }
+
+    /** Eine Zeile der Entwurfsliste; die Konflikte werden wie ueberall beim Lesen gerechnet (E-31). */
+    private DraftSummaryView summary(Timetable draft) {
+        List<Assignment> assignments = lessons.findAllOfTimetable(draft.getId()).stream()
+                .map(Assignment::of)
+                .toList();
+        int hard = (int) conflicts.check(assignments).stream()
+                .filter(conflict -> conflict.severity() == Severity.HARD)
+                .count();
+        DraftSource source = draft.getBasedOn() == null ? DraftSource.EMPTY : DraftSource.COPY_ACTIVE;
+        return new DraftSummaryView(draft.getId(), draft.getName(), draft.getCreatedAt(), source, statusOf(draft), hard);
+    }
+
+    /** „Entwurf n" mit der ersten freien Nummer — zwei gleichnamige Entwuerfe waeren nicht zu unterscheiden. */
+    private String defaultName() {
+        Set<String> taken = timetables.findAllByStatusOrderByIdDesc(TimetableStatus.DRAFT).stream()
+                .map(Timetable::getName)
+                .collect(Collectors.toSet());
+        int n = taken.size() + 1;
+        while (taken.contains("Entwurf " + n)) {
+            n++;
+        }
+        return "Entwurf " + n;
+    }
+
+    /** Der Name, wie er gespeichert wird: ohne Rand, nicht leer, hoechstens 80 Zeichen (Spalte V11). */
+    private static String validName(String name) {
+        String trimmed = name == null ? "" : name.strip();
+        if (trimmed.isEmpty()) {
+            throw new ValidationException("name", "darf nicht leer sein");
+        }
+        if (trimmed.length() > MAX_NAME_LENGTH) {
+            throw new ValidationException("name", "hoechstens " + MAX_NAME_LENGTH + " Zeichen");
+        }
+        return trimmed;
     }
 
     /** Waehrend eines Laufs wird am Entwurf nichts geaendert (409 {@code solving}). */

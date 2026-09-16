@@ -66,18 +66,31 @@ public final class PlanViews {
         }
     }
 
-    /** Der eine Entwurf mit allem, was die Oberflaeche zum Bauen braucht. */
     /**
+     * Ein Entwurf mit allem, was die Oberflaeche zum Bauen braucht.
+     *
+     * @param name               der Name des Entwurfs (#103, V11) — unterscheidet mehrere Entwuerfe
      * @param expiringExceptions wie viele datierte Vertretungen das Annehmen dieses Entwurfs verfallen
      *                           liesse — nur die, deren Stunde er veraendert oder streicht. Der
      *                           Annehmen-Dialog nennt damit dieselbe Zahl, die der Server hinterher
      *                           meldet, und verlangt die Bestaetigung nur, wenn wirklich etwas verloren
      *                           geht (Befund PFLICHTENHEFT-9, 05.09.).
      */
-    public record DraftView(Long id, Instant createdAt, DraftStatus status, SolveInfoView solve,
+    public record DraftView(Long id, String name, Instant createdAt, DraftStatus status, SolveInfoView solve,
                             List<LessonView> lessons, List<ConflictView> conflicts,
                             List<OpenLessonView> openLessons, List<String> warnings,
                             long expiringExceptions) {
+    }
+
+    /**
+     * Eine Zeile der Entwurfsliste ({@code GET /api/drafts}, #103): nur die Kennzahlen, keine Stunden.
+     *
+     * @param source        {@code COPY_ACTIVE}, wenn der Entwurf aus einem aktiven Plan kopiert wurde
+     *                      ({@code based_on_id} gesetzt), sonst {@code EMPTY}
+     * @param hardConflicts Zahl der harten Konflikte, beim Lesen berechnet (E-31)
+     */
+    public record DraftSummaryView(Long id, String name, Instant createdAt, DraftSource source, DraftStatus status,
+                                   int hardConflicts) {
     }
 
     /** Antwort auf {@code POST /api/draft/accept}: der neue aktive Plan plus deutsche Hinweise. */

@@ -36,14 +36,11 @@ public class ApiExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     /**
-     * Der Teilindex aus V3, der den einen Entwurf sichert. Er steht hier als Zeichenkette und nicht als
-     * Verweis auf {@code planning}: {@code shared} kennt kein Modul (Modultabelle im VERTRAG).
-     */
-    private static final String ONE_DRAFT_INDEX = "timetable_one_draft";
-
-    /**
-     * Die Bedingung aus V4, die je Stunde und Kalendertag hoechstens eine Ausnahme zulaesst. Wie
-     * {@link #ONE_DRAFT_INDEX} als Zeichenkette: {@code shared} kennt kein Modul.
+     * Die Bedingung aus V4, die je Stunde und Kalendertag hoechstens eine Ausnahme zulaesst. Sie steht
+     * hier als Zeichenkette und nicht als Verweis auf {@code substitution}: {@code shared} kennt kein
+     * Modul (Modultabelle im VERTRAG). Den Teilindex {@code timetable_one_draft} gab es bis V10 auf
+     * dieselbe Weise (409 {@code draft-exists}); seit #103 (V11) duerfen mehrere Entwuerfe nebeneinander
+     * stehen, und der Fall ist weg.
      */
     private static final String ONE_EXCEPTION_INDEX = "lesson_exception_unique";
 
@@ -150,14 +147,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ProblemDetail onDataIntegrity(DataIntegrityViolationException ex) {
         if ("23505".equals(sqlState(ex))) {
-            // Ein Wettrennen um den einen Entwurf hat einen eigenen Slug im Vertrag. Ohne diese Zeile
-            // bekaeme der zweite gleichzeitige POST /api/draft „data-exists" statt „draft-exists" und
-            // das Web zeigte die falsche Meldung (Befund 05.09.).
-            if (mentions(ex, ONE_DRAFT_INDEX)) {
-                return ApiProblems.of(HttpStatus.CONFLICT, "draft-exists", "Konflikt",
-                        "Es gibt bereits einen Entwurf. Erst annehmen oder verwerfen.");
-            }
-            // Dasselbe Wettrennen bei zwei gleichzeitigen POST /api/exceptions auf dieselbe Stunde und
+            // Ein Wettrennen bei zwei gleichzeitigen POST /api/exceptions auf dieselbe Stunde und
             // denselben Tag: der Vertrag nennt dafuer `exception-exists`, nicht `data-exists`.
             if (mentions(ex, ONE_EXCEPTION_INDEX)) {
                 return ApiProblems.of(HttpStatus.CONFLICT, "exception-exists", "Konflikt",
