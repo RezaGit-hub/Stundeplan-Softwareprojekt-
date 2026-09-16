@@ -434,7 +434,9 @@ export function TourOverlay() {
       : { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' })
   const zipfelLinks = loch ? Math.max(14, Math.min(loch.left + loch.width / 2 - links - 6, PANEL_BREITE - 26)) : 0
   // Solange nach dem Ziel gesucht wird, bleibt das Fenster durchsichtig statt kurz in der Ecke aufzublitzen.
-  const sucht = loch === null && suchtNoch
+  // Nur warten, wenn es ueberhaupt ein Ziel zu finden gibt. Ein Erklaerschritt hat keins — der blieb sonst
+  // bis zu anderthalb Sekunden durchsichtig, und der Wechsel wirkte wie ein Aussetzer.
+  const sucht = !nurLesen && loch === null && suchtNoch
 
   return createPortal(
     <>
