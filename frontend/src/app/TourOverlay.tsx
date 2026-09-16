@@ -208,6 +208,21 @@ export function TourOverlay() {
     setTour.mutate({ completed: true })
   }, [setTour])
 
+  // „Rundgang erneut zeigen" loescht den Zeitpunkt am Konto. Stand der Rundgang zu dem Zeitpunkt noch offen
+  // (etwa auf dem letzten Schritt), muss er trotzdem vorne anfangen — sonst bleibt er stehen, wo er war.
+  const vorherFertig = useRef<string | null | undefined>(undefined)
+  useEffect(() => {
+    const jetzt = me.data?.tourCompletedAt ?? null
+    if (vorherFertig.current !== undefined && vorherFertig.current != null && jetzt == null) {
+      setStep(0)
+      setTippt(false)
+      setGetippt(false)
+      setAktuelleAktion(null)
+      setGeschlossen(false)
+    }
+    vorherFertig.current = jetzt
+  }, [me.data?.tourCompletedAt])
+
   /** Zu Schritt n; die Schreibanimation faengt dort von vorn an. */
   const geheZu = useCallback((n: number) => {
     setStep(Math.max(0, Math.min(n, TOUR_STEPS.length - 1)))
