@@ -34,6 +34,8 @@ const PANEL_BREITE = 352
 const RAND = 12
 /** Darunter passt das Fenster weder ueber noch unter das Ziel; dann steht es unten rechts. */
 const PANEL_PLATZ = 280
+/** Eckenrundung des Ausschnitts — etwas mehr als die Knoepfe selbst, damit der Rahmen sie umschliesst. */
+const LOCH_RUNDUNG = 12
 
 interface Rect { top: number; left: number; width: number; height: number }
 
@@ -205,8 +207,6 @@ export function TourOverlay() {
   const platzUnten = loch ? window.innerHeight - (loch.top + loch.height) : 0
   const platzOben = loch ? loch.top : 0
   const links = loch ? Math.max(RAND, Math.min(loch.left, window.innerWidth - PANEL_BREITE - RAND)) : 0
-  // Passt das Schildchen rechts neben das Ziel? Sonst sitzt es darueber.
-  const rechtsPlatz = !!loch && window.innerWidth - (loch.left + loch.width) > 120
   const panelStil: CSSProperties = loch && sperren && Math.max(platzUnten, platzOben) > PANEL_PLATZ
     ? platzUnten > PANEL_PLATZ
       ? { top: loch.top + loch.height + RAND, left: links, maxHeight: platzUnten - 2 * RAND, overflowY: 'auto' }
@@ -216,30 +216,29 @@ export function TourOverlay() {
   return createPortal(
     <>
       {sperren && loch && (
-        // Vier Sperrflaechen um das Loch. Sie verdunkeln und schlucken jeden Klick; das Ziel bleibt frei.
+        // Vier Sperrflaechen um das Loch schlucken jeden Klick; das Ziel bleibt frei. Sie sind durchsichtig —
+        // verdunkelt wird mit einem einzigen Schatten (unten), weil der sich runden laesst und vier Rechtecke
+        // nicht: an den Ecken bliebe sonst je ein Zipfel stehen.
         // Stehen im Portal vor dem Erklaerfenster und liegen deshalb bei gleichem z-index darunter.
         <div aria-hidden className="print-hide fixed inset-0 z-50" style={{ pointerEvents: 'none' }}>
-          <div className="absolute bg-foreground/45" style={{ pointerEvents: 'auto', top: 0, left: 0, right: 0, height: loch.top }} />
-          <div className="absolute bg-foreground/45" style={{ pointerEvents: 'auto', top: loch.top + loch.height, left: 0, right: 0, bottom: 0 }} />
-          <div className="absolute bg-foreground/45" style={{ pointerEvents: 'auto', top: loch.top, left: 0, width: loch.left, height: loch.height }} />
-          <div className="absolute bg-foreground/45" style={{ pointerEvents: 'auto', top: loch.top, left: loch.left + loch.width, right: 0, height: loch.height }} />
+          <div className="absolute" style={{ pointerEvents: 'auto', top: 0, left: 0, right: 0, height: loch.top }} />
+          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top + loch.height, left: 0, right: 0, bottom: 0 }} />
+          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top, left: 0, width: loch.left, height: loch.height }} />
+          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top, left: loch.left + loch.width, right: 0, height: loch.height }} />
+          {/* Die Verdunkelung: ein riesiger Schatten nach aussen, innen das abgerundete Loch. Faengt selbst
+              nichts ab (ein Schatten ist nicht anklickbar) — dafuer sind die vier Flaechen da. */}
           <div
-            className="tour-ziel absolute rounded-lg ring-2 ring-primary"
-            style={{ top: loch.top, left: loch.left, width: loch.width, height: loch.height }}
+            className="absolute"
+            style={{
+              top: loch.top, left: loch.left, width: loch.width, height: loch.height,
+              borderRadius: LOCH_RUNDUNG, boxShadow: '0 0 0 9999px color-mix(in oklab, var(--foreground) 45%, transparent)',
+            }}
           />
-          {current.weiter !== 'lesen' && (
-            // Schildchen am Ziel: „Weiter" im Erklaerfenster sah bisher aus wie der naechste Schritt, und
-            // genau das wurde geklickt. Die Beschriftung sagt jetzt am Element selbst, was gemeint ist.
-            // Es steht rechts neben dem Ziel — unter dem Ziel liegt das Erklaerfenster und verdeckte es.
-            <span
-              className="tour-ziel absolute rounded-full bg-primary px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-primary-foreground shadow-lg"
-              style={rechtsPlatz
-                ? { top: loch.top + loch.height / 2 - 11, left: loch.left + loch.width + 8 }
-                : { top: loch.top - 26, left: loch.left }}
-            >
-              Hier klicken
-            </span>
-          )}
+          {/* Das Ziel selbst pulsiert violett: Rahmen, leichter Farbschleier und ein Ring, der nach aussen weggeht. */}
+          <div
+            className="tour-ziel absolute bg-primary/10 ring-2 ring-primary"
+            style={{ top: loch.top, left: loch.left, width: loch.width, height: loch.height, borderRadius: LOCH_RUNDUNG }}
+          />
         </div>
       )}
 
