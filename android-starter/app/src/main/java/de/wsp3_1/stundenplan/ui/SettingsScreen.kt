@@ -197,9 +197,7 @@ private fun ServerSection(
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(
-            onDone = {
-                onCheck()
-            }
+            onDone = { onSave() }
         ),
         modifier = Modifier.fillMaxWidth(),
     )

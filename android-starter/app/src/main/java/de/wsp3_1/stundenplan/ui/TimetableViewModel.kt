@@ -16,7 +16,7 @@ import de.wsp3_1.stundenplan.data.PlanDates
 import de.wsp3_1.stundenplan.data.ThemeMode
 import de.wsp3_1.stundenplan.data.TimetableRepository
 import de.wsp3_1.stundenplan.data.WeekResult
-import de.wsp3_1.stundenplan.ui.ThemePreferences
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,6 +68,8 @@ class TimetableViewModel(
      */
     private var loadJob: Job? = null
     private var loadTicket: Int = 0
+
+    private var serverCheckJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -278,7 +280,24 @@ class TimetableViewModel(
     }
 
     fun onServerUrlChange(value: String) {
-        _settingsState.update { it.copy(serverUrlInput = value, check = CheckState.Idle, savedNotice = false) }
+        _settingsState.update {
+            it.copy(
+                serverUrlInput = value,
+                check = CheckState.Idle,
+                savedNotice = false
+            )
+        }
+
+        serverCheckJob?.cancel()
+        val url = ApiFactory.stripApiSuffix(value)
+        if (!ApiFactory.looksLikeHttpUrl(url)) {
+            _settingsState.update { it.copy(check = CheckState.InvalidUrl) }
+            return
+        }
+        serverCheckJob = viewModelScope.launch {
+            delay(500)
+            performCheck(url)
+        }
     }
 
     fun checkConnection() {
@@ -288,7 +307,15 @@ class TimetableViewModel(
             return
         }
         // Ein getipptes "/api" am Ende faellt weg; das Feld zeigt danach, was geprueft wurde.
-        _settingsState.update { it.copy(serverUrlInput = url, check = CheckState.Running, savedNotice = false) }
+        _settingsState.update {
+            it.copy(
+                serverUrlInput = url,
+                //check = CheckState.Running,
+                savedNotice = false
+            )
+        }
+
+        /*
         viewModelScope.launch {
             val result = repository.checkHealth(url)
             _settingsState.update {
@@ -299,6 +326,21 @@ class TimetableViewModel(
                     }
                 )
             }
+        }
+        */
+        viewModelScope.launch { performCheck(url) }
+    }
+
+    private suspend fun performCheck(url: String) {
+        _settingsState.update { it.copy(check = CheckState.Running) }
+        val result = repository.checkHealth(url)
+        _settingsState.update {
+            it.copy(
+                check = when (result) {
+                    is HealthResult.Reachable -> CheckState.Reachable(result.schoolName)
+                    HealthResult.Unreachable -> CheckState.Unreachable
+                }
+            )
         }
     }
 
