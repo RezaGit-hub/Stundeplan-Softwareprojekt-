@@ -55,7 +55,9 @@ function zielFinden(t: TourStep['target'], imDialog = false): HTMLElement | null
   if (!bereich) return null
   if (t.css) return bereich.querySelector<HTMLElement>(t.css)
   const beschriftungen = (Array.isArray(t.text) ? t.text : [t.text ?? '']).map((x) => x.toLowerCase())
-  const kandidaten = Array.from(bereich.querySelectorAll<HTMLElement>('button, a'))
+  // Tabellenzeilen zaehlen mit: Die Klassenliste navigiert ueber einen Klick auf die Zeile, nicht ueber einen
+  // Link. Ohne sie waere „Klasse 7c oeffnen" kein erreichbares Ziel.
+  const kandidaten = Array.from(bereich.querySelectorAll<HTMLElement>('button, a, tbody tr'))
   for (const gesucht of beschriftungen) {
     const treffer = kandidaten.find((el) => (el.textContent ?? '').trim().toLowerCase().startsWith(gesucht))
     if (treffer) return treffer
@@ -165,6 +167,12 @@ function useZielRect(target: TourStep['target'], aktiv: boolean, imDialog = fals
   return rect
 }
 
+/** Ist die Seite des Schritts offen? Detailseiten zaehlen mit: /grunddaten/klassen/7 liegt auf /grunddaten/klassen. */
+function aufSeite(pfad: string, route?: string): boolean {
+  if (!route) return true
+  return route === '/' ? pfad === '/' : pfad === route || pfad.startsWith(`${route}/`)
+}
+
 export function TourOverlay() {
   const { role } = useAuth()
   const planning = role === 'PLANNING'
@@ -182,6 +190,9 @@ export function TourOverlay() {
   const [getippt, setGetippt] = useState(false)
   const [aktuelleAktion, setAktuelleAktion] = useState<string | null>(null)
   const [feldIndex, setFeldIndex] = useState(0)
+  // Wer neben das Ziel klickt, will etwas anderes tun. Dann faellt die Sperre fuer diesen Schritt — der
+  // Rundgang bleibt sichtbar und zeigt weiter aufs Ziel, haelt aber niemanden mehr fest.
+  const [freigegeben, setFreigegeben] = useState(false)
   const panel = useRef<HTMLDivElement>(null)
 
   const current = TOUR_STEPS[step]
@@ -191,7 +202,7 @@ export function TourOverlay() {
 
   // Steht der Schritt auf einer anderen Seite (etwa „Berechnen" auf dem Entwurf), fuehrt der Rundgang zuerst
   // dorthin: Ziel ist dann der Eintrag der Seitenleiste, nicht der Knopf, den es hier gar nicht gibt.
-  const hinfuehren = !!current.route && location.pathname !== current.route && current.weiter !== 'route'
+  const hinfuehren = !!current.route && !aufSeite(location.pathname, current.route) && current.weiter !== 'route'
   // Waehrend des Schreibens zeigt der Rundgang auf das Feld, danach auf „Speichern".
   // Beim Ausfuellen wandert die Hervorhebung mit: immer auf das Feld, das gerade geschrieben wird.
   const feldZiel = current.vorbereiten && !getippt ? current.vorbereiten[Math.min(feldIndex, current.vorbereiten.length - 1)] : null
@@ -234,6 +245,7 @@ export function TourOverlay() {
   /** Zu Schritt n; die Schreibanimation faengt dort von vorn an. */
   const geheZu = useCallback((n: number) => {
     setStep(Math.max(0, Math.min(n, TOUR_STEPS.length - 1)))
+    setFreigegeben(false)
     setTippt(false)
     setGetippt(false)
     setAktuelleAktion(null)
@@ -266,7 +278,7 @@ export function TourOverlay() {
   // Navigationsschritt: Die Seite ist offen — weiter zum Handgriff, der auf dieser Seite dran ist.
   // Keine Wartezeit, die von selbst ablaeuft: Jede Seite hat einen eigenen Schritt, der auf ihr stattfindet.
   useEffect(() => {
-    if (!sichtbar || current.weiter !== 'route' || location.pathname !== current.route) return
+    if (!sichtbar || current.weiter !== 'route' || !aufSeite(location.pathname, current.route)) return
     const t = weiterNachRuhe(step)
     return () => window.clearTimeout(t)
   }, [sichtbar, current.weiter, current.route, location.pathname, step, weiterNachRuhe])
@@ -385,7 +397,7 @@ export function TourOverlay() {
   const eckenRadius = Number.parseFloat(rundung ?? '') || LOCH_RUNDUNG
   // Waehrend der Rundgang selbst schreibt, darf die Seite nicht gesperrt sein — sonst faengt die Sperre die
   // Eingabe ab. Die Sperre kommt zurueck, sobald auf „Speichern" gezeigt wird.
-  const sperren = loch !== null && !tippt && !nurLesen
+  const sperren = loch !== null && !tippt && !nurLesen && !freigegeben
   const pfeilQuer = !!loch && window.innerWidth - (loch.left + loch.width) > PFEIL_PLATZ
 
   // Steht ein Dialog der Anwendung offen, weicht das Erklaerfenster ihm aus: daneben, wo Platz ist.
@@ -435,10 +447,10 @@ export function TourOverlay() {
             style={{ pointerEvents: 'none', clipPath: lochPfad(loch, eckenRadius) }}
           />
           {/* Die vier Flaechen sperren nur, sie faerben nicht: durchsichtig, aber klickfest. */}
-          <div className="absolute" style={{ pointerEvents: 'auto', top: 0, left: 0, right: 0, height: loch.top }} />
-          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top + loch.height, left: 0, right: 0, bottom: 0 }} />
-          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top, left: 0, width: loch.left, height: loch.height }} />
-          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top, left: loch.left + loch.width, right: 0, height: loch.height }} />
+          <div className="absolute" onClick={() => setFreigegeben(true)} style={{ pointerEvents: 'auto', top: 0, left: 0, right: 0, height: loch.top }} />
+          <div className="absolute" onClick={() => setFreigegeben(true)} style={{ pointerEvents: 'auto', top: loch.top + loch.height, left: 0, right: 0, bottom: 0 }} />
+          <div className="absolute" onClick={() => setFreigegeben(true)} style={{ pointerEvents: 'auto', top: loch.top, left: 0, width: loch.left, height: loch.height }} />
+          <div className="absolute" onClick={() => setFreigegeben(true)} style={{ pointerEvents: 'auto', top: loch.top, left: loch.left + loch.width, right: 0, height: loch.height }} />
         </div>
       )}
 
@@ -499,6 +511,7 @@ export function TourOverlay() {
             {tippt
               ? `Der Rundgang füllt das Formular aus${aktuelleAktion ? ` — ${aktuelleAktion}` : ''} …`
               : hinfuehren ? 'Öffnen Sie zuerst die Seite, auf der das passiert.' : current.action}
+            {freigegeben && <span className="mt-1 block font-normal text-muted-foreground">Die Sperre ist aufgehoben — Sie können die Seite frei bedienen. Der Rundgang wartet, bis Sie das hervorgehobene Element anklicken, oder springt mit „Überspringen" weiter.</span>}
             {loch === null && !suchtNoch && !nurLesen && <span className="mt-1 block font-normal text-muted-foreground">Das Element ist gerade nicht da — es erscheint erst, wenn die Seite es anbietet. Mit „Überspringen" geht es zum nächsten Thema.</span>}
           </span>
         </p>

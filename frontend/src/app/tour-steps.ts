@@ -120,6 +120,30 @@ export const TOUR_STEPS: TourStep[] = [
     ],
   },
 
+  {
+    title: 'Stundentafel öffnen',
+    text: 'Eine Klasse ohne Fächer kann der Solver nicht planen — sie hätte nichts zu belegen. Deshalb gehört zu jeder Klasse eine Stundentafel: welches Fach wie viele Wochenstunden bekommt und wer es unterrichtet.',
+    target: { text: '7c' }, route: '/grunddaten/klassen', weiter: 'klick',
+    action: 'Öffnen Sie die neue Klasse 7c in der Tabelle.',
+  },
+  {
+    title: 'Fach zuordnen',
+    text: 'Jede Zeile ist ein Fach der Klasse. Die Wochenstunden zählen gegen das Deputat der Lehrkraft; passt etwas nicht, erscheint ein Hinweis in der Zeile — gespeichert wird trotzdem.',
+    target: { text: 'Fach hinzufügen' }, weiter: 'klick',
+    action: 'Klicken Sie auf „Fach hinzufügen".',
+  },
+  {
+    title: 'Stundentafel speichern',
+    text: 'Ohne diese Zuordnung meldet die Berechnung später „Grunddaten unvollständig" — genau deshalb macht der Rundgang sie gleich mit.',
+    target: { text: 'Speichern' }, weiter: 'klick',
+    action: 'Klicken Sie auf „Speichern".',
+    vorbereiten: [
+      { art: 'waehlen', css: '[aria-label="Fach"]', was: 'Fach' },
+      { art: 'tippen', css: '[aria-label="Wochenstunden"]', wert: '4', was: 'Wochenstunden' },
+      { art: 'waehlen', css: '[aria-label="Lehrkraft"]', was: 'Lehrkraft' },
+    ],
+  },
+
   seite('Räume', 'Räume tragen eine Art und können wiederkehrend gesperrt werden — etwa die Aula, die mittwochs belegt ist.',
     '/grunddaten/raeume', 'Öffnen Sie die Räume.'),
   {
