@@ -338,28 +338,33 @@ class DraftServiceIT extends PlanningITBase {
     }
 
     @Test
-    @DisplayName("Annehmen ab sofort legt einen erst kuenftig beginnenden Vorgaenger still")
-    void acceptingNowSilencesAPlanThatHadNotStartedYet() throws Exception {
+    @DisplayName("Annehmen ab sofort ueber einen erst kuenftig beginnenden Plan hinweg ist 409 plan-overlap")
+    void acceptingNowOverAPlanThatHadNotStartedYetIsRejected() throws Exception {
         Testdaten daten = pflichtenheftGrunddaten();
         planMoDiInEntwurf(daten);
-        call(post("/api/draft/accept").content("""
-                {"validFrom":"%s"}""".formatted(IN_SECHS_WOCHEN)), 200);
+        long kuenftig = call(post("/api/draft/accept").content("""
+                {"validFrom":"%s"}""".formatted(IN_SECHS_WOCHEN)), 200).get("id").asLong();
 
         call(post("/api/draft").content("""
                 {"source":"COPY_ACTIVE"}"""), 201);
-        long jetzt = call(post("/api/draft/accept").content("{}"), 200).get("id").asLong();
+        JsonNode problem = call(post("/api/draft/accept").content("{}"), 409);
 
+        assertThat(problem.get("type").asText()).isEqualTo("urn:pushnpull:problem:plan-overlap");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable WHERE status = 'ARCHIVED'", Long.class))
-                .isEqualTo(1L);
+                .as("ein bewusst fuer spaeter angenommener Plan verschwindet nicht still")
+                .isZero();
         assertThat(getJson("/api/timetables")).hasSize(1);
-        assertThat(getJson("/api/timetable").get("id").asLong()).isEqualTo(jetzt);
-        assertThat(jdbc.queryForObject("""
-                SELECT valid_until FROM timetable WHERE status = 'ARCHIVED'""", LocalDate.class))
-                .as("leerer Zeitraum: das Ende liegt vor dem Beginn, der Plan loest an keinem Tag mehr auf")
-                .isEqualTo(HEUTE.minusDays(1));
-        assertThat(jdbc.queryForObject("""
-                SELECT valid_from FROM timetable WHERE status = 'ARCHIVED'""", LocalDate.class))
-                .isEqualTo(IN_SECHS_WOCHEN);
+        assertThat(getJson("/api/timetable").get("id").asLong()).isEqualTo(kuenftig);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable WHERE status = 'DRAFT'", Long.class))
+                .as("der Entwurf steht noch")
+                .isEqualTo(1L);
+
+        // Mit Enddatum vor dem kuenftigen Beginn geht es: bis dahin der neue, danach der kuenftige Plan.
+        JsonNode ok = call(post("/api/draft/accept").content("""
+                {"validUntil":"%s"}""".formatted(IN_SECHS_WOCHEN.minusDays(1))), 200);
+        assertThat(ok.get("validUntil").asText()).isEqualTo(IN_SECHS_WOCHEN.minusDays(1).toString());
+        assertThat(getJson("/api/timetables")).hasSize(2);
+        assertThat(getJson("/api/timetable").get("id").asLong()).isEqualTo(ok.get("id").asLong());
     }
 
     @Test

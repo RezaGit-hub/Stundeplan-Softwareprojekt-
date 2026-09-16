@@ -382,12 +382,12 @@ public class DraftService {
      *   <li>Der Vorgaenger hat frueher begonnen: er endet am Tag vor {@code from}. Liegt er damit ganz
      *       in der Vergangenheit, wird er archiviert; sonst bleibt er aktiv — „der alte Plan gilt bis
      *       zu seinem Ende weiter".</li>
-     *   <li>Der Vorgaenger beginnt spaeter (oder gleich) und der neue Plan gilt ab heute oder frueher
-     *       („jetzt aktivieren"): der Vorgaenger wird archiviert und bekommt einen leeren Zeitraum. Das
-     *       ist der Fall, in dem jemand einen eben erst angenommenen Plan sofort ersetzt.</li>
-     *   <li>Der Vorgaenger beginnt spaeter und der neue Plan soll erst kuenftig gelten: 409
-     *       {@code plan-overlap}. Nichts wird geaendert — welcher Plan gewinnen soll, entscheidet die
-     *       Planung, nicht der Server.</li>
+     *   <li>Der Vorgaenger beginnt am selben Tag oder spaeter, hat aber schon begonnen (Beginn bis
+     *       heute — jemand hat ihn eben erst angenommen und ersetzt ihn sofort): er wird archiviert und
+     *       bekommt einen leeren Zeitraum.</li>
+     *   <li>Der Vorgaenger beginnt erst kuenftig: 409 {@code plan-overlap}, egal ab wann der neue Plan
+     *       gelten soll. Nichts wird geaendert — ein bewusst fuer spaeter angenommener Plan darf nicht
+     *       still verschwinden; die Planung waehlt ein Enddatum vor seinem Beginn oder aendert ihn.</li>
      * </ol>
      *
      * <p><b>Harte Konflikte blockieren</b> (409 {@code draft-has-conflicts}, seit #103): ein Plan mit
@@ -422,7 +422,7 @@ public class DraftService {
                 .filter(plan -> overlaps(PlanReader.startOf(plan), plan.getValidUntil(), from, validUntil))
                 .toList();
         for (Timetable plan : betroffen) {
-            if (!PlanReader.startOf(plan).isBefore(from) && from.isAfter(heute)) {
+            if (!PlanReader.startOf(plan).isBefore(from) && PlanReader.startOf(plan).isAfter(heute)) {
                 throw new ConflictException("plan-overlap", overlapMessage(plan));
             }
         }
@@ -436,8 +436,9 @@ public class DraftService {
                 .or(() -> betroffen.stream().findFirst())
                 .orElse(null);
         for (Timetable plan : betroffen) {
-            // Der Tag vor dem Beginn des neuen Plans: das Ende des alten. Im zweiten Fall liegt es vor
-            // dessen Beginn — ein leerer Zeitraum, der an keinem Tag mehr aufloest (PlanReader).
+            // Der Tag vor dem Beginn des neuen Plans: das Ende des alten. Hat der alte am selben Tag
+            // begonnen (heute angenommen, sofort ersetzt), liegt das Ende vor seinem Beginn — ein leerer
+            // Zeitraum, der an keinem Tag mehr aufloest (PlanReader).
             plan.setValidUntil(from.minusDays(1));
             if (PlanReader.startOf(plan).isBefore(from)) {
                 if (plan.getValidUntil().isBefore(heute)) {
