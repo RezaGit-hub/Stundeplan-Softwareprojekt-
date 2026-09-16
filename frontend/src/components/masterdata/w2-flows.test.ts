@@ -211,8 +211,8 @@ describe('Einstellungen (W2-Seite)', () => {
 
   it('Aktiven Plan leeren: leerer Entwurf + annehmen → Plan ohne Stunden, Grunddaten bleiben', async () => {
     const a = api()
-    await a.createDraft({ source: 'EMPTY' })
-    const t = await a.acceptDraft()
+    const entwurf = await a.createDraft({ source: 'EMPTY' })
+    const t = await a.acceptDraft(entwurf.id)
     expect(t.lessons).toHaveLength(0)
     expect((await a.listTeachers())).toHaveLength(3)
   })

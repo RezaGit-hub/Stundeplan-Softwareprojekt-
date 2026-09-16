@@ -8,10 +8,13 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { AlertTriangle, BookOpen, DoorOpen, GraduationCap, Trash2, Users } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
-  useAcceptDraft, useClasses, useConfig, useCreateDraft, useDeleteClass, useDeleteDraft, useDeleteRoom,
-  useDeleteSubject, useDeleteTeacher, useDeleteUser, useDraft, useRooms, useSubjects, useTeachers, useUsers,
+  useClasses, useConfig, useDeleteClass, useDeleteRoom,
+  useDeleteSubject, useDeleteTeacher, useDeleteUser, useDrafts, useRooms, useSubjects, useTeachers, useUsers,
 } from '@/api/hooks'
+import { api } from '@/api/api'
+import { qk } from '@/api/query-keys'
 import type { UserDto } from '@/api/types'
 import { problemOf } from '@/api/errors'
 import { Button } from '@/components/ui/button'
@@ -74,17 +77,15 @@ export function DataDeletionTab() {
   const teachers = useTeachers()
   const classes = useClasses()
   const users = useUsers()
-  const draftQuery = useDraft()
+  const drafts = useDrafts()
   const config = useConfig()
+  const qc = useQueryClient()
 
   const deleteRoom = useDeleteRoom({ quiet: () => true })
   const deleteSubject = useDeleteSubject({ quiet: () => true })
   const deleteTeacher = useDeleteTeacher({ quiet: () => true })
   const deleteClass = useDeleteClass({ quiet: () => true })
   const deleteUser = useDeleteUser({ quiet: () => true })
-  const deleteDraft = useDeleteDraft()
-  const createDraft = useCreateDraft()
-  const acceptDraft = useAcceptDraft()
 
   const notify = (res: BulkResult, noun: string) => {
     if (res.failed.length > 0) toast.warning(summarize(res, noun))
@@ -110,13 +111,17 @@ export function DataDeletionTab() {
   // Häufigste Blockade zuerst aus dem Weg räumen: eingeplante Stunden verhindern sonst fast jedes
   // Löschen. Konten, die noch an einer Lehrkraft/Klasse hängen, bleiben eine eigene, echte Blockade
   // (Ticket #108) — das melden wir ehrlich, statt es zu verschleiern.
+  // Seit #103 kann es mehrere Entwürfe geben; ihre Stunden blockieren das Löschen genauso wie die des
+  // aktiven Plans. Deshalb erst alle Entwürfe verwerfen, dann einen leeren anlegen und annehmen.
   const runAll = async () => {
     try {
-      if (draftQuery.data) await deleteDraft.mutateAsync()
-      await createDraft.mutateAsync({ source: 'EMPTY' })
-      await acceptDraft.mutateAsync(undefined)
+      for (const d of drafts.data ?? []) await api.deleteDraftById(d.id)
+      const leer = await api.createDraft({ source: 'EMPTY' })
+      await api.acceptDraft(leer.id, {})
+      await Promise.all([qk.drafts, qk.draftAll, qk.timetable, qk.timetables, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.pendingAll]
+        .map((queryKey) => qc.invalidateQueries({ queryKey })))
     } catch {
-      toast.error('Plan/Entwurf konnte nicht geleert werden — Löschen wird trotzdem versucht.')
+      toast.error('Plan/Entwürfe konnten nicht geleert werden — Löschen wird trotzdem versucht.')
     }
     await runRooms(); await runClasses(); await runTeachers(); await runSubjects()
   }

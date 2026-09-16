@@ -4,7 +4,7 @@ import { Link, Navigate } from 'react-router-dom'
 import { motion } from 'motion/react'
 import { format } from 'date-fns'
 import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2, PencilRuler, Plus, Replace, Users } from 'lucide-react'
-import { useDraft, usePending, useTeachers, useTimegrid, useTimetable, useWeek } from '@/api/hooks'
+import { useDrafts, usePending, useTeachers, useTimegrid, useTimetable, useWeek } from '@/api/hooks'
 
 import { useAuth } from '@/app/auth'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -22,7 +22,6 @@ import { dayOfDate } from '@/lib/timegrid'
 import { conflictsByLesson } from '@/lib/conflicts'
 import { weekMeta } from '@/lib/week-meta'
 import { today } from '@/lib/today'
-import { openCount } from '@/lib/draft'
 
 const NEXT_DAYS = 14
 const NEXT_MAX = 5
@@ -38,7 +37,7 @@ export function StartPage() {
   const week = useWeek({ monday, view: 'SCHOOL' })
   const pendingWeek = usePending(thisWeek.from, thisWeek.to)
   const pendingNext = usePending(now, addDaysIso(now, NEXT_DAYS - 1))
-  const draft = useDraft()
+  const drafts = useDrafts()
   const teachers = useTeachers()
 
   if (role === 'TEACHER') return <Navigate to="/mein-plan" replace />
@@ -56,8 +55,10 @@ export function StartPage() {
   const todayEntries = week.data?.days.find((d) => d.date === now)?.entries.filter((e) => e.kind !== 'CANCELLED' && e.kind !== 'GIVEN_AWAY') ?? []
 
   const activeTeachers = teachers.data?.filter((t) => t.active).length
-  // „offen" ist dieselbe Zahl wie im Entwurfsbanner und in der Entwurfsleiste (lib/draft.ts, FRONTEND-9).
-  const openDraft = draft.data ? openCount(draft.data.openLessons) : null
+  // Seit #103 stehen mehrere Entwürfe nebeneinander. Die Kennzahl zählt die, die noch in Arbeit sind —
+  // was in der Ablage liegt (#116), ist absichtlich beiseitegelegt und soll nicht mahnen.
+  const offeneEntwuerfe = (drafts.data ?? []).filter((d) => !d.finished)
+  const draftHardConflicts = offeneEntwuerfe.reduce((sum, d) => sum + d.hardConflicts, 0)
   const pendingCount = pendingWeek.data?.length
   // Fehlgeschlagene Abfragen sagen es: „kein Entwurf", „…" oder eine leere Liste wären hier falsche
   // Aussagen (Befund FRONTEND-1, aus web übernommen).
@@ -95,10 +96,10 @@ export function StartPage() {
           to="/plan"
         />
         <StatTile
-          label="Offene Stunden im Entwurf"
-          value={draft.isError ? FAILED : draft.data ? (draft.data.status === 'SOLVING' ? 'rechnet…' : openDraft ?? 0) : 'kein Entwurf'}
-          hint={draft.isError ? `Entwurf ${failedHint}` : draft.data ? `${draft.data.lessons.length} Stunden · ${draft.data.conflicts.length} Konflikte` : 'Entwurf anlegen unter Planung'}
-          tone={draft.isError ? 'destructive' : openDraft ? 'warning' : 'default'}
+          label="Entwürfe in Arbeit"
+          value={drafts.isError ? FAILED : offeneEntwuerfe.length}
+          hint={drafts.isError ? `Entwürfe ${failedHint}` : offeneEntwuerfe.length === 0 ? 'Entwurf anlegen unter Planung' : `${draftHardConflicts} harte Konflikte`}
+          tone={drafts.isError ? 'destructive' : draftHardConflicts > 0 ? 'warning' : 'default'}
           icon={PencilRuler}
           to="/entwurf"
         />
@@ -130,7 +131,7 @@ export function StartPage() {
               icon={CalendarDays}
               title="Noch kein Plan angenommen"
               description="Ein Entwurf wird berechnet oder von Hand aufgebaut und dann angenommen — erst dann gibt es einen aktiven Plan."
-              action={<Button asChild><Link to="/entwurf?aktion=anlegen"><Plus /> Entwurf anlegen</Link></Button>}
+              action={<Button asChild><Link to="/entwurf"><Plus /> Entwurf anlegen</Link></Button>}
               className="min-h-72"
             />
           ) : week.isError ? (
@@ -188,28 +189,35 @@ export function StartPage() {
             )}
           </section>
 
-          <section aria-label="Entwurf" className={draft.data ? 'rounded-lg border border-draft-border bg-draft-bg p-4 text-draft-fg' : 'rounded-lg border bg-card p-4 shadow-xs'}>
+          <section aria-label="Entwürfe" className={offeneEntwuerfe.length > 0 ? 'rounded-lg border border-draft-border bg-draft-bg p-4 text-draft-fg' : 'rounded-lg border bg-card p-4 shadow-xs'}>
             <div className="flex items-center gap-2">
               <PencilRuler className="size-4" aria-hidden />
-              <h2 className="text-lg font-semibold">{draft.isError ? 'Entwurf' : draft.data ? 'Entwurf — nicht aktiv' : 'Kein Entwurf'}</h2>
+              <h2 className="text-lg font-semibold">
+                {drafts.isError ? 'Entwürfe' : offeneEntwuerfe.length === 0 ? 'Kein Entwurf' : offeneEntwuerfe.length === 1 ? 'Entwurf — nicht aktiv' : `${offeneEntwuerfe.length} Entwürfe — keiner ist aktiv`}
+              </h2>
             </div>
-            {draft.isError ? (
-              // GET /draft fehlgeschlagen — ob es einen Entwurf gibt, ist unbekannt (404 wäre „keiner", das ist ein Zustand).
-              <div className="mt-3"><ErrorState problem={draft.error} retry={() => void draft.refetch()} /></div>
-            ) : draft.data ? (
+            {drafts.isError ? (
+              // GET /drafts fehlgeschlagen — ob es Entwürfe gibt, ist unbekannt (eine leere Liste wäre „keine", das ist ein Zustand).
+              <div className="mt-3"><ErrorState problem={drafts.error} retry={() => void drafts.refetch()} /></div>
+            ) : offeneEntwuerfe.length > 0 ? (
               <>
-                <p className="mt-1 text-sm">
-                  {draft.data.status === 'SOLVING' ? 'Berechnung läuft.' : draft.data.status === 'FAILED' ? 'Berechnung fehlgeschlagen.' : `${draft.data.lessons.length} Stunden, ${openDraft} offen, ${draft.data.conflicts.length} Konflikte.`}
-                </p>
+                <ul className="mt-1 space-y-0.5 text-sm">
+                  {offeneEntwuerfe.slice(0, 3).map((d) => (
+                    <li key={d.id} className="flex items-center justify-between gap-2">
+                      <Link to={`/entwurf/${d.id}`} className="min-w-0 truncate font-medium underline-offset-2 hover:underline">{d.name}</Link>
+                      <span className="shrink-0 text-xs">{d.status === 'SOLVING' ? 'rechnet …' : d.status === 'FAILED' ? 'fehlgeschlagen' : `${d.hardConflicts} hart`}</span>
+                    </li>
+                  ))}
+                </ul>
                 <Button asChild size="sm" variant="outline" className="mt-3 border-draft-border bg-background/60 text-foreground">
-                  <Link to="/entwurf">Zum Entwurf <ArrowRight /></Link>
+                  <Link to="/entwurf">Zu den Entwürfen <ArrowRight /></Link>
                 </Button>
               </>
             ) : (
               <>
                 <p className="mt-1 text-sm text-foreground-subtle">Ein Entwurf ist die Arbeitskopie: berechnen, von Hand nachbessern, dann annehmen.</p>
                 <Button asChild size="sm" className="mt-3">
-                  <Link to="/entwurf?aktion=anlegen"><Plus /> Entwurf anlegen</Link>
+                  <Link to="/entwurf"><Plus /> Entwurf anlegen</Link>
                 </Button>
               </>
             )}

@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import {LogOut, PanelLeftClose } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { IS_MOCK } from '@/api/api'
-import { useDraft, useHealth, usePending } from '@/api/hooks'
+import { useDrafts, useHealth, usePending } from '@/api/hooks'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader,
   SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarRail, useSidebar,
@@ -25,7 +25,8 @@ export function AppSidebar() {
   const items = navFor(role, IS_MOCK)
   const health = useHealth()
   const planning = role === 'PLANNING'
-  const draft = useDraft({ enabled: planning })
+  const drafts = useDrafts({ enabled: planning })
+  const draftCount = (drafts.data ?? []).filter((d) => !d.finished).length
   const week = weekRange(today())
   const pending = usePending(week.from, week.to, { enabled: planning })
   const pendingCount = pending.data?.length ?? 0
@@ -61,8 +62,8 @@ export function AppSidebar() {
                           <span>{n.label}</span>
                         </Link>
                       </SidebarMenuButton>
-                      {n.to === '/entwurf' && draft.data && (
-                        <SidebarMenuBadge><span className="size-1.5 rounded-full bg-draft-fg" title="Entwurf vorhanden" /></SidebarMenuBadge>
+                      {n.to === '/entwurf' && draftCount > 0 && (
+                        <SidebarMenuBadge className="tabular-nums text-draft-fg">{draftCount > 1 ? draftCount : <span className="size-1.5 rounded-full bg-draft-fg" title="Entwurf vorhanden" />}</SidebarMenuBadge>
                       )}
                       {n.to === '/vertretung' && pendingCount > 0 && (
                         <SidebarMenuBadge className="rounded-full bg-substitution-soft text-substitution-fg">{pendingCount}</SidebarMenuBadge>
