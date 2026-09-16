@@ -503,11 +503,10 @@ export function TourOverlay() {
           </span>
         </p>
 
+        {/* Hoechstens drei Knoepfe: links der Ausstieg, rechts zurueck und vorwaerts. Bei einem Erklaerschritt
+            heisst der vordere „Weiter", bei einem Handgriff „Überspringen" — beides ist derselbe Platz. */}
         <div className="mt-4 flex items-center justify-between gap-2">
           <Button variant="ghost" size="sm" onClick={beenden}>Beenden</Button>
-          {current.weiter === 'lesen' && !letzter && (
-            <Button variant="ghost" size="sm" className="mr-auto text-foreground-subtle" onClick={() => geheZu(naechsteSeite())}>Überspringen</Button>
-          )}
           <div className="flex gap-2">
             {step > 0 && <Button variant="outline" size="sm" onClick={() => geheZu(step - 1)}>Zurück</Button>}
             {letzter
