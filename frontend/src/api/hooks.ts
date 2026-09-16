@@ -2,19 +2,26 @@
 // Kein Zustand außerhalb von Query + URL + lokalem useState. Fehler-Toasts kommen aus dem onError jeder Mutation (errors.ts);
 // 400-Feldfehler fängt die Seite mit useFieldErrors().handle(err) im catch. Fehler, die die Seite selbst darstellt
 // (409 in-use als Dialog, 409 data-exists als Rückfrage), schaltet sie mit { quiet: (err) => boolean } stumm.
-import { QueryClient, useMutation, useQuery, useQueryClient, type QueryKey, type UseMutationResult } from '@tanstack/react-query'
+import {
+  ApiError,
+  type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput,
+  type ConfigDto, type CreateUser,
+  type DraftDto, type DraftSource,
+  type EventInput, type EventQuery, type ExceptionInput,
+  type HolidayInput, type HolidayPresetInput,
+  type MasterDataExport, type MasterDataImport, type MasterDataImportResult, type MasterDataSection,
+  type PasswordChange, type PatchLessonInput,
+  type RepairInput,                              // ← nur wenn in types.ts vorhanden
+  type RoomInput, type RuleInput, type SectionImportResult, type SubjectInput,
+  type TeacherInput, type TimegridInput, type TransferScope, type View,
+} from './types'
+import {
+  QueryClient, useMutation, useQuery, useQueryClient,
+  type QueryKey, type UseMutationResult,
+} from '@tanstack/react-query'
 import { api } from './api'
 import { qk } from './query-keys'
 import { toastProblem } from './errors'
-import {
-  ApiError, type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput, type ConfigDto, type CreateUser,
-  type DraftDto, type DraftSource, type EventInput, type EventQuery, type ExceptionInput, type HolidayInput,
-  type HolidayPresetInput,
-  type MasterDataExport, type MasterDataImport, type MasterDataImportResult, type MasterDataSection,
-  type PasswordChange,
-  type PatchLessonInput, type RoomInput, type RuleInput, type SectionImportResult, type SubjectInput,
-  type TeacherInput, type TimegridInput, type TransferScope, type View,
-} from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -206,6 +213,10 @@ export const useAcceptDraft = () => useApiMutation((body?: { validFrom?: string 
   qc.setQueryData(qk.draft, null)
   invalidate(qc, qk.timetable, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.pendingAll, qk.optionsAll)
 }, DRAFT)
+// Konflikt lösen (#110): drei Solver-Läufe, bis zu 15 s, speichert nichts. Dieselben Entwurfs-Optionen wie die
+// übrigen Mutationen — während der Serie gilt der Entwurf serverseitig als SOLVING, weitere Entwurfs-Mutationen
+// warten (scope) statt mit 409 zu scheitern; danach den Entwurf neu laden, falls ein Poll SOLVING gesehen hat.
+export const useRepairDraft = () => useApiMutation((body: RepairInput) => api.repairDraft(body), (qc) => invalidate(qc, qk.draft), DRAFT)
 // Ereignisse, Vertretung
 const SUBSTITUTION_KEYS: QueryKey[] = [qk.pendingAll, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.optionsAll, qk.eventsAll, qk.exceptionsAll]
 export const useCreateEvent = () => useApiMutation((body: EventInput) => api.createEvent(body), (qc) => invalidate(qc, ...SUBSTITUTION_KEYS))
@@ -219,6 +230,7 @@ export const useLoadHolidayPreset = () => useApiMutation((body: HolidayPresetInp
 // Konten
 export const useCreateUser = () => useApiMutation((body: CreateUser) => api.createUser(body), (qc) => invalidate(qc, qk.users))
 export const useCreateClassAccounts = () => useApiMutation(() => api.createClassAccounts(), (qc) => invalidate(qc, qk.users))
+export const useCreateTeacherAccounts = () => useApiMutation(() => api.createTeacherAccounts(), (qc) => invalidate(qc, qk.users))
 export const useSetUserPassword = () => useApiMutation((v: { id: number; body: { password: string } }) => api.setUserPassword(v.id, v.body), () => {})
 export const useChangeMyPassword = () => useApiMutation((body: PasswordChange) => api.changeMyPassword(body), () => {})
 
@@ -252,3 +264,6 @@ export function useImportMasterDataSection(scope: TransferScope, opts?: Mutation
     opts,
   )
 }
+
+export const useDeleteUser = (opts?: MutationOpts) => useApiMutation((id: number) => api.deleteUser(id), (qc) => invalidate(qc, qk.users), opts)
+

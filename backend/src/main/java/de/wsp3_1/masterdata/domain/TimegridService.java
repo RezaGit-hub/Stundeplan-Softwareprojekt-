@@ -5,6 +5,8 @@ import de.wsp3_1.masterdata.MasterdataDtos.TimegridInput;
 import de.wsp3_1.masterdata.MasterdataDtos.TimeslotDto;
 import de.wsp3_1.masterdata.MasterdataDtos.TimeslotInput;
 import de.wsp3_1.masterdata.persistence.ClassSubjectRepository;
+import de.wsp3_1.masterdata.persistence.Room;
+import de.wsp3_1.masterdata.persistence.RoomRepository;
 import de.wsp3_1.masterdata.persistence.Teacher;
 import de.wsp3_1.masterdata.persistence.TeacherRepository;
 import de.wsp3_1.masterdata.persistence.Timeslot;
@@ -32,10 +34,10 @@ import java.util.stream.Collectors;
  * kein Aenderungsprotokoll. Ein Zeitfenster, das in der neuen Tabelle fehlt, wird geloescht — es sei
  * denn, eine Stunde des aktiven Plans oder des Entwurfs liegt darin (oder eine Verlegung zeigt\n * darauf); dann 409 {@code in-use} mit den betroffenen Zeitfenstern, damit kein Plan zerbricht.\n * Stunden archivierter Plaene halten nichts fest und werden vor dem Loeschen entfernt.</p>
  *
- * <p>Verschwindet ein Zeitfenster, verschwinden mit ihm die Wunsch- und Sperrzeiten der Lehrkraefte,
- * die darauf zeigen. Das ist kein Datenverlust nebenbei, sondern die einzige Moeglichkeit: die
- * Fremdschluessel in {@code teacher_preferred_timeslot} und {@code teacher_blocked_timeslot} muessen
- * vorher weg.</p>
+ * <p>Verschwindet ein Zeitfenster, verschwinden mit ihm die Wunsch- und Sperrzeiten der Lehrkraefte
+ * und die Sperrzeiten der Raeume, die darauf zeigen. Das ist kein Datenverlust nebenbei, sondern die
+ * einzige Moeglichkeit: die Fremdschluessel in {@code teacher_preferred_timeslot},
+ * {@code teacher_blocked_timeslot} und {@code room_blocked_timeslot} (V9) muessen vorher weg.</p>
  */
 @Service
 public class TimegridService {
@@ -44,12 +46,14 @@ public class TimegridService {
 
     private final TimeslotRepository timeslots;
     private final TeacherRepository teachers;
+    private final RoomRepository rooms;
     private final ClassSubjectRepository classSubjects;
 
-    public TimegridService(TimeslotRepository timeslots, TeacherRepository teachers,
+    public TimegridService(TimeslotRepository timeslots, TeacherRepository teachers, RoomRepository rooms,
                            ClassSubjectRepository classSubjects) {
         this.timeslots = timeslots;
         this.teachers = teachers;
+        this.rooms = rooms;
         this.classSubjects = classSubjects;
     }
 
@@ -103,6 +107,10 @@ public class TimegridService {
                 teacher.getBlockedTimeslotIds().removeAll(removedIds);
             }
             teachers.flush();
+            for (Room room : rooms.findAllByOrderByIdAsc()) {
+                room.getBlockedTimeslotIds().removeAll(removedIds);
+            }
+            rooms.flush();
             // Archivierte Plaene zaehlen oben nicht als Belegung, ihre Stunden zeigen aber noch per
             // Fremdschluessel auf das Zeitfenster; ohne diesen Schritt bricht das DELETE mit 23503 ab.
             for (Timeslot slot : removed) {

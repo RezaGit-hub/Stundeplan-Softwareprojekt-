@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Stundenplanung — REST-API
-  version: 1.0.0
+  version: 1.2.0
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -323,6 +323,42 @@ paths:
                 - { username: '7a', classShort: 7a, password: kfr7t2mqbd }
                 - { username: 8b, classShort: 8b, password: xq4mvn8pth }
                 - { username: 9c, classShort: 9c, password: dw6zks3jrb }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/users/teacher-accounts:
+    post:
+      tags: [Konten]
+      operationId: createTeacherAccounts
+      summary: Konten für alle Lehrkräfte anlegen
+      description: |
+        Legt für **jede aktive Lehrkraft ohne Konto** genau ein Lehrkraftkonto an (Rolle `TEACHER`).
+        Benutzername = Lehrkraftkürzel in Kleinbuchstaben („alb"), Passwort zufällig, zehn Zeichen.
+
+        **Die Passwörter stehen genau einmal in dieser Antwort im Klartext** — danach kennt der
+        Server nur den BCrypt-Hash. Die Oberfläche zeigt sie zum Abschreiben oder Ausdrucken an;
+        wer eines verliert, setzt über `PUT /api/users/{id}/password` ein neues.
+
+        Der Aufruf ist **idempotent**: bestehende Konten bleiben unberührt, ein zweiter Aufruf
+        liefert eine leere Liste. Eine Lehrkraft, dessen Kürzel schon als anderer Benutzername vergeben
+        ist, wird übersprungen (sie lässt sich mit `POST /api/users` unter eigenem Namen anlegen).
+        Kein Body nötig; `{}` genügt.
+      x-role: PLANNING
+      responses:
+        '201':
+          description: die neu angelegten Konten (leer, wenn jede Lehrkraft schon eines hatte)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TeacherAccountDto'
+              example:
+                - { username: alb, teacherName: Albrecht, teacherShort: alb, password: a13g8jadh1 }
+                - { username: mei, teacherName: Meier, teacherShort: mei, password: 18iadb1ad2 }
+                - { username: scz, teacherName: Schwanitz, teacherShort: scz, password: n2ab2c74ac }
         '401':
           $ref: '#/components/responses/Unauthenticated401'
         '403':
@@ -710,9 +746,9 @@ paths:
                 items:
                   $ref: '#/components/schemas/RoomDto'
               example:
-                - { id: 1, name: R101, roomType: Klassenraum, active: true }
-                - { id: 2, name: R204, roomType: Klassenraum, active: true }
-                - { id: 3, name: P1, roomType: Fachraum Physik, active: true }
+                - { id: 1, name: R101, roomType: Klassenraum, active: true, blockedTimeslotIds: [] }
+                - { id: 2, name: R204, roomType: Klassenraum, active: true, blockedTimeslotIds: [] }
+                - { id: 3, name: P1, roomType: Fachraum Physik, active: true, blockedTimeslotIds: [34, 35] }
         '401':
           $ref: '#/components/responses/Unauthenticated401'
         '403':
@@ -728,7 +764,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RoomInput'
-            example: { name: P1, roomType: Fachraum Physik, active: true }
+            example: { name: P1, roomType: Fachraum Physik, active: true, blockedTimeslotIds: [34, 35] }
       responses:
         '201':
           description: Raum angelegt
@@ -736,7 +772,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RoomDto'
-              example: { id: 3, name: P1, roomType: Fachraum Physik, active: true }
+              example: { id: 3, name: P1, roomType: Fachraum Physik, active: true, blockedTimeslotIds: [34, 35] }
         '400':
           $ref: '#/components/responses/Validation400'
         '401':
@@ -759,7 +795,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RoomDto'
-              example: { id: 1, name: R101, roomType: Klassenraum, active: true }
+              example: { id: 1, name: R101, roomType: Klassenraum, active: true, blockedTimeslotIds: [] }
         '401':
           $ref: '#/components/responses/Unauthenticated401'
         '403':
@@ -777,7 +813,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RoomInput'
-            example: { name: R101, roomType: Klassenraum, active: true }
+            example: { name: R101, roomType: Klassenraum, active: true, blockedTimeslotIds: [] }
       responses:
         '200':
           description: Raum geändert
@@ -785,7 +821,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RoomDto'
-              example: { id: 1, name: R101, roomType: Klassenraum, active: true }
+              example: { id: 1, name: R101, roomType: Klassenraum, active: true, blockedTimeslotIds: [] }
         '400':
           $ref: '#/components/responses/Validation400'
         '401':
@@ -798,7 +834,7 @@ paths:
       tags: [Räume]
       operationId: deleteRoom
       summary: Raum löschen
-      description: 409 `in-use`, solange der Raum in einem Plan belegt ist. Sperrzeiten eines Raums stehen ab v1 unter `GET /api/events?roomId=`.
+      description: 409 `in-use`, solange der Raum in einem Plan belegt ist. Datierte Sperrungen eines Raums stehen ab v1 unter `GET /api/events?roomId=`; die wöchentlichen Sperrzeiten (`blockedTimeslotIds`, v1.1.0) fallen mit dem Raum weg.
       x-role: PLANNING
       responses:
         '204':
@@ -1997,6 +2033,73 @@ paths:
         '409':
           $ref: '#/components/responses/Solving409'
 
+  /api/draft/repair:
+    post:
+      tags: [Entwurf]
+      operationId: repairDraft
+      summary: Konflikt per Knopf lösen — Vorschläge rechnen, nichts speichern (#110, seit 1.2.0)
+      description: |
+        Rechnet **synchron** bis zu drei Vorschläge, wie sich der Konflikt der Stunde `lessonId`
+        auflösen lässt (E-53). Drei Stufen mit wachsendem Freiheitsgrad, je Stufe ein Solver-Lauf von
+        5 s — die Antwort kann also bis zu 15 s dauern: (1) nur die Konfliktstunde darf wandern, jede
+        andere belegte Stunde gilt für den Lauf als festgelegt; (2) dazu die Stunden derselben Klasse am
+        selben Tag; (3) dazu alle Stunden der beteiligten Lehrkraft und des beteiligten Raums an diesem
+        Tag. Offene Stunden werden nicht eingeplant.
+
+        **Gespeichert wird nichts.** Jeder Vorschlag ist eine Vorschau mit den Zügen (`moves`), der Zahl
+        der harten Konflikte im ganzen Entwurf nach dem Vorschlag (`hardConflictsAfter`) und dem Score.
+        Übernehmen heißt: je Zug `PATCH /api/draft/lessons/{lessonId}` mit `timeslotId`, `roomId` und
+        `pinned: false`. Nur Stufen, die mindestens eine Stunde bewegen, kommen zurück; liefern zwei
+        Stufen dieselben Züge, steht der Vorschlag einmal. `proposals` kann leer sein.
+
+        Während der Serie gilt der Entwurf als in Berechnung (`GET /api/draft` → `SOLVING`); jede
+        Änderung und jeder weitere Lauf bekommt solange 409 `solving`.
+
+        Fehler: 404 `not-found`, wenn die Stunde nicht im Entwurf steht (oder kein Entwurf da ist);
+        400 `validation` (Feld `lessonId`), wenn die Stunde in keinem Konflikt steht oder fehlt;
+        409 `solving`, wenn gerade ein Lauf unterwegs ist.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepairInput'
+            example:
+              lessonId: 18
+      responses:
+        '200':
+          description: Vorschläge, nach Stufe aufsteigend; nichts davon ist gespeichert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairResponse'
+              example:
+                proposals:
+                  - level: 1
+                    label: Nur diese Stunde verschieben
+                    moves:
+                      - { lessonId: 18, timeslotId: 6, roomId: 1 }
+                    hardConflictsAfter: 0
+                    score: 0hard/0medium/0soft
+                  - level: 3
+                    label: Auch Stunden der Lehrkraft und des Raums am selben Tag umstellen
+                    moves:
+                      - { lessonId: 18, timeslotId: 5, roomId: 1 }
+                      - { lessonId: 11, timeslotId: 6, roomId: 1 }
+                    hardConflictsAfter: 0
+                    score: 0hard/0medium/-1soft
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Solving409'
+
   /api/events:
     get:
       tags: [Änderungen]
@@ -2983,7 +3086,8 @@ components:
 
     ConflictType:
       type: string
-      enum: [ROOM_DOUBLE_BOOKED, TEACHER_DOUBLE_BOOKED, CLASS_DOUBLE_BOOKED, TEACHER_BLOCKED_TIME, ROOM_TYPE_MISMATCH, RULE_VIOLATION]
+      enum: [ROOM_DOUBLE_BOOKED, TEACHER_DOUBLE_BOOKED, CLASS_DOUBLE_BOOKED, TEACHER_BLOCKED_TIME, ROOM_TYPE_MISMATCH, RULE_VIOLATION, ROOM_BLOCKED_TIME]
+      description: ROOM_BLOCKED_TIME seit v1.1.0 (#133) — Stunde in einer wöchentlichen Sperrzeit des Raums (`RoomDto.blockedTimeslotIds`), immer hart
 
     ObjectKind:
       type: string
@@ -3110,6 +3214,19 @@ components:
         classShort: { type: string, examples: ['7a'] }
         password: { type: string, format: password, examples: [kfr7t2mqbd] }
 
+    TeacherAccountDto:
+      type: object
+      description: |
+        Eine Zeile der Antwort von POST /api/users/teacher-accounts. `password` steht hier **einmal**
+        im Klartext — der Server speichert nur den BCrypt-Hash und gibt es nie wieder heraus. Wer es
+        verliert, setzt über PUT /api/users/{id}/password ein neues.
+      required: [username, teacherName, teacherShort, password]
+      properties:
+        username: { type: string, examples: ['alb'] }
+        teacherName: { type: string, examples: ['Albrecht'] }
+        teacherShort: { type: string, examples: ['alb'] }
+        password: { type: string, format: password, examples: [a13g8jadh1] }
+
     WarningDto:
       type: object
       description: Hinweis in einer 200-Antwort — nie ein Fehler
@@ -3206,6 +3323,10 @@ components:
         name: { type: string, examples: [R101] }
         roomType: { type: string, description: Raumart; muss zur geforderten Raumart des Fachs passen, examples: [Klassenraum] }
         active: { type: boolean }
+        blockedTimeslotIds:
+          type: array
+          items: { type: integer, format: int64 }
+          description: 'Wöchentliche Sperrzeiten des Raums (hart, wie bei der Lehrkraft); seit v1.1.0 (#133). Der Server liefert das Feld immer, Standard leer'
 
     RoomInput:
       type: object
@@ -3214,6 +3335,10 @@ components:
         name: { type: string, minLength: 1 }
         roomType: { type: string, minLength: 1 }
         active: { type: boolean }
+        blockedTimeslotIds:
+          type: array
+          items: { type: integer, format: int64 }
+          description: 'Wöchentliche Sperrzeiten (hart); optional seit v1.1.0 (#133), fehlend = keine Sperre. Jede Kennung muss ein Zeitfenster sein, sonst 400 `validation`'
 
     ClassSubjectDto:
       type: object
@@ -3655,6 +3780,55 @@ components:
           type: string
           format: date
           description: 'Kann (E-40, nach R1): der neue Plan gilt erst ab diesem Datum; bis dahin bleibt der bisherige Plan in den Wochensichten. Fehlt: gilt sofort.'
+
+    RepairInput:
+      type: object
+      description: Body von POST /api/draft/repair (#110, seit 1.2.0) — die Konfliktstunde
+      required: [lessonId]
+      properties:
+        lessonId: { type: integer, format: int64 }
+
+    RepairMoveDto:
+      type: object
+      description: 'Eine Stunde wandert in dieses Zeitfenster und diesen Raum; übernommen per PATCH /api/draft/lessons/{lessonId} mit pinned: false'
+      required: [lessonId, timeslotId, roomId]
+      properties:
+        lessonId: { type: integer, format: int64 }
+        timeslotId: { type: integer, format: int64 }
+        roomId: { type: integer, format: int64 }
+
+    RepairProposalDto:
+      type: object
+      description: Ein Vorschlag (#110, E-53) — eine Vorschau, nichts davon ist gespeichert
+      required: [level, label, moves, hardConflictsAfter, score]
+      properties:
+        level:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: '1 = nur die Konfliktstunde, 2 = dazu die Stunden derselben Klasse am selben Tag, 3 = dazu alle Stunden der Lehrkraft und des Raums an diesem Tag'
+        label: { type: string, description: deutscher Text der Stufe }
+        moves:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RepairMoveDto'
+        hardConflictsAfter:
+          type: integer
+          description: harte Konflikte im ganzen Entwurf, wenn der Vorschlag übernommen ist
+        score:
+          type: [string, 'null']
+          description: Timefold-Score des Laufs, z. B. `0hard/0medium/-2soft`
+
+    RepairResponse:
+      type: object
+      required: [proposals]
+      properties:
+        proposals:
+          type: array
+          description: nach Stufe aufsteigend; leer, wenn kein Lauf eine Stunde bewegt hat
+          items:
+            $ref: '#/components/schemas/RepairProposalDto'
 
     EntryOriginal:
       type: object

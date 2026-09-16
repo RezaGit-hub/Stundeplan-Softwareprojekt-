@@ -2,10 +2,12 @@ package de.wsp3_1.stundenplan.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import de.wsp3_1.stundenplan.data.ThemeMode
 
 /**
  * Bedeutungsfarben aus backbone/ui.md. Farbe ist nie alleiniger Traeger einer
@@ -48,11 +50,23 @@ private val DarkColors = darkColorScheme(
 
 @Composable
 fun StundenplanTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    themeMode: ThemeMode,
     content: @Composable () -> Unit,
 ) {
+    val darkTheme = when (themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.DARK -> true
+        ThemeMode.LIGHT -> false
+    }
+
+    val colorScheme = if (darkTheme) {
+        DarkColors
+    } else {
+        LightColors
+    }
+
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = colorScheme,
         content = content,
     )
 }

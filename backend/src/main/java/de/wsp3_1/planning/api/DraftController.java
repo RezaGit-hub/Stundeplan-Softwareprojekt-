@@ -6,8 +6,11 @@ import de.wsp3_1.planning.api.PlanningDtos.AddLessonInput;
 import de.wsp3_1.planning.api.PlanningDtos.CreateDraft;
 import de.wsp3_1.planning.api.PlanningDtos.DraftDto;
 import de.wsp3_1.planning.api.PlanningDtos.PatchLessonInput;
+import de.wsp3_1.planning.api.PlanningDtos.RepairInput;
+import de.wsp3_1.planning.api.PlanningDtos.RepairResponse;
 import de.wsp3_1.planning.api.PlanningDtos.StartSolveInput;
 import de.wsp3_1.planning.domain.DraftService;
+import de.wsp3_1.planning.domain.RepairService;
 import de.wsp3_1.planning.domain.SolveService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -34,10 +37,12 @@ public class DraftController {
 
     private final DraftService draftService;
     private final SolveService solveService;
+    private final RepairService repairService;
 
-    public DraftController(DraftService draftService, SolveService solveService) {
+    public DraftController(DraftService draftService, SolveService solveService, RepairService repairService) {
         this.draftService = draftService;
         this.solveService = solveService;
+        this.repairService = repairService;
     }
 
     // ------------------------------------------------------------------ Entwurf
@@ -92,6 +97,17 @@ public class DraftController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public void cancelSolve() {
         solveService.cancel();
+    }
+
+    // ------------------------------------------------------------------ Konflikt loesen (#110)
+
+    /**
+     * Synchron, bis zu 15 s (drei Stufen je 5 s). Die Antwort ist eine Vorschau: gespeichert wird nichts,
+     * uebernommen wird ein Vorschlag ueber {@code PATCH /lessons/{id}} je bewegter Stunde.
+     */
+    @PostMapping("/repair")
+    public RepairResponse repair(@Valid @RequestBody RepairInput input) {
+        return RepairResponse.of(repairService.propose(input.lessonId()));
     }
 
     // ------------------------------------------------------------------ Annehmen (W-8)

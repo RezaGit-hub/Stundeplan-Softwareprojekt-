@@ -5,6 +5,7 @@ import de.wsp3_1.auth.persistence.UserAccount;
 import de.wsp3_1.auth.persistence.UserAccountRepository;
 import de.wsp3_1.masterdata.persistence.SchoolClass;
 import de.wsp3_1.masterdata.persistence.SchoolClassRepository;
+import de.wsp3_1.masterdata.persistence.Teacher;
 import de.wsp3_1.masterdata.persistence.TeacherRepository;
 import de.wsp3_1.shared.CurrentUser;
 import de.wsp3_1.shared.Role;
@@ -142,6 +143,25 @@ public class UserService {
             String password = generatePassword();
             users.save(new UserAccount(username, encode(password), Role.STUDENT, null, klasse.getId()));
             angelegt.add(new ClassAccount(username, klasse.getName(), password));
+        }
+        return angelegt;
+    }
+
+    @Transactional
+    public List<TeacherAccount> createTeacherAccounts() {
+        Set<Long> mitKonto = new HashSet<>(users.findAllTeacherIds());
+        List<TeacherAccount> angelegt = new ArrayList<>();
+        for (Teacher lehrer : teachers.findAllByOrderByIdAsc()) {
+            if (!lehrer.isActive() || mitKonto.contains(lehrer.getId())) {
+                continue;
+            }
+            String username = lehrer.getShortName().trim().toLowerCase(java.util.Locale.GERMAN);
+            if (username.isEmpty() || users.existsByUsername(username)) {
+                continue;
+            }
+            String password = generatePassword();
+            users.save(new UserAccount(username, encode(password), Role.TEACHER, lehrer.getId(), null));
+            angelegt.add(new TeacherAccount(username, lehrer.getName(), lehrer.getShortName(), password));
         }
         return angelegt;
     }

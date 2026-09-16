@@ -35,7 +35,7 @@ export function RoomsPage() {
   const roomTypes = [...new Set(rooms.data.map((r) => r.roomType))]
 
   const setActive = async (r: RoomDto, active: boolean) => {
-    await update.mutateAsync({ id: r.id, body: { name: r.name, roomType: r.roomType, active } })
+    await update.mutateAsync({ id: r.id, body: { name: r.name, roomType: r.roomType, active, blockedTimeslotIds: r.blockedTimeslotIds ?? [] } })
     toast.success(active ? `${r.name} aktiviert` : `${r.name} deaktiviert`)
   }
   const confirmDelete = async () => {

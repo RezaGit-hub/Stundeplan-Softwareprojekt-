@@ -32,6 +32,11 @@ Dazu zwei Ergänzungen aus der Prüfung vom 05.09., die noch nicht in `VERTRAG.m
   auch andere hinsetzen. Auf die Pausenregel R3 war kein Verlass (sie darf weich stehen), und H5 prüft
   nur die Raumart, nicht `active`. Zwei harte Regeln schließen es jetzt aus; sie treffen nur
   **nicht festgelegte** Stunden. Damit sind es 20 Constraints, nicht 18.
+- **H8 `roomBlockedTime`** (11.09., #133, E-54): Sperrzeit eines Raums, Tabelle `room_blocked_timeslot`
+  (V9), eigener Fact `RoomBlockedTimeFact(roomId, timeslotId)` in `SolveInput.roomBlockedTimes` und
+  `SolverTimetable`. Aufbau wie H4, Join über `getRoom().id()` statt `getTeacherId()`; immer hart,
+  unabhängig vom Regelwerk. `BlockedTimeFact`/H4 bleiben unverändert. Gegenstück im `ConflictChecker`:
+  `ROOM_BLOCKED_TIME` (Prüfung 4, vor dem Regelwerk). Damit sind es 21 Constraints.
 - **Festgelegt und offen zugleich** gibt es im Solver nicht. Timefold lehnt es ab („has a variable pinned
   to null, even though unassigned values are not allowed"), weil der Raum keine leeren Werte erlaubt.
   `SolveService.buildInput` lässt solche Stunden weg — sie bleiben unverändert stehen. Zwei Wege führen
@@ -575,7 +580,7 @@ mit `Awaitility`-freier Schleife (`Thread.sleep(500)`, höchstens Limit + 10 s) 
 ### 10.4 Synchronität Solver ↔ ConflictChecker
 
 `ConflictCheckerTest` (planning, Ebene 1) nutzt **dieselben** Konstanten und Fälle wie 10.1 (T-W1.2, T-W2.1, T-W3.1,
-T-W3.2, Raumart, Pause) und erwartet je Fall genau die Konfliktart, die der Verifier bestraft. Ein Fall, den nur eine
+T-W3.2, Raumart, Pause, seit 11.09. Raumsperre H8/`ROOM_BLOCKED_TIME`, #133) und erwartet je Fall genau die Konfliktart, die der Verifier bestraft. Ein Fall, den nur eine
 Seite meldet, ist ein Fehler — in der Doku als „synchron zu halten" benannt (Entwurfsdoku Kap. 5).
 
 ## 11. Was bewusst nicht gebaut wird

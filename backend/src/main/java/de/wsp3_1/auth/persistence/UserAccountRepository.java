@@ -41,6 +41,11 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
             "select u.classId from UserAccount u where u.classId is not null")
     java.util.List<Long> findAllClassIds();
 
+    /** Die Lehrkräfte, die schon ein Konto haben; Grundlage von {@code POST /api/users/teacher-accounts}. */
+    @org.springframework.data.jpa.repository.Query(
+            "select u.teacherId from UserAccount u where u.teacherId is not null")
+    java.util.List<Long> findAllTeacherIds();
+
     /** Konten in fester Reihenfolge, damit die Liste in der Oberflaeche nicht springt. */
     java.util.List<UserAccount> findAllByOrderByUsernameAsc();
 }

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 /**
  * Der Handaufbau ueber die Schnittstelle — Schritt fuer Schritt wie in Abschnitt 1.5 der
@@ -102,6 +103,28 @@ class DraftControllerIT extends PlanningITBase {
         JsonNode afterDelete = call(delete("/api/draft/lessons/" + freitag), 200);
         assertThat(afterDelete.get("conflicts")).isEmpty();
         assertThat(afterDelete.get("lessons")).hasSize(7);
+    }
+
+    @Test
+    @DisplayName("#133: Stunde in der Sperrzeit von R101 — ein Konflikt ROOM_BLOCKED_TIME im Entwurf")
+    void roomBlockedTimeConflictShowsInDraft() throws Exception {
+        Testdaten daten = pflichtenheftGrunddaten();
+        call(put("/api/rooms/" + daten.r101).content("""
+                {"name":"R101","roomType":"Klassenraum","active":true,"blockedTimeslotIds":[%d]}"""
+                .formatted(daten.slot("FR", 6))), 200);
+        planMoDiInEntwurf(daten);
+
+        // 7a Deutsch (Weber, keine Sperrzeit) Freitag 5. Stunde in R101 — nur der Raum ist gesperrt.
+        JsonNode afterAdd = addLesson(daten.klasse7a, daten.deutsch, daten.slot("FR", 6), daten.r101);
+
+        assertThat(afterAdd.get("conflicts")).hasSize(1);
+        JsonNode conflict = afterAdd.get("conflicts").get(0);
+        assertThat(conflict.get("type").asText()).isEqualTo("ROOM_BLOCKED_TIME");
+        assertThat(conflict.get("severity").asText()).isEqualTo("HARD");
+        assertThat(conflict.get("message").asText())
+                .isEqualTo("Raum R101 ist am Freitag in der 5. Stunde gesperrt.");
+        assertThat(conflict.get("objects").get(0).get("kind").asText()).isEqualTo("ROOM");
+        assertThat(conflict.get("objects").get(0).get("label").asText()).isEqualTo("R101");
     }
 
     @Test

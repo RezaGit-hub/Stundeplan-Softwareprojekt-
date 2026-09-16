@@ -22,8 +22,8 @@ import java.util.function.Function;
  * Abnahme-Checkliste.
  *
  * <ul>
- *   <li><b>hard</b>: H1–H5 feste Konflikte (Strafe 1), H6/H7 die Grenzen des Wertebereichs und die
- *       harten Zwillinge R1–R3 des Regelwerks</li>
+ *   <li><b>hard</b>: H1–H5 feste Konflikte (Strafe 1), H6/H7 die Grenzen des Wertebereichs, H8 die
+ *       Sperrzeit eines Raums (#133) und die harten Zwillinge R1–R3 des Regelwerks</li>
  *   <li><b>medium</b>: M1 offene Stunde (Strafe 1)</li>
  *   <li><b>soft</b>: die weichen Zwillinge R1–R3, S1 Wunschzeit (Belohnung 1), S2 Faecherverteilung</li>
  * </ul>
@@ -48,6 +48,7 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         roomTypeMismatch(f),
         movableLessonInBreak(f),
         movableLessonInInactiveRoom(f),
+        roomBlockedTime(f),
         
         // ============================================================
         // REGELWERK – HARTE ZWILLINGE
@@ -156,6 +157,16 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                 .filter(lesson -> !lesson.isPinned() && !lesson.getRoom().active())
                 .penalize(HardMediumSoftScore.ONE_HARD)
                 .asConstraint("movableLessonInInactiveRoom");
+    }
+
+    /** H8: Stunde in einem gesperrten Zeitfenster des Raums (#133) — wie H4, nur ueber den Raum. */
+    public Constraint roomBlockedTime(ConstraintFactory f) {
+        return f.forEach(SolverLesson.class)
+                .join(RoomBlockedTimeFact.class,
+                        Joiners.equal(lesson -> lesson.getRoom().id(), RoomBlockedTimeFact::roomId),
+                        Joiners.equal(lesson -> lesson.getTimeslot().id(), RoomBlockedTimeFact::timeslotId))
+                .penalize(HardMediumSoftScore.ONE_HARD)
+                .asConstraint("roomBlockedTime");
     }
 
     // ---------------------------------------------------------------- offene Stunde

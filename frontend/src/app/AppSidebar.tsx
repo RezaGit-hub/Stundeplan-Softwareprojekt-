@@ -2,7 +2,8 @@
 // „Klassenplan“ plus „Abmelden“ (E-50) — ein Klassenkonto hat sonst nichts zu bedienen.
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'motion/react'
-import { CalendarDays, LogOut, PanelLeftClose } from 'lucide-react'
+import {LogOut, PanelLeftClose } from 'lucide-react'
+import { Logo } from '@/components/Logo'
 import { IS_MOCK } from '@/api/api'
 import { useDraft, useHealth, usePending } from '@/api/hooks'
 import {
@@ -36,9 +37,9 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="print-hide">
       <SidebarHeader className="px-3 pt-3 group-data-[collapsible=icon]:px-2">
         <Link to={homeFor(role)} className="flex items-center gap-2 overflow-hidden rounded-md outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground group-data-[collapsible=icon]:size-8"><CalendarDays className="size-4" /></span>
+          <Logo className="size-7 shrink-0 group-data-[collapsible=icon]:size-8" />
           <span className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <span className="block truncate text-sm font-semibold text-foreground">Stundenplanung</span>
+            <span className="block truncate text-sm font-semibold text-foreground">StundenPlan+</span>
             <span className="block truncate text-xs text-foreground-subtle">{health.data?.schoolName ?? ' '}</span>
           </span>
         </Link>

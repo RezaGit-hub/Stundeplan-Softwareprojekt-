@@ -5,8 +5,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Copy, FilePlus, MousePointerClick, PencilRuler } from 'lucide-react'
-import { useCancelSolve, useClasses, useCreateDraft, useDeleteDraft, useDraft, usePatchDraftLesson, useTimegrid } from '@/api/hooks'
-import type { LessonDto } from '@/api/types'
+import { useCancelSolve, useClasses, useCreateDraft, useDeleteDraft, useDraft, usePatchDraftLesson, useRepairDraft, useRooms, useTimegrid } from '@/api/hooks'
+import type { ConflictDto, LessonDto } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { EmptyState } from '@/components/states/EmptyState'
@@ -27,6 +27,7 @@ import { AddLessonDialog } from '@/components/draft/AddLessonDialog'
 import { DraftBanner } from '@/components/draft/DraftBanner'
 import { LessonDetailPopover } from '@/components/draft/LessonDetailPopover'
 import { OpenLessonsPanel } from '@/components/draft/OpenLessonsPanel'
+import { RepairDialog } from '@/components/draft/RepairDialog'
 import { SolveDialog } from '@/components/draft/SolveDialog'
 import { firstWeekMonday, formatDateTime } from '@/lib/dates'
 import { conflictsByLesson } from '@/lib/conflicts'
@@ -44,10 +45,12 @@ export function DraftPage() {
   const draft = useDraft()
   const timegrid = useTimegrid()
   const classes = useClasses()
+  const rooms = useRooms()
   const create = useCreateDraft()
   const discard = useDeleteDraft()
   const patch = usePatchDraftLesson()
   const cancel = useCancelSolve()
+  const repair = useRepairDraft()
 
   const [solveOpen, setSolveOpen] = useState(aktion === 'berechnen')
   const [acceptOpen, setAcceptOpen] = useState(aktion === 'annehmen')
@@ -55,6 +58,8 @@ export function DraftPage() {
   const [addTarget, setAddTarget] = useState<{ classId: number; timeslotId: number } | null>(null)
   const [detail, setDetail] = useState<{ lesson: LessonDto; anchor: HTMLElement } | null>(null)
   const [moving, setMoving] = useState<number | null>(null)
+  /** Die Konfliktstunde, für die Vorschläge gerechnet werden (#110); null = Dialog zu. */
+  const [repairTarget, setRepairTarget] = useState<number | null>(null)
 
   const [leftEl, setLeftEl] = useState<HTMLDivElement | null>(null)
   const [leftHeight, setLeftHeight] = useState<number>()
@@ -104,6 +109,15 @@ export function DraftPage() {
       await patch.mutateAsync({ id: lessonId, body: { pinned } })
       toast.success(pinned ? 'Stunde festgelegt' : 'Festlegung aufgehoben')
     } catch { /* Toast kam */ }
+  }
+  // Lösen (#110): die Anfrage startet mit dem Klick, nicht erst im Dialog — so rechnet der Server genau einmal.
+  // Bei einer Doppelbelegung wandert bevorzugt die Stunde der gerade gezeigten Klasse.
+  const startRepair = (conflict: ConflictDto) => {
+    const own = view === 'CLASS' && id != null ? conflict.lessonIds.find((lessonId) => d?.lessons.find((l) => l.id === lessonId)?.classId === id) : undefined
+    const lessonId = own ?? conflict.lessonIds[0]
+    if (lessonId == null) return
+    setRepairTarget(lessonId)
+    repair.mutate({ lessonId })
   }
   const createDraft = async (source: 'EMPTY' | 'COPY_ACTIVE') => {
     try {
@@ -209,10 +223,22 @@ export function DraftPage() {
             onPick={(classId) => set({ sicht: 'CLASS', id: String(classId) })}
             className="min-h-0 flex-1"
           />
-          <ConflictList conflicts={d.conflicts} onJump={jump} />
+          <ConflictList conflicts={d.conflicts} onJump={jump} onRepair={editing ? startRepair : undefined} />
         </aside>
       </div>
 
+      {repairTarget != null && (
+        <RepairDialog
+          open
+          onOpenChange={(o) => { if (!o) { setRepairTarget(null); repair.reset() } }}
+          pending={repair.isPending}
+          failed={repair.isError}
+          proposals={repair.data?.proposals ?? null}
+          lessons={d.lessons}
+          slots={timegrid.data.slots}
+          rooms={rooms.data ?? []}
+        />
+      )}
       {addTarget && <AddLessonDialog open classId={addTarget.classId} timeslotId={addTarget.timeslotId} suggestedSubjectId={suggestedSubjectId} onOpenChange={(o) => !o && setAddTarget(null)} />}
       <LessonDetailPopover
         lesson={detail?.lesson ?? null}

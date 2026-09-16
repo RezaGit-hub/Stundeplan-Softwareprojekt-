@@ -85,7 +85,9 @@ export const httpApi: Api = {
   listUsers: () => request('GET', '/users'),
   createUser: (body) => request('POST', '/users', { body }),
   createClassAccounts: () => request('POST', '/users/class-accounts', { body: {} }),
+  createTeacherAccounts: () => request('POST', '/users/teacher-accounts', { body: {} }),
   setUserPassword: (id, body) => request('PUT', `/users/${id}/password`, { body }),
+deleteUser: (id) => request('DELETE', `/users/${id}`),
 
   listTeachers: () => request('GET', '/teachers'),
   getTeacher: (id) => request('GET', `/teachers/${id}`),
@@ -139,6 +141,7 @@ export const httpApi: Api = {
   startSolve: (body) => request('POST', '/draft/solve', { body: body ?? {} }),
   cancelSolve: () => request('DELETE', '/draft/solve'),
   acceptDraft: (body) => request('POST', '/draft/accept', { body: body ?? {} }),
+  repairDraft: (body) => request('POST', '/draft/repair', { body }),
 
   listEvents: (q) => request('GET', '/events', { query: q }),
   createEvent: (body) => request('POST', '/events', { body }),

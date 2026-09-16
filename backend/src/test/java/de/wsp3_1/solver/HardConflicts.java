@@ -9,8 +9,9 @@ import java.util.Set;
 
 /**
  * Zaehlt harte Verstoesse in einem {@link SolveResult} unabhaengig vom Solver — mit Mengen statt
- * Constraint Streams, damit der Test nicht dasselbe prueft, was er pruefen soll. Deckt H1–H5 ab
- * (Doppelbelegung Raum/Lehrkraft/Klasse, Sperrzeit, Raumart) plus die Invariante „belegt oder offen".
+ * Constraint Streams, damit der Test nicht dasselbe prueft, was er pruefen soll. Deckt H1–H5 und H8 ab
+ * (Doppelbelegung Raum/Lehrkraft/Klasse, Sperrzeit, Raumart, Raumsperre) plus die Invariante
+ * „belegt oder offen".
  */
 final class HardConflicts {
 
@@ -29,6 +30,10 @@ final class HardConflicts {
         Set<String> blocked = new HashSet<>();
         for (BlockedTimeFact fact : input.blockedTimes()) {
             blocked.add(fact.teacherId() + "@" + fact.timeslotId());
+        }
+        Set<String> roomBlocked = new HashSet<>();
+        for (RoomBlockedTimeFact fact : input.roomBlockedTimes()) {
+            roomBlocked.add(fact.roomId() + "@" + fact.timeslotId());
         }
 
         List<String> problems = new ArrayList<>();
@@ -56,6 +61,9 @@ final class HardConflicts {
             }
             if (blocked.contains(lesson.teacherId() + "@" + slot)) {
                 problems.add("Lehrkraft " + lesson.teacherId() + " in gesperrtem Zeitfenster " + slot);
+            }
+            if (roomBlocked.contains(placement.roomId() + "@" + slot)) {
+                problems.add("Raum " + placement.roomId() + " in gesperrtem Zeitfenster " + slot);
             }
             String roomType = roomById.get(placement.roomId()).roomType();
             if (lesson.requiredRoomType() != null && !lesson.requiredRoomType().equals(roomType)) {
