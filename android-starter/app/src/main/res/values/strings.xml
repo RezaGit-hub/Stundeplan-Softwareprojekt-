@@ -76,7 +76,7 @@
 
     <!-- Fehler -->
     <string name="error_unreachable_no_cache">Server nicht erreichbar und kein gespeicherter Stand.</string>
-    <string name="error_not_teacher">Dieses Konto ist keiner Lehrkraft zugeordnet. Bitte mit einem Lehrkraft-Konto anmelden.</string>
+    <string name="error_not_teacher">Dieses Konto ist der Planung zugeordnet. Bitte mit einem geeignetem Konto anmelden.</string>
     <string name="error_server">Der Server meldet: %1$s</string>
     <string name="error_server_generic">Der Server hat einen Fehler gemeldet. Bitte später erneut versuchen.</string>
     <string name="error_retry">Erneut versuchen</string>
