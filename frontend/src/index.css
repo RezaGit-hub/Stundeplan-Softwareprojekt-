@@ -387,6 +387,18 @@ body { background: var(--background); color: var(--foreground); color-scheme: li
 }
 .tour-ziel { animation: tour-puls 1.6s cubic-bezier(.4, 0, .6, 1) infinite; }
 
+/* Ein fertig ausgefuelltes Feld leuchtet kurz gruen auf — damit sichtbar ist, dass diese Eingabe steht
+   und der Rundgang zur naechsten weitergeht. */
+@keyframes tour-feld-fertig {
+  0%   { box-shadow: 0 0 0 0 var(--success); }
+  40%  { box-shadow: 0 0 0 4px var(--success-soft); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.tour-feld-fertig {
+  animation: tour-feld-fertig .5s ease-out;
+  border-color: var(--success) !important;
+}
+
 /* Pfeil neben dem Ziel: wippt darauf zu und wieder zurueck. Ohne Bewegung (Systemeinstellung) steht er
    still — die Regel weiter unten setzt jede Animationsdauer auf null. */
 @keyframes tour-wippe-quer { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-7px); } }

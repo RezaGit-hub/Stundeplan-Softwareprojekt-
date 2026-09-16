@@ -179,6 +179,7 @@ export function TourOverlay() {
   const [tippt, setTippt] = useState(false)
   const [getippt, setGetippt] = useState(false)
   const [aktuelleAktion, setAktuelleAktion] = useState<string | null>(null)
+  const [feldIndex, setFeldIndex] = useState(0)
   const panel = useRef<HTMLDivElement>(null)
 
   const current = TOUR_STEPS[step]
@@ -190,7 +191,11 @@ export function TourOverlay() {
   // dorthin: Ziel ist dann der Eintrag der Seitenleiste, nicht der Knopf, den es hier gar nicht gibt.
   const hinfuehren = !!current.route && location.pathname !== current.route && current.weiter !== 'route'
   // Waehrend des Schreibens zeigt der Rundgang auf das Feld, danach auf „Speichern".
-  const feldZiel = current.vorbereiten && !getippt ? current.vorbereiten[0] : null
+  // Beim Ausfuellen wandert die Hervorhebung mit: immer auf das Feld, das gerade geschrieben wird.
+  const feldZiel = current.vorbereiten && !getippt ? current.vorbereiten[Math.min(feldIndex, current.vorbereiten.length - 1)] : null
+  // Ein reiner Erklaerschritt hat nichts auf der Seite zum Anklicken — dann auch nichts hervorheben und
+  // nichts verdunkeln. Sonst leuchtet ein Knopf, bei dem ein Klick gar nichts bewirkt.
+  const nurLesen = current.weiter === 'lesen'
   const ziel = useMemo(
     () => (hinfuehren ? ({ css: `a[href="${current.route}"]` } as const)
       : feldZiel ? ({ css: feldZiel.css } as const)
@@ -199,7 +204,7 @@ export function TourOverlay() {
   )
   // Im Dialog nur suchen, solange der Schritt nicht ohnehin erst zur Seite fuehrt.
   const imDialog = !!current.imDialog && !hinfuehren
-  const rect = useZielRect(ziel, sichtbar, imDialog)
+  const rect = useZielRect(ziel, sichtbar && !nurLesen, imDialog)
 
   const beenden = useCallback(() => {
     setGeschlossen(true)
@@ -218,6 +223,7 @@ export function TourOverlay() {
       setTippt(false)
       setGetippt(false)
       setAktuelleAktion(null)
+      setFeldIndex(0)
       setGeschlossen(false)
     }
     vorherFertig.current = jetzt
@@ -229,6 +235,7 @@ export function TourOverlay() {
     setTippt(false)
     setGetippt(false)
     setAktuelleAktion(null)
+    setFeldIndex(0)
   }, [])
 
   /**
@@ -296,11 +303,18 @@ export function TourOverlay() {
       await pause(420)   // Dialog oder Seite baut sich gerade erst auf
       if (abbruch || !document.querySelector(schritte[0].css)) return
       setTippt(true)
-      for (const a of schritte) {
+      for (let i = 0; i < schritte.length; i++) {
         if (abbruch) return
+        const a = schritte[i]
+        setFeldIndex(i)
         setAktuelleAktion(a.was)
+        await pause(260)             // kurz auf das Feld zeigen, bevor geschrieben wird
         await fuehreAus(a, () => abbruch)
-        await pause(160)
+        // Kurzes gruenes Aufleuchten: „dieses Feld ist fertig".
+        const el = document.querySelector<HTMLElement>(a.css)
+        el?.classList.add('tour-feld-fertig')
+        await pause(520)
+        el?.classList.remove('tour-feld-fertig')
       }
       if (abbruch) return
       setTippt(false)
@@ -312,21 +326,21 @@ export function TourOverlay() {
 
   // Ziel ins Bild holen, sonst zeigt der Rundgang auf etwas, das ausserhalb des Fensters liegt.
   useEffect(() => {
-    if (!sichtbar) return
+    if (!sichtbar || nurLesen) return
     zielFinden(ziel, imDialog)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [sichtbar, ziel, imDialog])
+  }, [sichtbar, nurLesen, ziel, imDialog])
 
   // Das Ziel selbst faerben: violett und pulsierend, genau auf seiner eigenen Flaeche. Die Klasse sitzt am
   // echten Bedienelement und verschwindet mit dem Schritt — nichts bleibt zurueck, auch nicht beim Abbruch.
   const [rundung, setRundung] = useState<string | null>(null)
   useEffect(() => {
-    if (!sichtbar) { setRundung(null); return }
+    if (!sichtbar || nurLesen) { setRundung(null); return }
     const el = zielFinden(ziel, imDialog)
     if (!el) { setRundung(null); return }
     el.classList.add('tour-ziel-aktiv')
     setRundung(getComputedStyle(el).borderRadius || null)
     return () => el.classList.remove('tour-ziel-aktiv')
-  }, [sichtbar, ziel, imDialog, rect])
+  }, [sichtbar, nurLesen, ziel, imDialog, rect])
 
   // Escape beendet immer, solange der Rundgang steht — auch dann, wenn ein fremder Dialog die Maus abfaengt.
   useEffect(() => {
@@ -368,8 +382,13 @@ export function TourOverlay() {
   const eckenRadius = Number.parseFloat(rundung ?? '') || LOCH_RUNDUNG
   // Waehrend der Rundgang selbst schreibt, darf die Seite nicht gesperrt sein — sonst faengt die Sperre die
   // Eingabe ab. Die Sperre kommt zurueck, sobald auf „Speichern" gezeigt wird.
-  const sperren = loch !== null && !tippt
+  const sperren = loch !== null && !tippt && !nurLesen
   const pfeilQuer = !!loch && window.innerWidth - (loch.left + loch.width) > PFEIL_PLATZ
+
+  // Steht ein Dialog der Anwendung offen, weicht das Erklaerfenster ihm aus: daneben, wo Platz ist.
+  const dialogRect = typeof document !== 'undefined'
+    ? document.querySelector('[role="dialog"]:not([aria-label="Rundgang"]), [role="alertdialog"]')?.getBoundingClientRect() ?? null
+    : null
 
   // Erklaerfenster unter das Ziel, sonst darueber, sonst unten rechts.
   const platzUnten = loch ? window.innerHeight - (loch.top + loch.height) : 0
@@ -378,11 +397,20 @@ export function TourOverlay() {
   const lage: 'unten' | 'oben' | 'ecke' = loch && Math.max(platzUnten, platzOben) > PANEL_PLATZ
     ? (platzUnten > PANEL_PLATZ ? 'unten' : 'oben')
     : 'ecke'
-  const panelStil: CSSProperties = loch && lage === 'unten'
+  // Neben dem Dialog: rechts, wenn dort Platz ist, sonst links; senkrecht an seiner Oberkante ausgerichtet.
+  const nebenDialog: CSSProperties | null = dialogRect && (dialogRect.width > 0)
+    ? (window.innerWidth - dialogRect.right > PANEL_BREITE + 2 * RAND
+      ? { top: Math.max(RAND, dialogRect.top), left: dialogRect.right + RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' }
+      : dialogRect.left > PANEL_BREITE + 2 * RAND
+        ? { top: Math.max(RAND, dialogRect.top), left: dialogRect.left - PANEL_BREITE - RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' }
+        : { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' })
+    : null
+
+  const panelStil: CSSProperties = nebenDialog ?? (loch && lage === 'unten'
     ? { top: loch.top + loch.height + 28, left: links, maxHeight: platzUnten - 2 * RAND, overflowY: 'auto' }
     : loch && lage === 'oben'
       ? { bottom: window.innerHeight - loch.top + 28, left: links, maxHeight: platzOben - 2 * RAND, overflowY: 'auto' }
-      : { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' }
+      : { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' })
   const zipfelLinks = loch ? Math.max(14, Math.min(loch.left + loch.width / 2 - links - 6, PANEL_BREITE - 26)) : 0
   // Solange nach dem Ziel gesucht wird, bleibt das Fenster durchsichtig statt kurz in der Ecke aufzublitzen.
   const sucht = loch === null && suchtNoch
@@ -431,7 +459,7 @@ export function TourOverlay() {
         className="print-hide fixed z-[100] w-[22rem] max-w-[calc(100%-2rem)] rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10"
         style={{ ...panelStil, pointerEvents: 'auto', opacity: sucht ? 0 : 1 }}
       >
-        {lage !== 'ecke' && (
+        {lage !== 'ecke' && !nebenDialog && (
           <span
             aria-hidden
             className="absolute size-3 rotate-45 bg-popover ring-1 ring-foreground/10"
@@ -473,7 +501,7 @@ export function TourOverlay() {
               ? <Button size="sm" onClick={beenden}>Fertig</Button>
               : current.weiter === 'lesen'
                 // Reine Erklaerschritte haben nichts zum Anklicken auf der Seite — hier fuehrt „Weiter" weiter.
-                ? <Button size="sm" onClick={() => geheZu(step + 1)}>Weiter</Button>
+                ? <Button size="sm" className="tour-ziel" onClick={() => geheZu(step + 1)}>Weiter</Button>
                 : <Button variant="ghost" size="sm" className="text-foreground-subtle" onClick={() => geheZu(naechsteSeite())}>Überspringen</Button>}
           </div>
         </div>
