@@ -16,7 +16,7 @@ export function applyScenario(s: Store): void {
   if (!meyer || !schulz || !r101 || !r204 || !c9) return
 
   // Entwurf: Kopie + 9c Ma Mo 1. in R101 (T-W3.1: Raumkonflikt mit 7a)
-  const draft = newTimetable('DRAFT', nowIso())
+  const draft = newTimetable('DRAFT', nowIso(), { name: 'Entwurf 1', source: 'COPY_ACTIVE' })
   draft.lessons = active.lessons.map((l) => ({ ...l, id: nextId(), timetableId: draft.id, pinned: true }))
   const row = c9.subjects[0]
   if (row) draft.lessons.push({ id: nextId(), timetableId: draft.id, classId: c9.id, subjectId: row.subjectId, teacherId: row.teacherId, timeslotId: slotId(s.timeslots, 'MO', 1), roomId: r101.id, pinned: true })

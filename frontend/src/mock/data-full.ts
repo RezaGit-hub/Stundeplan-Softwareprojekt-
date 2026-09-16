@@ -1,5 +1,6 @@
 // Datensatz FULL: 12 Klassen / 24 Lehrkräfte / 18 Räume, deterministisch (fester Seed), aktiver Plan aus dem Mock-Solver.
-import { nowIso } from '@/lib/today'
+import { nowIso, today } from '@/lib/today'
+import { addDaysIso } from '@/lib/dates'
 import { SUBJECT_COLORS } from '@/lib/subject-colors'
 import { clearStore, defaultRules, defaultTimeslots, newTimetable, nextId, store, type MockClass, type MockTeacher, type Store } from './store'
 import { placeLessons } from './logic/solver'
@@ -88,8 +89,11 @@ export function loadFull(s: Store = store): void {
   s.holidays = [{ id: 1, name: 'Herbstferien', dateFrom: '2026-10-19', dateTo: '2026-10-31', kind: 'VACATION' }]
 
   // Aktiver Plan: alle Stunden als offene Zeilen, dann Mock-Solver synchron; nichts festgelegt
-  const active = newTimetable('ACTIVE', nowIso())
-  active.acceptedAt = active.createdAt
+  const active = newTimetable('ACTIVE', nowIso(), { name: 'Erster Plan' })
+  // Angenommen vor zwei Monaten: ein Plan gilt ab dem Tag seiner Annahme (PlanReader.startOf), ein heute
+  // angenommener zeigt in der laufenden Woche also nichts. Der Beispielbestand soll in jeder Woche einen
+  // Plan haben, deshalb liegt die Annahme bewusst zurück.
+  active.acceptedAt = `${addDaysIso(today(), -60)}T08:00:00.000Z`
   for (const c of s.classes) for (const row of c.subjects) for (let k = 0; k < row.weeklyHours; k += 1) {
     active.lessons.push({ id: nextId(), timetableId: active.id, classId: c.id, subjectId: row.subjectId, teacherId: row.teacherId, timeslotId: null, roomId: null, pinned: false })
   }

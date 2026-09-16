@@ -1,9 +1,11 @@
 // In-Memory-Zustand der Attrappe. Keine Persistenz: Neuladen = Ausgangszustand (VITE_MOCK_DATASET).
 // Interne Datensätze sind schlanker als die DTOs (z. B. Klasse ohne Warnungen) — die DTOs baut mock-api.ts.
 import type {
-  ChangelogItem, ConfigDto, DraftStatus, EventKind, ExceptionKind, HolidayDto, Role, RuleDto, RuleType, SolveInfo,
+  ChangelogItem, ConfigDto, DraftSource, DraftStatus, EventKind, ExceptionKind, HolidayDto, Role, RuleDto, RuleType, SolveInfo,
   SubjectDto, RoomDto, TimeslotDto, ExtraLessonInput,
 } from '@/api/types'
+import { planValidFrom } from '@/lib/dates'
+import { today } from '@/lib/today'
 import { RULE_PRESETS } from './rule-presets'
 
 export interface MockTeacher {
@@ -36,10 +38,18 @@ export interface MockLesson {
 export interface MockTimetable {
   id: number
   status: TimetableStatus
+  /** Name des Entwurfs (#103); angenommene Pläne tragen ihn weiter, gezeigt wird er nur am Entwurf */
+  name: string
+  /** Woraus der Entwurf entstanden ist (#103) — nur für die Entwurfsliste */
+  source: DraftSource
   createdAt: string
   acceptedAt: string | null
-  /** Kann (E-40): Plan gilt erst ab diesem Datum; bis dahin gilt der zuletzt archivierte */
+  /** Kann (E-40): Plan gilt erst ab diesem Datum; bis dahin gilt der Vorgänger */
   validFrom: string | null
+  /** Kann (#115): Plan gilt bis zu diesem Tag einschließlich; null = unbegrenzt */
+  validUntil: string | null
+  /** In der Ablage (#116): der Entwurf ist eingefroren, bis ihn jemand wieder öffnet */
+  finished: boolean
   draftStatus: DraftStatus
   solve: SolveInfo
   lessons: MockLesson[]
@@ -92,7 +102,8 @@ export interface Store {
   holidays: HolidayDto[]
   /** token → userId */
   tokens: Map<string, number>
-  solveTimer: ReturnType<typeof setTimeout> | null
+  /** Ein laufender Solver je Entwurf (#103): Entwurfskennung → Zeitgeber */
+  solveTimers: Map<number, ReturnType<typeof setTimeout>>
 }
 
 /** Vorbelegtes Bundesland der Systemkonfiguration (E-37, wie system_config in V2) */
@@ -110,7 +121,7 @@ export function emptyStore(): Store {
     teachers: [], subjects: [], rooms: [], classes: [], timeslots: [], rules: [],
     config: { schoolName: '', state: DEFAULT_STATE, schoolType: 'GYMNASIUM', maxSolveSeconds: 60 },
     users: [], timetables: [], events: [], exceptions: [], changelog: [], holidays: [],
-    tokens: new Map(), solveTimer: null,
+    tokens: new Map(), solveTimers: new Map(),
   }
 }
 
@@ -118,15 +129,47 @@ export function emptyStore(): Store {
 export const store: Store = emptyStore()
 
 export function clearStore(s: Store = store): void {
-  if (s.solveTimer) clearTimeout(s.solveTimer)
+  for (const timer of s.solveTimers.values()) clearTimeout(timer)
   Object.assign(s, emptyStore(), { tokens: s.tokens })
 }
 
-export function activeTimetable(s: Store = store): MockTimetable | undefined {
-  return s.timetables.find((t) => t.status === 'ACTIVE')
+/**
+ * Ab welchem Kalendertag ein angenommener Plan gilt: sein Stichtag, sonst der Tag der Annahme
+ * (Europe/Berlin) — wie `PlanReader.startOf` im Server.
+ */
+export function planStart(t: MockTimetable): string {
+  return t.validFrom ?? (t.acceptedAt ? planValidFrom(t.acceptedAt) : t.createdAt.slice(0, 10))
 }
+
+/** Gilt dieser Plan an diesem Kalendertag? */
+export function planCovers(t: MockTimetable, dateIso: string): boolean {
+  return planStart(t) <= dateIso && (t.validUntil == null || dateIso <= t.validUntil)
+}
+
+/** Alle angenommenen Pläne, Beginn aufsteigend (#115). Ihre Zeiträume überschneiden sich nie. */
+export function activePlans(s: Store = store): MockTimetable[] {
+  return s.timetables
+    .filter((t) => t.status === 'ACTIVE')
+    .sort((a, b) => planStart(a).localeCompare(planStart(b)) || a.id - b.id)
+}
+
+/**
+ * „Der aktive Plan" (GET /api/timetable): der angenommene Plan, der heute gilt; sonst der mit dem
+ * nächsten künftigen Beginn; sonst keiner. Seit #115 darf es mehrere geben.
+ */
+export function activeTimetable(s: Store = store): MockTimetable | undefined {
+  const heute = today()
+  const plans = activePlans(s)
+  return plans.find((t) => planCovers(t, heute)) ?? plans.find((t) => planStart(t) > heute)
+}
+
+/** Alle Entwürfe, jüngster zuerst (#103). */
+export function draftTimetables(s: Store = store): MockTimetable[] {
+  return s.timetables.filter((t) => t.status === 'DRAFT').sort((a, b) => b.id - a.id)
+}
+/** Der jüngste Entwurf — was die Singular-Pfade `/api/draft…` im Vertrag meinen. */
 export function draftTimetable(s: Store = store): MockTimetable | undefined {
-  return s.timetables.find((t) => t.status === 'DRAFT')
+  return draftTimetables(s)[0]
 }
 export function findLesson(id: number, s: Store = store): MockLesson | undefined {
   for (const t of s.timetables) {
@@ -136,10 +179,20 @@ export function findLesson(id: number, s: Store = store): MockLesson | undefined
   return undefined
 }
 
-export function newTimetable(status: TimetableStatus, createdAt: string): MockTimetable {
+export function newTimetable(status: TimetableStatus, createdAt: string, opts: { name?: string; source?: DraftSource } = {}): MockTimetable {
   return {
-    id: nextId(), status, createdAt, acceptedAt: null, validFrom: null, draftStatus: 'EDITING',
+    id: nextId(), status, name: opts.name ?? 'Entwurf 1', source: opts.source ?? 'EMPTY',
+    createdAt, acceptedAt: null, validFrom: null, validUntil: null, finished: false, draftStatus: 'EDITING',
     solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }, lessons: [],
+  }
+}
+
+/** „Entwurf n" mit der ersten freien Nummer — wie der Server, wenn kein Name gesendet wird (#103). */
+export function nextDraftName(s: Store = store): string {
+  const genommen = new Set(s.timetables.map((t) => t.name))
+  for (let n = 1; ; n += 1) {
+    const name = `Entwurf ${n}`
+    if (!genommen.has(name)) return name
   }
 }
 
