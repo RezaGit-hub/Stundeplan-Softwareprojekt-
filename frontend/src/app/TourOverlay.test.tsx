@@ -21,12 +21,24 @@ import { TOUR_STEPS } from './tour-steps'
 /** Die Attrappe antwortet ohne Kunstlatenz; ein kurzer Tick reicht, damit /me durch ist. */
 const abwarten = () => act(() => new Promise<void>((r) => setTimeout(r, 30)))
 
-const ERSTER = TOUR_STEPS[0]
+// Der Rundgang beginnt mit Erklaerschritten auf der Übersicht; geprüft wird der erste Schritt, der eine
+// Seite öffnet, und der erste, der einen Klick verlangt.
+const NAVI = TOUR_STEPS.findIndex((s) => s.weiter === 'route')
+const ERSTER = TOUR_STEPS[NAVI]
 const KLICKSCHRITT = TOUR_STEPS.findIndex((s) => s.weiter === 'klick')
 /** „Überspringen" laesst das ganze Thema aus: der naechste Schritt auf einer anderen Seite. */
-const NAECHSTE_SEITE = TOUR_STEPS.findIndex((s) => s.route !== ERSTER.route)
+const NAECHSTE_SEITE = TOUR_STEPS.findIndex((s, i) => i > NAVI && s.route !== ERSTER.route)
 
 /** Klickt sich bis zum letzten Schritt durch, egal ob „Weiter" oder „Überspringen" dasteht. */
+/** Klickt die Erklärschritte des Auftakts weg, bis der erste Schritt mit Seitenwechsel dran ist. */
+async function bisZumNavigationsschritt(nutzer: ReturnType<typeof userEvent.setup>) {
+  for (let i = 0; i < NAVI; i++) {
+    const knopf = screen.queryByRole('button', { name: 'Weiter' })
+    if (!knopf) return
+    await nutzer.click(knopf)
+  }
+}
+
 async function bisZumEnde(nutzer: ReturnType<typeof userEvent.setup>) {
   for (let i = 0; i < TOUR_STEPS.length; i++) {
     const knopf = screen.queryByRole('button', { name: 'Überspringen' })
@@ -42,14 +54,15 @@ describe('TourOverlay (#139)', () => {
     await renderPage(<TourOverlay />, { store })
 
     expect(await screen.findByRole('dialog', { name: 'Rundgang' })).toBeTruthy()
+    await bisZumNavigationsschritt(nutzer)
     expect(screen.getByRole('heading', { name: ERSTER.title })).toBeTruthy()
-    expect(screen.getByText(`Schritt 1 von ${TOUR_STEPS.length}`)).toBeTruthy()
+    expect(screen.getByText(`Schritt ${NAVI + 1} von ${TOUR_STEPS.length}`)).toBeTruthy()
     // Anleitung statt Ergebnis, solange die Zielseite nicht offen ist.
     expect(screen.getByText(ERSTER.action)).toBeTruthy()
 
     // „Überspringen" laesst nicht nur diesen Schritt aus, sondern alles zu dieser Seite.
     await nutzer.click(screen.getByRole('button', { name: 'Überspringen' }))
-    expect(screen.getByRole('heading', { name: TOUR_STEPS[NAECHSTE_SEITE].title })).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('heading', { name: TOUR_STEPS[NAECHSTE_SEITE].title })).toBeTruthy(), { timeout: 8000 })
 
     await nutzer.click(screen.getByRole('button', { name: 'Beenden' }))
 
@@ -58,14 +71,16 @@ describe('TourOverlay (#139)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Rundgang' })).toBeNull())
   })
 
-  it('ein Navigationsschritt schaltet nach kurzer Lesezeit von allein weiter', { timeout: 20_000 }, async () => {
+  it('ein Navigationsschritt schaltet von allein weiter, sobald seine Seite offen ist', { timeout: 20_000 }, async () => {
+    const nutzer = userEvent.setup()
     await renderPage(<TourOverlay />, { route: ERSTER.route })
     await screen.findByRole('dialog', { name: 'Rundgang' })
+    await bisZumNavigationsschritt(nutzer)
 
     // Keinen „Weiter"-Knopf gibt es mehr: Der Rundgang merkt selbst, dass die Seite offen ist.
     expect(screen.queryByRole('button', { name: 'Weiter' })).toBeNull()
     await waitFor(
-      () => expect(screen.getByRole('heading', { name: TOUR_STEPS[1].title })).toBeTruthy(),
+      () => expect(screen.getByRole('heading', { name: TOUR_STEPS[NAVI + 1].title })).toBeTruthy(),
       { timeout: 8000 },
     )
   })
@@ -83,6 +98,7 @@ describe('TourOverlay (#139)', () => {
       { route: schritt.route },
     )
     await screen.findByRole('dialog', { name: 'Rundgang' })
+    await bisZumNavigationsschritt(nutzer)
     await waitFor(() => expect(screen.getByRole('heading', { name: schritt.title })).toBeTruthy(), { timeout: 8000 })
 
     await nutzer.click(screen.getByRole('button', { name: schritt.target.text! }))
@@ -98,6 +114,7 @@ describe('TourOverlay (#139)', () => {
     await renderPage(<TourOverlay />, { store })
     await screen.findByRole('dialog', { name: 'Rundgang' })
 
+    await bisZumNavigationsschritt(nutzer)
     await bisZumEnde(nutzer)
     expect(screen.getByRole('heading', { name: TOUR_STEPS[TOUR_STEPS.length - 1].title })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Überspringen' })).toBeNull()

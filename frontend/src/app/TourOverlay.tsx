@@ -464,11 +464,17 @@ export function TourOverlay() {
 
         <div className="mt-4 flex items-center justify-between gap-2">
           <Button variant="ghost" size="sm" onClick={beenden}>Beenden</Button>
+          {current.weiter === 'lesen' && !letzter && (
+            <Button variant="ghost" size="sm" className="mr-auto text-foreground-subtle" onClick={() => geheZu(naechsteSeite())}>Überspringen</Button>
+          )}
           <div className="flex gap-2">
             {step > 0 && <Button variant="outline" size="sm" onClick={() => geheZu(step - 1)}>Zurück</Button>}
             {letzter
               ? <Button size="sm" onClick={beenden}>Fertig</Button>
-              : <Button variant="ghost" size="sm" className="text-foreground-subtle" onClick={() => geheZu(naechsteSeite())}>Überspringen</Button>}
+              : current.weiter === 'lesen'
+                // Reine Erklaerschritte haben nichts zum Anklicken auf der Seite — hier fuehrt „Weiter" weiter.
+                ? <Button size="sm" onClick={() => geheZu(step + 1)}>Weiter</Button>
+                : <Button variant="ghost" size="sm" className="text-foreground-subtle" onClick={() => geheZu(naechsteSeite())}>Überspringen</Button>}
           </div>
         </div>
       </div>

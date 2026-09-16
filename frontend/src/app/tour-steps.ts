@@ -47,7 +47,18 @@ function seite(title: string, text: string, route: string, action: string): Tour
   return { title, text, target: { css: `a[href="${route}"]` }, route, weiter: 'route', action }
 }
 
+/** Kuerzel fuer einen Schritt, der nur erklaert — weiter geht es mit dem Knopf im Erklaerfenster. */
+function erklaeren(title: string, text: string, route: string, action: string, ziel = `a[href="${route}"]`): TourStep {
+  return { title, text, target: { css: ziel }, route, weiter: 'lesen', action }
+}
+
 export const TOUR_STEPS: TourStep[] = [
+  // ---------------------------------------------------------------- Auftakt
+  erklaeren('Willkommen', 'Dieser Rundgang zeigt den ganzen Weg: Grunddaten anlegen, Regeln setzen, einen Plan rechnen lassen, ihn annehmen und Vertretungen erfassen. Er dauert ein paar Minuten und lässt sich jederzeit beenden.',
+    '/', 'Die Übersicht fasst zusammen, was gerade im System steht.'),
+  erklaeren('Die Übersicht', 'Hier stehen die Kennzahlen des Systems: wie viele Lehrkräfte, Klassen und Räume es gibt, ob ein Entwurf offen ist und ob ein aktiver Plan läuft. Von hier führt jede Kachel auf die passende Seite.',
+    '/', 'Schauen Sie sich die Kacheln an — weiter geht es mit dem Knopf unten.'),
+
   // ---------------------------------------------------------------- Grunddaten
   seite('Lehrkräfte', 'Alles beginnt bei den Grunddaten. Lehrkräfte zuerst: Sie tragen Fächer, Wochenstunden und Sperrzeiten.',
     '/grunddaten/lehrkraefte', 'Öffnen Sie die Lehrkräfte.'),
@@ -212,6 +223,12 @@ export const TOUR_STEPS: TourStep[] = [
     action: 'Bestätigen Sie mit „Annehmen".',
   },
 
+  // ---------------------------------------------------------------- Aktiver Plan
+  seite('Aktiver Plan', 'Der angenommene Entwurf liegt jetzt als aktiver Plan vor — das ist der Plan, den alle anderen sehen.',
+    '/plan', 'Öffnen Sie den aktiven Plan.'),
+  erklaeren('Der aktive Plan', 'Drei Sichten auf dieselben Daten: die ganze Schule, eine Klasse oder eine Lehrkraft. Gedruckt wird aus dieser Ansicht; geändert wird hier nichts — Änderungen laufen über Entwurf oder Vertretung.',
+    '/plan', 'Probieren Sie später die Sichten oben aus.'),
+
   // ---------------------------------------------------------------- Vertretung
   seite('Vertretung', 'Fällt jemand aus, wird der Plan nicht neu gerechnet. Stattdessen legt sich eine datierte Ausnahme über den Regelplan.',
     '/vertretung', 'Öffnen Sie die Vertretung.'),
@@ -226,6 +243,16 @@ export const TOUR_STEPS: TourStep[] = [
       { art: 'tippen', css: '#ev-reason', wert: 'Fortbildung', was: 'Anlass' },
     ],
   },
+  seite('Änderungsverlauf', 'Jede Umplanung wird mitgeschrieben: wer wann was aus welchem Anlass geändert hat.',
+    '/verlauf', 'Öffnen Sie den Änderungsverlauf.'),
+  erklaeren('Der Änderungsverlauf', 'Die Liste lässt sich nach Zeitraum, Klasse und Lehrkraft filtern. Einträge verschwinden nie — auch dann nicht, wenn die Stunde später wieder zurückgeplant wird.',
+    '/verlauf', 'Sehen Sie sich die Filter an.'),
+
+  seite('Einstellungen', 'Zum Schluss die Systemseite: Schulname, Bundesland, Rechenzeit des Solvers, Konten und unterrichtsfreie Zeiträume.',
+    '/einstellungen', 'Öffnen Sie die Einstellungen.'),
+  erklaeren('Die Einstellungen', 'Hier liegen auch die Beispieldaten und die Konten für Lehrkräfte und Klassen. Und ganz unten: „Rundgang erneut zeigen" — damit startet diese Führung jederzeit wieder von vorn.',
+    '/einstellungen', 'Merken Sie sich den Knopf „Rundgang erneut zeigen".'),
+
   {
     title: 'Geschafft',
     text: 'Das war der Weg von den Grunddaten bis zur Vertretung. Jede Entscheidung landet im Änderungsverlauf: wer wann was aus welchem Anlass umgeplant hat. Den Rundgang können Sie in den Einstellungen jederzeit neu starten.',
