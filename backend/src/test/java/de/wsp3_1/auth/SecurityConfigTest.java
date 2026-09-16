@@ -179,6 +179,15 @@ class SecurityConfigTest {
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("urn:pushnpull:problem:forbidden"));
+
+        // Die Planliste (#115) faellt unter dieselbe Regel „alles Uebrige ist Planungssache" —
+        // es gibt dafuer keine eigene Zeile in SecurityConfig, und genau das wird hier gemessen.
+        mvc.perform(get("/api/timetables").header(HttpHeaders.AUTHORIZATION, "Bearer " + STUDENT_TOKEN))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("urn:pushnpull:problem:forbidden"));
+        mvc.perform(get("/api/timetables/1").header(HttpHeaders.AUTHORIZATION, "Bearer " + STUDENT_TOKEN))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("urn:pushnpull:problem:forbidden"));
     }
 
     @Test

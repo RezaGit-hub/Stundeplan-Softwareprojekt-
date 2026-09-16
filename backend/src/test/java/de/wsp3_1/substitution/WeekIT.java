@@ -190,6 +190,31 @@ class WeekIT extends PlanningITBase {
         assertThat(entriesOf(week, 4)).as("Freitag gilt Plan C mit seiner Freitagsstunde").hasSize(1);
     }
 
+    /**
+     * Das Gegenstueck zum Beginn (#115): ein Plan mit Enddatum gilt am letzten Tag noch und danach
+     * nicht mehr. Steht kein Nachfolger bereit, bleibt die Woche leer — dass die Wochensicht dann den
+     * zuletzt archivierten Plan nimmt, war genau der Fehler, den {@code timetableIdAt} nicht machen
+     * darf.
+     */
+    @Test
+    @DisplayName("Ein Enddatum gilt einschliesslich; danach bleibt die Woche leer")
+    void aPlanWithAnEndDateStopsResolvingAfterIt() throws Exception {
+        Testdaten daten = pflichtenheftGrunddaten();
+        planMoDiInEntwurf(daten);
+        // Der Plan gilt Montag und Dienstag dieser Woche und endet am Dienstag.
+        call(post("/api/draft/accept").content("""
+                {"validFrom":"%s","validUntil":"%s"}""".formatted(MONTAG, MONTAG.plusDays(1))), 200);
+
+        JsonNode week = getJson("/api/timetable/week?date=" + MONTAG + "&view=SCHOOL");
+
+        assertThat(entriesOf(week, 0)).as("Montag liegt im Zeitraum").hasSize(6);
+        assertThat(entriesOf(week, 1)).as("Dienstag ist der letzte Tag — einschliesslich").hasSize(1);
+        assertThat(entriesOf(week, 2)).as("Mittwoch liegt hinter dem Ende: kein Plan").isEmpty();
+
+        assertThat(getJson("/api/timetables").get(0).get("validUntil").asText())
+                .isEqualTo(MONTAG.plusDays(1).toString());
+    }
+
     // ------------------------------------------------------------------ Helfer
 
     private static List<JsonNode> entriesOf(JsonNode week, int dayIndex) {

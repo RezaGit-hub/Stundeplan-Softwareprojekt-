@@ -10,6 +10,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
@@ -19,6 +20,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * „Gueltig ab" (E-40) ab.
  */
 class DraftServiceIT extends PlanningITBase {
+
+    // Die Zeitraeume liegen bewusst relativ zu heute: sonst haengt das Ergebnis daran, an welchem Tag
+    // jemand die Tests startet (dieselbe Regel wie in WeekIT).
+    private static final LocalDate HEUTE = LocalDate.now();
+    private static final LocalDate IN_ZWEI_WOCHEN = HEUTE.plusWeeks(2);
+    private static final LocalDate IN_SECHS_WOCHEN = HEUTE.plusWeeks(6);
 
     @Test
     @DisplayName("COPY_ACTIVE legt konfliktfreie Stunden fest und laesst die konfliktbehafteten frei (W-1)")
@@ -155,7 +162,7 @@ class DraftServiceIT extends PlanningITBase {
     }
 
     @Test
-    @DisplayName("Ein archivierter Plan mit spaeterem Beginn behaelt seine Vertretungen (E-40)")
+    @DisplayName("Ein Plan mit spaeterem Beginn behaelt seine Vertretungen (E-40)")
     void acceptLeavesExceptionsOfALaterStartingPlanAlone() throws Exception {
         Testdaten daten = pflichtenheftGrunddaten();
         planMoDiInEntwurf(daten);
@@ -168,13 +175,21 @@ class DraftServiceIT extends PlanningITBase {
                 INSERT INTO lesson_exception (lesson_id, date, kind, created_at, created_by_id)
                 VALUES (?, ?, 'CANCEL', now(), ?)""", stundeInA, java.sql.Date.valueOf(LocalDate.of(2026, 9, 22)), adminId);
 
-        // Plan B gilt ab sofort. Auf der Zeitleiste steht ab dem 21.09. weiter A (PlanReader.timetableIdAt),
-        // also darf die Vertretung am 22.09. weder umgehaengt werden noch als verfallen gelten.
+        // Plan B gilt ab sofort bis zum Vortag von A. Damit ueberschneiden sich die Zeitraeume nicht,
+        // A bleibt aktiv, und auf der Zeitleiste steht ab dem 21.09. weiter A
+        // (PlanReader.timetableIdAt) — die Vertretung am 22.09. darf also weder umgehaengt werden noch
+        // als verfallen gelten. Seit #115 braucht es dafuer das Enddatum: ohne validUntil verlangte B
+        // denselben Zeitraum wie A, und „jetzt aktivieren" legte A still.
         call(post("/api/draft").content("""
                 {"source":"COPY_ACTIVE"}"""), 201);
-        JsonNode accepted = call(post("/api/draft/accept").content("{}"), 200);
+        JsonNode accepted = call(post("/api/draft/accept").content("""
+                {"validUntil":"2026-09-20"}"""), 200);
 
         assertThat(accepted.get("warnings")).isEmpty();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM timetable WHERE status = 'ACTIVE'", Long.class))
+                .as("beide Plaene bleiben aktiv — getrennte Zeitraeume")
+                .isEqualTo(2L);
         assertThat(jdbc.queryForObject("SELECT lesson_id FROM lesson_exception", Long.class))
                 .as("die Ausnahme haengt weiter an dem Plan, der an ihrem Tag gilt")
                 .isEqualTo(stundeInA);
@@ -217,7 +232,210 @@ class DraftServiceIT extends PlanningITBase {
         JsonNode active = getJson("/api/timetable");
         assertThat(active.get("id").isNull()).isTrue();
         assertThat(active.get("acceptedAt").isNull()).isTrue();
+        assertThat(active.get("validUntil").isNull()).isTrue();
         assertThat(active.get("lessons")).isEmpty();
         assertThat(active.get("conflicts")).isEmpty();
+        assertThat(getJson("/api/timetables")).isEmpty();
     }
+
+    // ------------------------------------------------------------------ Gueltigkeitszeitraum (#115)
+
+    /**
+     * Der Kern von #115: zwei Plaene mit anschliessenden Zeitraeumen stehen beide auf {@code ACTIVE},
+     * und jeder Tag bekommt den Plan, der an ihm gilt — auch genau an der Datumsgrenze.
+     */
+    @Test
+    @DisplayName("Zwei Plaene mit anschliessenden Zeitraeumen bleiben beide aktiv; jeder Tag bekommt seinen")
+    void twoPlansWithAdjoiningRangesBothStayActive() throws Exception {
+        Testdaten daten = pflichtenheftGrunddaten();
+        planMoDiInEntwurf(daten);
+        long a = call(post("/api/draft/accept").content("""
+                {"validUntil":"%s"}""".formatted(IN_ZWEI_WOCHEN)), 200).get("id").asLong();
+
+        call(post("/api/draft").content("""
+                {"source":"COPY_ACTIVE"}"""), 201);
+        long b = call(post("/api/draft/accept").content("""
+                {"validFrom":"%s"}""".formatted(IN_ZWEI_WOCHEN.plusDays(1))), 200).get("id").asLong();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable WHERE status = 'ACTIVE'", Long.class))
+                .as("der alte Plan bleibt bis zu seinem Ende gueltig")
+                .isEqualTo(2L);
+
+        JsonNode liste = getJson("/api/timetables");
+        assertThat(liste).hasSize(2);
+        assertThat(liste.get(0).get("id").asLong()).isEqualTo(a);
+        assertThat(liste.get(0).get("validUntil").asText()).isEqualTo(IN_ZWEI_WOCHEN.toString());
+        assertThat(liste.get(0).get("current").asBoolean()).as("heute gilt der erste").isTrue();
+        assertThat(liste.get(1).get("id").asLong()).isEqualTo(b);
+        assertThat(liste.get(1).get("validFrom").asText()).isEqualTo(IN_ZWEI_WOCHEN.plusDays(1).toString());
+        assertThat(liste.get(1).get("validUntil").isNull()).isTrue();
+        assertThat(liste.get(1).get("current").asBoolean()).isFalse();
+
+        // „Der aktive Plan" ist der, der heute gilt.
+        assertThat(getJson("/api/timetable").get("id").asLong()).isEqualTo(a);
+        assertThat(getJson("/api/timetables/" + b).get("validFrom").asText())
+                .isEqualTo(IN_ZWEI_WOCHEN.plusDays(1).toString());
+
+        // Dass jeder Tag den Plan seines Zeitraums bekommt — auch genau an der Grenze —, prueft
+        // WeekIT.threeValidFromDatesResolvePerDay gegen den echten WeekResolver.
+    }
+
+    @Test
+    @DisplayName("Ein kuenftiger Beginn laesst den Vorgaenger aktiv und endet ihn am Vortag")
+    void futureStartTruncatesThePredecessorInsteadOfArchivingIt() throws Exception {
+        Testdaten daten = pflichtenheftGrunddaten();
+        planMoDiInEntwurf(daten);
+        call(post("/api/draft/accept").content("{}"), 200);
+
+        call(post("/api/draft").content("""
+                {"source":"COPY_ACTIVE"}"""), 201);
+        call(post("/api/draft/accept").content("""
+                {"validFrom":"%s"}""".formatted(IN_ZWEI_WOCHEN)), 200);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT valid_until FROM timetable WHERE status = 'ACTIVE' AND valid_from IS NULL""",
+                LocalDate.class))
+                .as("der alte Plan endet am Tag vor dem Beginn des neuen")
+                .isEqualTo(IN_ZWEI_WOCHEN.minusDays(1));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable WHERE status = 'ARCHIVED'", Long.class))
+                .as("nichts wird archiviert, solange der alte Plan noch laeuft")
+                .isZero();
+    }
+
+    @Test
+    @DisplayName("Ein kuenftiger Plan im Weg ist 409 plan-overlap; nichts wird geaendert")
+    void overlapWithAFuturePlanIsRejected() throws Exception {
+        Testdaten daten = pflichtenheftGrunddaten();
+        planMoDiInEntwurf(daten);
+        call(post("/api/draft/accept").content("""
+                {"validFrom":"%s"}""".formatted(IN_SECHS_WOCHEN)), 200);
+
+        call(post("/api/draft").content("""
+                {"source":"COPY_ACTIVE"}"""), 201);
+        JsonNode problem = call(post("/api/draft/accept").content("""
+                {"validFrom":"%s"}""".formatted(IN_ZWEI_WOCHEN)), 409);
+
+        assertThat(problem.get("type").asText()).isEqualTo("urn:pushnpull:problem:plan-overlap");
+        assertThat(problem.get("detail").asText()).isEqualTo(
+                "Ein angenommener Plan gilt bereits ab " + IN_SECHS_WOCHEN + ". "
+                        + "Enddatum vor " + IN_SECHS_WOCHEN + " wählen oder den Zeitraum ändern.");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable WHERE status = 'ACTIVE'", Long.class))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable WHERE status = 'DRAFT'", Long.class))
+                .as("der Entwurf steht noch")
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject("""
+                SELECT valid_until FROM timetable WHERE status = 'ACTIVE'""", LocalDate.class))
+                .as("der kuenftige Plan wurde nicht angefasst")
+                .isNull();
+
+        // Mit Enddatum vor dem fremden Beginn geht es: zwei Zeitraeume nebeneinander.
+        JsonNode ok = call(post("/api/draft/accept").content("""
+                {"validFrom":"%s","validUntil":"%s"}"""
+                .formatted(IN_ZWEI_WOCHEN, IN_SECHS_WOCHEN.minusDays(1))), 200);
+        assertThat(ok.get("validUntil").asText()).isEqualTo(IN_SECHS_WOCHEN.minusDays(1).toString());
+        assertThat(getJson("/api/timetables")).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("Annehmen ab sofort legt einen erst kuenftig beginnenden Vorgaenger still")
+    void acceptingNowSilencesAPlanThatHadNotStartedYet() throws Exception {
+        Testdaten daten = pflichtenheftGrunddaten();
+        planMoDiInEntwurf(daten);
+        call(post("/api/draft/accept").content("""
+                {"validFrom":"%s"}""".formatted(IN_SECHS_WOCHEN)), 200);
+
+        call(post("/api/draft").content("""
+                {"source":"COPY_ACTIVE"}"""), 201);
+        long jetzt = call(post("/api/draft/accept").content("{}"), 200).get("id").asLong();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable WHERE status = 'ARCHIVED'", Long.class))
+                .isEqualTo(1L);
+        assertThat(getJson("/api/timetables")).hasSize(1);
+        assertThat(getJson("/api/timetable").get("id").asLong()).isEqualTo(jetzt);
+        assertThat(jdbc.queryForObject("""
+                SELECT valid_until FROM timetable WHERE status = 'ARCHIVED'""", LocalDate.class))
+                .as("leerer Zeitraum: das Ende liegt vor dem Beginn, der Plan loest an keinem Tag mehr auf")
+                .isEqualTo(HEUTE.minusDays(1));
+        assertThat(jdbc.queryForObject("""
+                SELECT valid_from FROM timetable WHERE status = 'ARCHIVED'""", LocalDate.class))
+                .isEqualTo(IN_SECHS_WOCHEN);
+    }
+
+    @Test
+    @DisplayName("validUntil vor validFrom ist 400 validation mit Feld validUntil")
+    void endBeforeStartIsAValidationError() throws Exception {
+        Testdaten daten = pflichtenheftGrunddaten();
+        planMoDiInEntwurf(daten);
+
+        JsonNode problem = call(post("/api/draft/accept").content("""
+                {"validFrom":"%s","validUntil":"%s"}"""
+                .formatted(IN_ZWEI_WOCHEN, IN_ZWEI_WOCHEN.minusDays(1))), 400);
+
+        assertThat(problem.get("type").asText()).isEqualTo("urn:pushnpull:problem:validation");
+        assertThat(problem.get("errors").get(0).get("field").asText()).isEqualTo("validUntil");
+        assertThat(problem.get("errors").get(0).get("message").asText())
+                .isEqualTo("Das Ende darf nicht vor dem Beginn liegen");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable WHERE status = 'ACTIVE'", Long.class))
+                .isZero();
+    }
+
+    // ------------------------------------------------------------------ Ablage (#116)
+
+    @Test
+    @DisplayName("Die Ablage sperrt Bearbeiten und Berechnen (409 draft-finished); Annehmen und Oeffnen gehen")
+    void aParkedDraftIsFrozenButStillAcceptable() throws Exception {
+        Testdaten daten = pflichtenheftGrunddaten();
+        planMoDiInEntwurf(daten);
+        long id = getJson("/api/draft").get("id").asLong();
+        long stunde = getJson("/api/draft").get("lessons").get(0).get("id").asLong();
+        assertThat(getJson("/api/drafts").get(0).get("finished").asBoolean()).isFalse();
+
+        JsonNode abgelegt = call(patch("/api/drafts/" + id).content("""
+                {"finished":true}"""), 200);
+        assertThat(abgelegt.get("finished").asBoolean()).isTrue();
+        assertThat(abgelegt.get("name").asText()).as("der Name bleibt").isEqualTo("Entwurf 1");
+        assertThat(getJson("/api/drafts").get(0).get("finished").asBoolean()).isTrue();
+
+        JsonNode problem = call(post("/api/drafts/" + id + "/lessons").content("""
+                {"classId":%d,"subjectId":%d,"timeslotId":%d,"roomId":%d}"""
+                .formatted(daten.klasse9c, daten.mathe, daten.slot("WE", 1), daten.r101)), 409);
+        assertThat(problem.get("type").asText()).isEqualTo("urn:pushnpull:problem:draft-finished");
+        assertThat(problem.get("detail").asText()).isEqualTo("Der Entwurf liegt in der Ablage. Erst wieder öffnen.");
+        call(patch("/api/drafts/" + id + "/lessons/" + stunde).content("""
+                {"pinned":false}"""), 409);
+        call(delete("/api/drafts/" + id + "/lessons/" + stunde), 409);
+        call(post("/api/drafts/" + id + "/solve").content("{}"), 409);
+        call(post("/api/drafts/" + id + "/repair").content("""
+                {"lessonId":%d}""".formatted(stunde)), 409);
+
+        // Umbenennen geht weiter, Wiederoeffnen auch — und danach ist alles wieder erlaubt.
+        assertThat(call(patch("/api/drafts/" + id).content("""
+                {"name":"Halbjahr 2"}"""), 200).get("finished").asBoolean()).isTrue();
+        assertThat(call(patch("/api/drafts/" + id).content("""
+                {"finished":false}"""), 200).get("finished").asBoolean()).isFalse();
+        call(delete("/api/drafts/" + id + "/lessons/" + stunde), 200);
+
+        // Annehmen ist auch aus der Ablage heraus erlaubt; der angenommene Plan liegt nie in ihr.
+        call(patch("/api/drafts/" + id).content("""
+                {"finished":true}"""), 200);
+        call(post("/api/drafts/" + id + "/accept").content("{}"), 200);
+        assertThat(jdbc.queryForObject(
+                "SELECT finished FROM timetable WHERE status = 'ACTIVE'", Boolean.class)).isFalse();
+    }
+
+    @Test
+    @DisplayName("PATCH ohne Feld ist 400 validation")
+    void emptyPatchBodyIsAValidationError() throws Exception {
+        pflichtenheftGrunddaten();
+        long id = call(post("/api/drafts").content("""
+                {"source":"EMPTY"}"""), 201).get("id").asLong();
+
+        JsonNode problem = call(patch("/api/drafts/" + id).content("{}"), 400);
+
+        assertThat(problem.get("type").asText()).isEqualTo("urn:pushnpull:problem:validation");
+        assertThat(problem.get("errors").get(0).get("field").asText()).isEqualTo("name");
+        assertThat(problem.get("errors").get(0).get("message").asText()).isEqualTo("Name oder Ablage angeben");
+    }
+
 }

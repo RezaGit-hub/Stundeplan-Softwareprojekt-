@@ -43,6 +43,7 @@ class DraftsControllerIT extends PlanningITBase {
         assertThat(list.get(1).get("id").asLong()).isEqualTo(a);
         assertThat(list.get(0).get("status").asText()).isEqualTo("EDITING");
         assertThat(list.get(0).get("source").asText()).isEqualTo("EMPTY");
+        assertThat(list.get(0).get("finished").asBoolean()).isFalse();
         assertThat(list.get(1).get("hardConflicts").asInt()).isZero();
 
         // Der Singular-Pfad meint den juengsten Entwurf — und schreibt auch nur in ihn.
@@ -86,6 +87,7 @@ class DraftsControllerIT extends PlanningITBase {
         JsonNode accepted = call(post("/api/drafts/" + id + "/accept").content("{}"), 200);
         assertThat(accepted.get("id").asLong()).isEqualTo(id);
         assertThat(accepted.get("lessons")).hasSize(1);
+        assertThat(accepted.get("validUntil").isNull()).as("ohne Enddatum gilt der Plan unbegrenzt").isTrue();
 
         call(get("/api/drafts/" + id), 404);
         JsonNode list = getJson("/api/drafts");
