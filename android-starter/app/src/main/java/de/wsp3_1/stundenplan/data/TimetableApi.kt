@@ -34,5 +34,13 @@ interface TimetableApi {
     ): Response<WeekDto>
 
     @GET("api/timegrid")
-    suspend fun timegrid(@Header("Authorization") authorization: String): Response<TimegridDto>
+    suspend fun timegrid(
+        @Header("Authorization") authorization: String
+    ): Response<TimegridDto>
+
+    @GET("api/me/class-week")
+    suspend fun myClassWeek(
+        @Header("Authorization") authorization: String,
+        @Query("date") date: String,
+    ): Response<WeekDto>
 }

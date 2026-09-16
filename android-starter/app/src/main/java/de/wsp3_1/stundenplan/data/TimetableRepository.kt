@@ -28,7 +28,9 @@ interface TimetableRepository {
     /** GET /api/me/timetable/week?date=<montag>; bei Erfolg wird der Offline-Stand aktualisiert. */
     suspend fun loadWeek(monday: LocalDate): WeekResult
 
-    /** Letzter gespeicherter Stand dieser Woche, falls vorhanden. */
+    suspend fun loadClassWeek(monday: LocalDate): WeekResult
+
+            /** Letzter gespeicherter Stand dieser Woche, falls vorhanden. */
     suspend fun cachedWeek(monday: LocalDate): CachedWeek?
 
     /** Stundenraster vom Server (und dann gespeichert), sonst aus dem Cache. */
@@ -104,7 +106,7 @@ class HttpTimetableRepository(
                 // gleich danach frisch vom Server.
                 cache.clear()
                 timegridInMemory = null
-                settings.saveLogin(body.token, body.displayName)
+                settings.saveLogin(body.token, body.displayName, body.role)
                 LoginResult.Success(body)
             }
             response.code() == 401 -> LoginResult.WrongCredentials
@@ -155,6 +157,35 @@ class HttpTimetableRepository(
             }
             response.code() == 401 -> WeekResult.Unauthorized
             response.code() == 404 -> WeekResult.NoTeacher
+            else -> WeekResult.Failure(problemDetail(response)?.detail)
+        }
+    }
+
+    override suspend fun loadClassWeek(monday: LocalDate): WeekResult = withContext(Dispatchers.IO) {
+        val url = settings.serverUrl.first() ?: return@withContext WeekResult.Failure(null)
+        val token = settings.token.first() ?: return@withContext WeekResult.Unauthorized
+        val response = try {
+            apiFor(url).myClassWeek(ApiFactory.bearer(token), monday.toString())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            return@withContext WeekResult.Offline
+        } catch (e: Exception) {
+            return@withContext WeekResult.Failure(null)
+        }
+        val body = response.body()
+        when {
+            response.isSuccessful && body != null -> {
+                // Der Plan ist da; misslingt nur das Speichern (Speicher voll), zeigt die App ihn
+                // trotzdem an - der Offline-Stand ist dann eben aelter.
+                try {
+                    cache.saveWeek(body, clock())
+                } catch (e: Exception) {
+                    // kein Offline-Stand fuer diese Woche, sonst nichts (cache.saveWeek haelt nicht an)
+                }
+                WeekResult.Online(body)
+            }
+            response.code() == 401 -> WeekResult.Unauthorized
             else -> WeekResult.Failure(problemDetail(response)?.detail)
         }
     }
