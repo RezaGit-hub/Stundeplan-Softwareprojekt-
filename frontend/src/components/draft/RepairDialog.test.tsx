@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Konflikt per Knopf lösen (#110, T2-3.2): der Dialog zeigt die Vorschläge des Servers lesbar und übernimmt einen
-// Vorschlag Zug für Zug über PATCH /draft/lessons/{id} — mit Zeitfenster, Raum und pinned:false. Genau dieser
+// Vorschlag Zug für Zug über PATCH /drafts/{id}/lessons/{lessonId} — mit Zeitfenster, Raum und pinned:false. Genau dieser
 // Weg wird hier gegen die Attrappe geprüft: nach „Übernehmen" stehen die Stunden im Entwurf der Attrappe dort,
 // wohin der Vorschlag sie schickt.
 import { describe, expect, it, vi } from 'vitest'
@@ -17,7 +17,7 @@ import { RepairDialog } from './RepairDialog'
 /** Ein Entwurf als Kopie des aktiven Plans der Attrappe; liefert die Kopie und ihre Stunden als LessonDto. */
 function mitEntwurf(store: Store) {
   const active = activeTimetable(store)!
-  const draft = newTimetable('DRAFT', nowIso())
+  const draft = newTimetable('DRAFT', nowIso(), { name: 'Entwurf 1', source: 'COPY_ACTIVE' })
   draft.lessons = active.lessons.map((l): MockLesson => ({ ...l, id: nextId(), timetableId: draft.id }))
   store.timetables.push(draft)
   const lessons: LessonDto[] = draft.lessons.map((l) => {
@@ -36,7 +36,7 @@ function mitEntwurf(store: Store) {
 describe('RepairDialog (#110)', () => {
   it('zeigt je Vorschlag die Züge lesbar: Fach/Klasse, von → nach Zeitfenster und Raum, verbleibende harte Konflikte', async () => {
     const store = testStore()
-    const { lessons } = mitEntwurf(store)
+    const { draft, lessons } = mitEntwurf(store)
     // 7a Ma Mo 1. Stunde in R101 → Mo 5. Stunde (Position 6, die Pause zählt nicht mit) in R204
     const ma7a = lessons.find((l) => l.classShort === '7a' && l.subjectShort === 'Ma' && l.day === 'MO' && l.position === 1)!
     const proposals: RepairProposal[] = [
@@ -46,7 +46,7 @@ describe('RepairDialog (#110)', () => {
         { lessonId: lessons.find((l) => l.classShort === '8b' && l.day === 'MO' && l.position === 2)!.id, timeslotId: slotId(store.timeslots, 'MO', 7), roomId: 2 },
       ], hardConflictsAfter: 1, score: '-1hard/0medium/0soft' },
     ]
-    await renderPage(<RepairDialog open onOpenChange={() => {}} pending={false} failed={false} proposals={proposals} lessons={lessons} slots={store.timeslots} rooms={store.rooms} />, { store })
+    await renderPage(<RepairDialog open onOpenChange={() => {}} draftId={draft.id} pending={false} failed={false} proposals={proposals} lessons={lessons} slots={store.timeslots} rooms={store.rooms} />, { store })
 
     expect(await screen.findByText('Nur diese Stunde verschieben')).toBeTruthy()
     expect(screen.getAllByText('Ma 7a').length).toBe(2)
@@ -72,11 +72,11 @@ describe('RepairDialog (#110)', () => {
       hardConflictsAfter: 0, score: '0hard/0medium/0soft',
     }]
     const onOpenChange = vi.fn()
-    await renderPage(<RepairDialog open onOpenChange={onOpenChange} pending={false} failed={false} proposals={proposals} lessons={lessons} slots={store.timeslots} rooms={store.rooms} />, { store })
+    await renderPage(<RepairDialog open onOpenChange={onOpenChange} draftId={draft.id} pending={false} failed={false} proposals={proposals} lessons={lessons} slots={store.timeslots} rooms={store.rooms} />, { store })
     // Die Attrappe mitschreiben lassen: welche PATCHes in welcher Reihenfolge mit welchem Rumpf.
     const calls: [number, PatchLessonInput][] = []
     const original = api
-    setApi({ ...original, patchDraftLesson: (id, body) => { calls.push([id, body]); return original.patchDraftLesson(id, body) } })
+    setApi({ ...original, patchDraftLesson: (draftId, lessonId, body) => { calls.push([lessonId, body]); return original.patchDraftLesson(draftId, lessonId, body) } })
 
     await nutzer.click(await screen.findByRole('button', { name: 'Vorschlag 3 übernehmen' }))
 
@@ -95,12 +95,12 @@ describe('RepairDialog (#110)', () => {
 
   it('solange der Server rechnet, steht der Hinweis auf die Wartezeit; ohne Vorschlag der Hinweis auf den Handweg', async () => {
     const store = testStore()
-    const { lessons } = mitEntwurf(store)
-    const { rerender } = await renderPage(<RepairDialog open onOpenChange={() => {}} pending failed={false} proposals={null} lessons={lessons} slots={store.timeslots} rooms={store.rooms} />, { store })
+    const { draft, lessons } = mitEntwurf(store)
+    const { rerender } = await renderPage(<RepairDialog open onOpenChange={() => {}} draftId={draft.id} pending failed={false} proposals={null} lessons={lessons} slots={store.timeslots} rooms={store.rooms} />, { store })
     expect(await screen.findByText(/bis zu 15 Sekunden/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /übernehmen/ })).toBeNull()
 
-    rerender(<RepairDialog open onOpenChange={() => {}} pending={false} failed={false} proposals={[]} lessons={lessons} slots={store.timeslots} rooms={store.rooms} />)
+    rerender(<RepairDialog open onOpenChange={() => {}} draftId={draft.id} pending={false} failed={false} proposals={[]} lessons={lessons} slots={store.timeslots} rooms={store.rooms} />)
     expect(await screen.findByText(/Kein Vorschlag gefunden/)).toBeTruthy()
   })
 })

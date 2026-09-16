@@ -1,4 +1,4 @@
-// Berechnen (W-8): Rechenzeit aus den Einstellungen, Kann-Option „nur eine Klasse" (R1) → POST /draft/solve.
+// Berechnen (W-8): Rechenzeit aus den Einstellungen, Kann-Option „nur eine Klasse" (R1) → POST /drafts/{id}/solve.
 // 409 master-data-incomplete / pinned-contradiction: Toast kommt automatisch, die Liste (missing/conflicts) steht hier inline.
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -11,9 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FormDialog } from '@/components/dialogs/FormDialog'
 import { ProblemBanner } from '@/components/states/ProblemBanner'
 
-export function SolveDialog({ open, onOpenChange, classes, defaultClassId }: { open: boolean; onOpenChange(open: boolean): void; classes: ClassDto[]; defaultClassId?: number | null }) {
+export function SolveDialog({ open, onOpenChange, draftId, classes, defaultClassId }: { open: boolean; onOpenChange(open: boolean): void; draftId: number; classes: ClassDto[]; defaultClassId?: number | null }) {
   const config = useConfig()
-  const start = useStartSolve()
+  const start = useStartSolve(draftId)
   const [onlyClass, setOnlyClass] = useState(false)
   const [classId, setClassId] = useState<number | null>(null)
   const [problem, setProblem] = useState<ProblemDetail | null>(null)

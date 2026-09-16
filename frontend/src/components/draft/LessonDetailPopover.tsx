@@ -13,7 +13,8 @@ import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { ConflictItem } from '@/components/week-grid/ConflictPopover'
 import { slotById, slotLongLabel } from '@/lib/timegrid'
 
-export function LessonDetailPopover({ lesson, conflicts, anchor, onClose, onStartMove, readOnly = false }: {
+export function LessonDetailPopover({ draftId, lesson, conflicts, anchor, onClose, onStartMove, readOnly = false }: {
+  draftId: number
   lesson: LessonDto | null
   conflicts: ConflictDto[]
   anchor: HTMLElement | null
@@ -27,8 +28,8 @@ export function LessonDetailPopover({ lesson, conflicts, anchor, onClose, onStar
   const teachers = useTeachers()
   const rooms = useRooms()
   const timegrid = useTimegrid()
-  const patch = usePatchDraftLesson()
-  const remove = useDeleteDraftLesson()
+  const patch = usePatchDraftLesson(draftId)
+  const remove = useDeleteDraftLesson(draftId)
   const [pendingDelete, setPendingDelete] = useState<LessonDto | null>(null)
 
   const open = lesson != null && anchor != null
@@ -41,14 +42,14 @@ export function LessonDetailPopover({ lesson, conflicts, anchor, onClose, onStar
   const changeRoom = async (roomId: number) => {
     if (!lesson) return
     try {
-      await patch.mutateAsync({ id: lesson.id, body: { roomId } })
+      await patch.mutateAsync({ lessonId: lesson.id, body: { roomId } })
       toast.success('Raum geändert')
     } catch { /* Toast kam aus dem Standard-onError */ }
   }
   const togglePin = async () => {
     if (!lesson) return
     try {
-      await patch.mutateAsync({ id: lesson.id, body: { pinned: !lesson.pinned } })
+      await patch.mutateAsync({ lessonId: lesson.id, body: { pinned: !lesson.pinned } })
       toast.success(lesson.pinned ? 'Festlegung aufgehoben' : 'Stunde festgelegt')
     } catch { /* Toast kam */ }
   }
