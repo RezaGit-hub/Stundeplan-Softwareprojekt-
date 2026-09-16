@@ -5,6 +5,9 @@
 // rechnen und annehmen, Vertretung erfassen. Jeder Schritt endet mit einem Klick des Nutzers — es gibt weder
 // einen „Weiter"-Knopf noch eine Wartezeit, die von selbst ablaeuft.
 //
+// Die Beispielwerte sind bewusst so gewaehlt, dass sie im Beispielbestand noch nicht vorkommen (Lehrkraft
+// Sommer/SOM, Fach Astronomie/As, Klasse 7c, Raum R301) — sonst scheitert das Speichern an 409 data-exists.
+//
 // Wo etwas einzutragen ist, erledigt das der Rundgang: `vorbereiten` tippt Texte, waehlt Auswahlfelder und
 // drueckt Hilfsknoepfe. Danach zeigt er auf „Speichern" — abgeschickt wird immer von Hand, damit niemand
 // ueberrascht Daten anlegt.
@@ -93,8 +96,8 @@ export const TOUR_STEPS: TourStep[] = [
     target: { text: 'Speichern' }, route: '/grunddaten/faecher', weiter: 'klick', imDialog: true,
     action: 'Klicken Sie auf „Speichern".',
     vorbereiten: [
-      { art: 'tippen', css: '#subject-name', wert: 'Kunst', was: 'Name' },
-      { art: 'tippen', css: '#subject-short', wert: 'Ku', was: 'Kürzel' },
+      { art: 'tippen', css: '#subject-name', wert: 'Astronomie', was: 'Name' },
+      { art: 'tippen', css: '#subject-short', wert: 'As', was: 'Kürzel' },
     ],
   },
 
@@ -131,7 +134,7 @@ export const TOUR_STEPS: TourStep[] = [
     target: { text: 'Speichern' }, route: '/grunddaten/raeume', weiter: 'klick', imDialog: true,
     action: 'Klicken Sie auf „Speichern".',
     vorbereiten: [
-      { art: 'tippen', css: '#room-name', wert: 'R204', was: 'Name' },
+      { art: 'tippen', css: '#room-name', wert: 'R301', was: 'Name' },
       { art: 'tippen', css: '#room-type', wert: 'Klassenraum', was: 'Raumart' },
     ],
   },

@@ -271,7 +271,8 @@ export function TourOverlay() {
 
   // Klickschritt: am Ziel selbst horchen. Der Klick zaehlt, egal was er ausloest — Dialog, Berechnung, Wechsel.
   useEffect(() => {
-    if (!sichtbar || current.weiter !== 'klick' || hinfuehren || feldZiel) return
+    // Auch waehrend des Ausfuellens horchen: Wer frueher auf „Speichern" klickt, soll trotzdem weiterkommen.
+    if (!sichtbar || current.weiter !== 'klick' || hinfuehren) return
     const el = zielFinden(current.target, imDialog)
     if (!el) return
     const meiner = step
@@ -279,7 +280,7 @@ export function TourOverlay() {
     el.addEventListener('click', onClick)
     return () => el.removeEventListener('click', onClick)
     // `rect` haengt mit drin, damit der Horcher nachgezogen wird, sobald das Ziel auftaucht.
-  }, [sichtbar, current.weiter, current.target, hinfuehren, feldZiel, imDialog, rect, step, weiterNachRuhe])
+  }, [sichtbar, current.weiter, current.target, hinfuehren, imDialog, rect, step, weiterNachRuhe])
 
   // Gibt es das Ziel nicht (und es kommt auch nicht mehr), ist der Schritt gegenstandslos: „Leer beginnen"
   // fehlt, wenn schon ein Entwurf da ist, „Lösen" fehlt ohne Konflikt. Dann still weiter, statt auf einen
@@ -406,7 +407,12 @@ export function TourOverlay() {
         : { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' })
     : null
 
-  const panelStil: CSSProperties = nebenDialog ?? (loch && lage === 'unten'
+  // Ein Erklaerschritt ohne Ziel gehoert in die Mitte: Er spricht ueber die ganze Seite, nicht ueber eine Ecke.
+  const mitte: CSSProperties | null = nurLesen && !nebenDialog
+    ? { top: '50%', left: '50%', transform: 'translate(-50%, -50%)', maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' }
+    : null
+
+  const panelStil: CSSProperties = mitte ?? nebenDialog ?? (loch && lage === 'unten'
     ? { top: loch.top + loch.height + 28, left: links, maxHeight: platzUnten - 2 * RAND, overflowY: 'auto' }
     : loch && lage === 'oben'
       ? { bottom: window.innerHeight - loch.top + 28, left: links, maxHeight: platzOben - 2 * RAND, overflowY: 'auto' }
@@ -459,7 +465,7 @@ export function TourOverlay() {
         className="print-hide fixed z-[100] w-[22rem] max-w-[calc(100%-2rem)] rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10"
         style={{ ...panelStil, pointerEvents: 'auto', opacity: sucht ? 0 : 1 }}
       >
-        {lage !== 'ecke' && !nebenDialog && (
+        {lage !== 'ecke' && !nebenDialog && !mitte && (
           <span
             aria-hidden
             className="absolute size-3 rotate-45 bg-popover ring-1 ring-foreground/10"
@@ -486,7 +492,7 @@ export function TourOverlay() {
             {tippt
               ? `Der Rundgang füllt das Formular aus${aktuelleAktion ? ` — ${aktuelleAktion}` : ''} …`
               : hinfuehren ? 'Öffnen Sie zuerst die Seite, auf der das passiert.' : current.action}
-            {loch === null && !suchtNoch && <span className="mt-1 block font-normal text-muted-foreground">Das Element ist gerade nicht da — es erscheint erst, wenn die Seite es anbietet. Mit „Überspringen" geht es zum nächsten Thema.</span>}
+            {loch === null && !suchtNoch && !nurLesen && <span className="mt-1 block font-normal text-muted-foreground">Das Element ist gerade nicht da — es erscheint erst, wenn die Seite es anbietet. Mit „Überspringen" geht es zum nächsten Thema.</span>}
           </span>
         </p>
 
