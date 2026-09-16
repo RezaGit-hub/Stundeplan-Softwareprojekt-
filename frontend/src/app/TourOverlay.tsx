@@ -287,7 +287,7 @@ export function TourOverlay() {
         )}
 
         <div className="mt-4 flex items-center justify-between gap-2">
-          <Button variant="ghost" size="sm" onClick={beenden}>Rundgang beenden</Button>
+          <Button variant="ghost" size="sm" onClick={beenden}>Beenden</Button>
           <div className="flex gap-2">
             {step > 0 && <Button variant="outline" size="sm" onClick={() => geheZu(step - 1)}>Zurück</Button>}
             {/* Am letzten Schritt immer „Fertig": sonst haengt fest, wer das Ziel nicht anklicken kann.
@@ -295,7 +295,7 @@ export function TourOverlay() {
             {letzter
               ? <Button size="sm" onClick={beenden}>Fertig</Button>
               : phase === 'anleitung'
-                ? <Button variant="ghost" size="sm" className="text-foreground-subtle" onClick={() => geheZu(step + 1)}>Schritt überspringen</Button>
+                ? <Button variant="ghost" size="sm" className="text-foreground-subtle" onClick={() => geheZu(step + 1)}>Überspringen</Button>
                 : <Button size="sm" onClick={() => geheZu(step + 1)}>Weiter</Button>}
           </div>
         </div>
