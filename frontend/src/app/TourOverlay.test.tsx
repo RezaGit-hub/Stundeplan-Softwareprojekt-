@@ -23,6 +23,17 @@ const abwarten = () => act(() => new Promise<void>((r) => setTimeout(r, 30)))
 
 const ERSTER = TOUR_STEPS[0]
 const KLICKSCHRITT = TOUR_STEPS.findIndex((s) => s.weiter === 'klick')
+/** „Überspringen" laesst das ganze Thema aus: der naechste Schritt auf einer anderen Seite. */
+const NAECHSTE_SEITE = TOUR_STEPS.findIndex((s) => s.route !== ERSTER.route)
+
+/** Klickt sich bis zum letzten Schritt durch, egal ob „Weiter" oder „Überspringen" dasteht. */
+async function bisZumEnde(nutzer: ReturnType<typeof userEvent.setup>) {
+  for (let i = 0; i < TOUR_STEPS.length; i++) {
+    const knopf = screen.queryByRole('button', { name: /^(Weiter|Überspringen)$/ })
+    if (!knopf) return
+    await nutzer.click(knopf)
+  }
+}
 
 describe('TourOverlay (#139)', () => {
   it('führt durch den ersten Schritt und „Überspringen" merkt ihn am Konto', async () => {
@@ -36,8 +47,9 @@ describe('TourOverlay (#139)', () => {
     // Anleitung statt Ergebnis, solange die Zielseite nicht offen ist.
     expect(screen.getByText(ERSTER.action)).toBeTruthy()
 
+    // „Überspringen" laesst nicht nur diesen Schritt aus, sondern alles zu dieser Seite.
     await nutzer.click(screen.getByRole('button', { name: 'Überspringen' }))
-    expect(screen.getByRole('heading', { name: TOUR_STEPS[1].title })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: TOUR_STEPS[NAECHSTE_SEITE].title })).toBeTruthy()
 
     await nutzer.click(screen.getByRole('button', { name: 'Beenden' }))
 
@@ -68,7 +80,12 @@ describe('TourOverlay (#139)', () => {
     )
     await screen.findByRole('dialog', { name: 'Rundgang' })
 
-    for (let i = 0; i < KLICKSCHRITT; i++) await nutzer.click(screen.getByRole('button', { name: /^(Weiter|Überspringen)$/ }))
+    // Schrittweise vor bis zum Klickschritt — „Weiter", nicht „Überspringen" (das liesse die Seite aus).
+    for (let i = 0; i < KLICKSCHRITT; i++) {
+      const knopf = screen.queryByRole('button', { name: 'Weiter' }) ?? screen.getByRole('button', { name: 'Überspringen' })
+      await nutzer.click(knopf)
+      if (screen.queryByRole('heading', { name: TOUR_STEPS[KLICKSCHRITT].title })) break
+    }
     expect(screen.getByRole('heading', { name: schritt.title })).toBeTruthy()
     // Die Seite des Schritts ist offen, getan ist er trotzdem nicht — es fehlt der Klick.
     expect(screen.getByText(schritt.action)).toBeTruthy()
@@ -83,7 +100,7 @@ describe('TourOverlay (#139)', () => {
     await renderPage(<TourOverlay />, { store })
     await screen.findByRole('dialog', { name: 'Rundgang' })
 
-    for (let i = 1; i < TOUR_STEPS.length; i++) await nutzer.click(screen.getByRole('button', { name: /^(Weiter|Überspringen)$/ }))
+    await bisZumEnde(nutzer)
     expect(screen.getByRole('heading', { name: TOUR_STEPS[TOUR_STEPS.length - 1].title })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^(Weiter|Überspringen)$/ })).toBeNull()
 

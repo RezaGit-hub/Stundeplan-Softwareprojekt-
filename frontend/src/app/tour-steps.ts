@@ -22,8 +22,8 @@ export interface TourStep {
   title: string
   /** Was die Planung hier tut und warum */
   text: string
-  /** Ziel: Selektor oder Beschriftungsanfang */
-  target: { css: string; text?: never } | { text: string; css?: never }
+  /** Ziel: Selektor oder Beschriftungsanfang; mehrere Beschriftungen = erste vorhandene gewinnt */
+  target: { css: string; text?: never } | { text: string | string[]; css?: never }
   /** Route, auf der der Schritt spielt — der Rundgang wartet darauf bei `weiter: 'route'` */
   route?: string
   /** Wie der Schritt abgeschlossen wird */
@@ -79,6 +79,15 @@ export const TOUR_STEPS: TourStep[] = [
     weiter: 'route',
     action: 'Öffnen Sie den Entwurf.',
     result: 'Ohne Entwurf stehen hier zwei Wege: leer beginnen oder den aktiven Plan kopieren. Mit Entwurf zeigt das Wochenraster die Stunden, daneben offene Stunden und Konflikte.',
+  },
+  {
+    title: 'Entwurf anlegen',
+    text: 'Ohne Entwurf gibt es nichts zu rechnen. Zwei Wege: leer beginnen, oder den aktiven Plan kopieren und daran weiterarbeiten.',
+    target: { text: ['Leer beginnen', 'Aktiven Plan kopieren'] },
+    route: '/entwurf',
+    weiter: 'klick',
+    action: 'Legen Sie einen Entwurf an \u2014 \u201eLeer beginnen\u201c oder \u201eAktiven Plan kopieren\u201c.',
+    result: 'Der Entwurf steht als Arbeitskopie neben dem aktiven Plan. Das Wochenraster zeigt seine Stunden, daneben stehen offene Stunden und Konflikte.',
   },
   {
     title: 'Plan berechnen lassen',

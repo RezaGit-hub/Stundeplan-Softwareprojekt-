@@ -387,6 +387,11 @@ body { background: var(--background); color: var(--foreground); color-scheme: li
 }
 .tour-ziel { animation: tour-puls 1.6s cubic-bezier(.4, 0, .6, 1) infinite; }
 
+/* Verdunkelung waehrend eines Schritts. Feste Farbe statt color-mix: der gemischte Wert kam in Chrome als
+   oklab(...) heraus und wurde im Schlagschatten gar nicht gemalt — die Seite blieb hell. */
+:root { --tour-dunkel: rgb(24 24 27 / 45%); }
+.dark { --tour-dunkel: rgb(0 0 0 / 60%); }
+
 /* Das Ziel selbst waehrend eines Schritts: die Flaeche, die sonst beim Darueberfahren grau wird, ist
    satt violett und pulsiert. Gesetzt wird die Klasse am echten Bedienelement (TourOverlay.tsx), damit
    Form und Rundung genau stimmen — ein nachgebautes Rechteck darueber traefe nie exakt. */

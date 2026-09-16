@@ -17,7 +17,7 @@
 // fehlend — der Server laesst leere Felder weg, wie bei teacherId) heisst „noch nie gesehen". „Ueberspringen"
 // und „Fertig" setzen das Feld am Konto (PUT /api/me/tour), „Rundgang erneut zeigen" in den Einstellungen
 // loescht es wieder. Nur die Planung bekommt ihn — Lehrkraft und Klassenkonto haben genau eine Seite.
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 import { Check, Compass, MousePointerClick } from 'lucide-react'
@@ -46,9 +46,13 @@ interface Rect { top: number; left: number; width: number; height: number }
  */
 function zielFinden(t: TourStep['target']): HTMLElement | null {
   if (t.css) return document.querySelector<HTMLElement>(t.css)
-  const gesucht = (t.text ?? '').toLowerCase()
+  const beschriftungen = (Array.isArray(t.text) ? t.text : [t.text ?? '']).map((x) => x.toLowerCase())
   const kandidaten = Array.from(document.querySelectorAll<HTMLElement>('button, a'))
-  return kandidaten.find((el) => (el.textContent ?? '').trim().toLowerCase().startsWith(gesucht)) ?? null
+  for (const gesucht of beschriftungen) {
+    const treffer = kandidaten.find((el) => (el.textContent ?? '').trim().toLowerCase().startsWith(gesucht))
+    if (treffer) return treffer
+  }
+  return null
 }
 
 /**
@@ -60,11 +64,11 @@ function useZielRect(target: TourStep['target'], aktiv: boolean): Rect | null {
   const [rect, setRect] = useState<Rect | null>(null)
   const letzte = useRef('')
   // Das Ziel-Objekt ist bei jedem Render neu; als Abhaengigkeit taugt nur sein Inhalt.
-  const schluesselDesZiels = target.css ?? `text:${target.text}`
+  const schluesselDesZiels = target.css ?? `text:${[target.text].flat().join('|')}`
   const zielRef = useRef(target)
   zielRef.current = target
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Den Merker mit zuruecksetzen: sonst gilt beim naechsten Anlauf dieselbe Messung als „unveraendert",
     // und der Ausschnitt bliebe aus, obwohl das Ziel wieder da ist (Zurueck, dann wieder Weiter).
     letzte.current = ''
@@ -81,7 +85,7 @@ function useZielRect(target: TourStep['target'], aktiv: boolean): Rect | null {
       if (schluessel !== letzte.current) { letzte.current = schluessel; setRect(neu) }
       frame = requestAnimationFrame(messen)
     }
-    frame = requestAnimationFrame(messen)
+    messen()   // sofort einmal messen, damit das Erklaerfenster gleich am Ziel steht
     return () => cancelAnimationFrame(frame)
   }, [schluesselDesZiels, aktiv])
 
@@ -100,6 +104,8 @@ export function TourOverlay() {
   const [phase, setPhase] = useState<'anleitung' | 'ergebnis'>('anleitung')
   // Sofort zu im Browser; die Notiz am Konto laeuft hinterher (siehe Kopfkommentar).
   const [geschlossen, setGeschlossen] = useState(false)
+  // Kurz nach einem Schrittwechsel wird noch gesucht; erst danach darf „nicht da" stehen.
+  const [suchtNoch, setSuchtNoch] = useState(true)
   const panel = useRef<HTMLDivElement>(null)
 
   const current = TOUR_STEPS[step]
@@ -115,7 +121,9 @@ export function TourOverlay() {
   const aufforderung = hinfuehren ? `Öffnen Sie zuerst die Seite, auf der das passiert.` : current.action
   // != null statt !== null: der Server laesst leere Felder weg (siehe Kopfkommentar).
   const sichtbar = planning && !!me.data && me.data.tourCompletedAt == null && !geschlossen
-  const rect = useZielRect(ziel, sichtbar && phase === 'anleitung')
+  // Auch im Ergebnis weitermessen: sonst springt das Erklaerfenster nach dem Klick in die Ecke und beim
+  // naechsten Schritt wieder zurueck ans Ziel — das wirkte wie ein Fehler.
+  const rect = useZielRect(ziel, sichtbar)
 
   const beenden = useCallback(() => {
     setGeschlossen(true)
@@ -124,6 +132,16 @@ export function TourOverlay() {
     setPhase('anleitung')
     setTour.mutate({ completed: true })
   }, [setTour])
+
+  /**
+   * „Ueberspringen" laesst nicht den einzelnen Schritt aus, sondern das ganze Thema: den naechsten Schritt,
+   * der auf einer anderen Seite spielt. Wer die Grunddaten kennt, will nicht drei Erklaerungen dazu wegklicken.
+   */
+  const naechsteSeite = useCallback(() => {
+    const jetzt = TOUR_STEPS[step].route
+    const n = TOUR_STEPS.findIndex((s2, i) => i > step && s2.route !== jetzt)
+    return n === -1 ? TOUR_STEPS.length - 1 : n
+  }, [step])
 
   /** Schritt und Phase zusammen setzen, sonst zeigt ein Bild lang das Ergebnis des alten Schritts. */
   const geheZu = useCallback((n: number) => {
@@ -214,17 +232,29 @@ export function TourOverlay() {
     width: rect.width + 2 * LUFT, height: rect.height + 2 * LUFT,
   }
 
+  // Solange nach dem Ziel gesucht wird, bleibt das Fenster durchsichtig statt kurz in der Ecke aufzublitzen
+  // und dann ans Ziel zu springen — genau dieses Zucken sah man beim Schrittwechsel. Durchsichtig statt
+  // versteckt, damit es fuer Vorlesesoftware und Tests die ganze Zeit dasteht.
+  const sucht = phase === 'anleitung' && rect === null && suchtNoch
+
   // Erklaerfenster unter das Ziel, sonst darueber, sonst unten rechts. Immer im sichtbaren Bereich: bei einem
   // schmalen Fenster ergaebe `innerWidth - Breite` sonst einen negativen Rand, und ohne Hoehenbegrenzung
   // ragte das Fenster oben heraus.
   const platzUnten = loch ? window.innerHeight - (loch.top + loch.height) : 0
   const platzOben = loch ? loch.top : 0
   const links = loch ? Math.max(RAND, Math.min(loch.left, window.innerWidth - PANEL_BREITE - RAND)) : 0
-  const panelStil: CSSProperties = loch && sperren && Math.max(platzUnten, platzOben) > PANEL_PLATZ
-    ? platzUnten > PANEL_PLATZ
-      ? { top: loch.top + loch.height + RAND, left: links, maxHeight: platzUnten - 2 * RAND, overflowY: 'auto' }
-      : { top: RAND, left: links, maxHeight: platzOben - 2 * RAND, overflowY: 'auto' }
-    : { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' }
+  // Drei Lagen: unter dem Ziel, darueber, oder — wenn beides nicht passt — unten rechts in der Ecke.
+  const lage: 'unten' | 'oben' | 'ecke' =
+    loch && Math.max(platzUnten, platzOben) > PANEL_PLATZ
+      ? (platzUnten > PANEL_PLATZ ? 'unten' : 'oben')
+      : 'ecke'
+  const panelStil: CSSProperties = loch && lage === 'unten'
+    ? { top: loch.top + loch.height + RAND, left: links, maxHeight: platzUnten - 2 * RAND, overflowY: 'auto' }
+    : loch && lage === 'oben'
+      ? { bottom: window.innerHeight - loch.top + RAND, left: links, maxHeight: platzOben - 2 * RAND, overflowY: 'auto' }
+      : { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' }
+  // Zipfel zum Ziel: ohne ihn steht die Anleitung irgendwo und man sucht den gemeinten Knopf.
+  const zipfelLinks = loch ? Math.max(14, Math.min(loch.left + loch.width / 2 - links - 6, PANEL_BREITE - 26)) : 0
 
   return createPortal(
     <>
@@ -234,19 +264,10 @@ export function TourOverlay() {
         // nicht: an den Ecken bliebe sonst je ein Zipfel stehen.
         // Stehen im Portal vor dem Erklaerfenster und liegen deshalb bei gleichem z-index darunter.
         <div aria-hidden className="print-hide fixed inset-0 z-50" style={{ pointerEvents: 'none' }}>
-          <div className="absolute" style={{ pointerEvents: 'auto', top: 0, left: 0, right: 0, height: loch.top }} />
-          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top + loch.height, left: 0, right: 0, bottom: 0 }} />
-          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top, left: 0, width: loch.left, height: loch.height }} />
-          <div className="absolute" style={{ pointerEvents: 'auto', top: loch.top, left: loch.left + loch.width, right: 0, height: loch.height }} />
-          {/* Die Verdunkelung: ein riesiger Schatten nach aussen, innen das abgerundete Loch. Faengt selbst
-              nichts ab (ein Schatten ist nicht anklickbar) — dafuer sind die vier Flaechen da. */}
-          <div
-            className="absolute"
-            style={{
-              top: loch.top, left: loch.left, width: loch.width, height: loch.height,
-              borderRadius: rundung ?? LOCH_RUNDUNG, boxShadow: '0 0 0 9999px color-mix(in oklab, var(--foreground) 55%, transparent)',
-            }}
-          />
+          <div className="absolute bg-[var(--tour-dunkel)]" style={{ pointerEvents: 'auto', top: 0, left: 0, right: 0, height: loch.top }} />
+          <div className="absolute bg-[var(--tour-dunkel)]" style={{ pointerEvents: 'auto', top: loch.top + loch.height, left: 0, right: 0, bottom: 0 }} />
+          <div className="absolute bg-[var(--tour-dunkel)]" style={{ pointerEvents: 'auto', top: loch.top, left: 0, width: loch.left, height: loch.height }} />
+          <div className="absolute bg-[var(--tour-dunkel)]" style={{ pointerEvents: 'auto', top: loch.top, left: loch.left + loch.width, right: 0, height: loch.height }} />
         </div>
       )}
 
@@ -259,8 +280,17 @@ export function TourOverlay() {
         // aus demselben Grund: ein modaler Dialog setzt `pointer-events: none` auf den Body, sonst waeren die
         // Knoepfe des Rundgangs tot, solange das Formular offen ist.
         className="print-hide fixed z-[100] w-[22rem] max-w-[calc(100%-2rem)] rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10"
-        style={{ ...panelStil, pointerEvents: 'auto' }}
+        style={{ ...panelStil, pointerEvents: 'auto', opacity: sucht ? 0 : 1 }}
       >
+        {lage !== 'ecke' && (
+          <span
+            aria-hidden
+            className="absolute size-3 rotate-45 bg-popover ring-1 ring-foreground/10"
+            style={lage === 'unten'
+              ? { top: -6, left: zipfelLinks, clipPath: 'polygon(0 0, 100% 0, 0 100%)' }
+              : { bottom: -6, left: zipfelLinks, clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }}
+          />
+        )}
         <div className="flex items-center gap-2 text-xs text-foreground-subtle">
           <Compass className="size-3.5" aria-hidden />
           <span className="font-semibold tracking-wide uppercase">Rundgang</span>
@@ -276,7 +306,7 @@ export function TourOverlay() {
             <MousePointerClick className="mt-0.5 size-4 shrink-0" aria-hidden />
             <span>
               {aufforderung}
-              {rect === null && <span className="mt-1 block font-normal text-muted-foreground">Das Element ist gerade nicht da — es erscheint erst, wenn die Seite es anbietet (etwa „Berechnen" nur bei vorhandenem Entwurf). Mit „Weiter" geht es zum nächsten Schritt.</span>}
+              {rect === null && !suchtNoch && <span className="mt-1 block font-normal text-muted-foreground">Das Element ist gerade nicht da — es erscheint erst, wenn die Seite es anbietet (etwa „Berechnen" nur bei vorhandenem Entwurf). Mit „Weiter" geht es zum nächsten Schritt.</span>}
             </span>
           </p>
         ) : (
@@ -295,7 +325,7 @@ export function TourOverlay() {
             {letzter
               ? <Button size="sm" onClick={beenden}>Fertig</Button>
               : phase === 'anleitung'
-                ? <Button variant="ghost" size="sm" className="text-foreground-subtle" onClick={() => geheZu(step + 1)}>Überspringen</Button>
+                ? <Button variant="ghost" size="sm" className="text-foreground-subtle" onClick={() => geheZu(naechsteSeite())}>Überspringen</Button>
                 : <Button size="sm" onClick={() => geheZu(step + 1)}>Weiter</Button>}
           </div>
         </div>
