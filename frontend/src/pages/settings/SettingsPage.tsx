@@ -29,6 +29,7 @@ import { usePasswordChange } from '@/lib/password-change'
 import { schoolYearOf } from '@/lib/dates'
 import { useFieldErrors } from '@/lib/form-errors'
 import { today } from '@/lib/today'
+import { TransferCard } from '@/components/masterdata/TransferCard'
 
 const TABS = [
   { id: 'schule', label: 'Schule', icon: School },
@@ -55,7 +56,12 @@ export function SettingsPage() {
           ))}
         </TabsList>
         <TabsContent value="schule"><SchoolTab /></TabsContent>
-          <TabsContent value="beispieldaten" className="space-y-4"><SampleDataCard /><EmptyActivePlanCard /><ClearAllDataCard /></TabsContent>
+        <TabsContent value="beispieldaten" className="space-y-4">
+          <SampleDataCard />
+          <TransferCard />
+          <EmptyActivePlanCard />
+          <ClearAllDataCard />
+        </TabsContent>
         <TabsContent value="konten"><AccountsTab /></TabsContent>
         <TabsContent value="passwort"><PasswordTab /></TabsContent>
         <TabsContent value="ferien"><SectionCard title="Unterrichtsfreie Zeiträume" description="Ferien und Feiertage (Kann-Anforderung). Für das eingestellte Bundesland liegt eine Vorlage bei."><HolidaysTable /></SectionCard></TabsContent>

@@ -92,8 +92,8 @@ export function TransferButtons({ scope }: { scope: TransferScope }) {
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <a href="/einstellungen?bereich=transfer" className="text-xs text-foreground-subtle">
-              <Info /> Ganze Schule sichern — Einstellungen → Sicherung
+            <a href="/einstellungen?bereich=beispieldaten" className="text-xs text-foreground-subtle">
+              <Info /> Ganze Schule sichern — Einstellungen → Daten verwalten
             </a>
           </DropdownMenuItem>
         </DropdownMenuContent>
