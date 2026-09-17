@@ -11,7 +11,7 @@ export function WeekGridSkeleton({ slots, className }: { slots?: TimeslotDto[]; 
     <div className={cn('overflow-x-auto rounded-lg border bg-card shadow-xs', className)} aria-busy="true" aria-label="Wochenraster lädt">
       <div
         className="week-grid grid min-w-fit"
-        style={{ gridTemplateColumns: `64px repeat(${Math.max(days.length, 1)}, minmax(140px, 1fr))`, gridTemplateRows: `36px repeat(${rows}, 72px)` }}
+        style={{ gridTemplateColumns: `76px repeat(${Math.max(days.length, 1)}, minmax(140px, 1fr))`, gridTemplateRows: `36px repeat(${rows}, 72px)` }}
       >
         <div className="border-b border-grid-line bg-background" />
         {days.map((d) => (
