@@ -4,6 +4,7 @@ import de.wsp3_1.planning.domain.DraftService;
 import de.wsp3_1.planning.domain.DraftSource;
 import de.wsp3_1.planning.domain.SolveService;
 import de.wsp3_1.shared.domain.ConflictException;
+import de.wsp3_1.shared.domain.DatabaseCleaner;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -129,23 +130,8 @@ public class SampleDataLoader {
 
     // ---------------------------------------------------------------- Leeren
 
-    /**
-     * Alles, was ein Beispielbestand fuellt — Kindtabellen zuerst. Bewusst {@code DELETE} statt
-     * {@code TRUNCATE ... CASCADE}: {@code user_account.teacher_id} verweist auf {@code teacher},
-     * und {@code CASCADE} wuerde {@code user_account} mitleeren — das Konto der Planung waere weg.
-     */
-    private static final List<String> LEEREN = List.of(
-            "exception_event", "changelog_entry", "lesson_exception", "change_event",
-            "lesson", "timetable",
-            "class_subject", "teacher_subject", "teacher_preferred_timeslot", "teacher_blocked_timeslot",
-            "teacher", "subject", "room_blocked_timeslot", "room", "school_class", "timeslot", "holiday");
-
-    /** Tabellen mit {@code bigserial}: nach dem Leeren faengt die Nummerierung wieder bei 1 an. */
-    private static final List<String> ZAEHLER = List.of(
-            "teacher", "subject", "room", "school_class", "timeslot", "class_subject",
-            "timetable", "lesson", "change_event", "lesson_exception", "changelog_entry", "holiday");
-
     private final JdbcTemplate jdbc;
+    private final DatabaseCleaner databaseCleaner;
     private final DraftService draftService;
     private final SolveService solveService;
     private final int planSolveSeconds;
@@ -157,9 +143,11 @@ public class SampleDataLoader {
      *                         ({@code application-ci.properties}): dort soll der Weg belegt werden,
      *                         nicht die Guete des Plans.
      */
-    public SampleDataLoader(JdbcTemplate jdbc, DraftService draftService, SolveService solveService,
+    public SampleDataLoader(JdbcTemplate jdbc, DatabaseCleaner databaseCleaner, DraftService draftService,
+                            SolveService solveService,
                             @Value("${app.sample-data.solve-seconds:10}") int planSolveSeconds) {
         this.jdbc = jdbc;
+        this.databaseCleaner = databaseCleaner;
         this.draftService = draftService;
         this.solveService = solveService;
         this.planSolveSeconds = planSolveSeconds;
@@ -185,24 +173,7 @@ public class SampleDataLoader {
      */
     @Transactional
     public void clear() {
-        // Konten der Lehrkraefte und der Klassen zuerst: sie verweisen auf teacher bzw. school_class
-        // (E-50). Ohne diese Zeile scheitert das Leeren von school_class am Fremdschluessel.
-        // Das Konto der Planung bleibt.
-        jdbc.update("DELETE FROM user_account WHERE role <> 'PLANNING'");
-
-        Set<String> vorhanden = new HashSet<>(jdbc.queryForList(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()",
-                String.class));
-        for (String tabelle : LEEREN) {
-            // Alle Tabellen stehen seit V1 bis V5. Die Pruefung gegen information_schema bleibt,
-            // damit das Leeren auch gegen eine aeltere Datenbank ohne holiday laeuft.
-            if (vorhanden.contains(tabelle)) {
-                jdbc.update("DELETE FROM " + tabelle);
-            }
-        }
-        for (String tabelle : ZAEHLER) {
-            jdbc.update("ALTER SEQUENCE IF EXISTS " + tabelle + "_id_seq RESTART");
-        }
+        databaseCleaner.clear();
     }
 
     /**

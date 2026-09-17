@@ -159,7 +159,8 @@ class ArchitectureTest {
             ROOT + ".changelog.domain.ChangelogService",
             // ImportService leert vor dem Einspielen die Grunddatentabellen (dieselbe Liste wie
             // SampleDataLoader). Reines JdbcTemplate; die Modultabelle sieht SQL nicht (Regel 5).
-            ROOT + ".transfer.domain.ImportService");
+            ROOT + ".transfer.domain.ImportService",
+            ROOT + ".shared.domain.DatabaseCleaner");
 
     @Test
     @DisplayName("Regel 5: rohes SQL nur an den im Vertrag genannten Stellen")

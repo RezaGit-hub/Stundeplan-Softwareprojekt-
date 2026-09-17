@@ -1384,6 +1384,22 @@ paths:
                 title: Es sind bereits Daten vorhanden
                 status: 409
                 detail: Die Datenbank enthält bereits Grunddaten. Zum Ersetzen „replace" setzen.
+  
+  /api/clear-data/all:
+    delete:
+      tags: [Konfiguration]
+      operationId: deleteBasedata
+      summary: Alle Grunddaten löschen
+      description: |
+        Es werden alle Grunddaten aus der Datenbank gelöscht.
+      x-role: PLANNING
+      responses:
+        '204':
+          description: Daten gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
 
   # =====================================================================================================
   # v1 — Planung, Wochensichten, Entwurf, Berechnung, Ereignisse, Vertretung, Verlauf, Ferien (T-403)
