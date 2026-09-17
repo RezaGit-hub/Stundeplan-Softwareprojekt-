@@ -228,7 +228,7 @@
 /* ========================= BASISREGELN ========================= */
 @layer base {
   * { @apply border-border outline-ring/50; }
-  html { @apply font-sans; -webkit-text-size-adjust: 100%; }
+    html { @apply font-sans; -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
   body {
     @apply bg-background text-foreground text-sm antialiased;
     font-feature-settings: "cv05" 1, "cv08" 1, "ss03" 1; /* Inter: echtes l/I, offenes a */
