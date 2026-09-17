@@ -205,6 +205,13 @@ export const usePutConfig = () => useApiMutation((body: ConfigDto) => api.putCon
   invalidate(qc, qk.health, qk.holidayPresetYears)
 })
 export const useLoadSampleData = (opts?: MutationOpts) => useApiMutation((body?: { replace?: boolean }) => api.loadSampleData(body), (qc) => void qc.invalidateQueries(), opts)
+
+
+// Grunddaten komplett löschen (#160): eine Anfrage statt Schleife über die Einzel-Endpunkte (#148, alt).
+// Löscht serverseitig mit Kaskade, unabhängig davon, ob etwas noch verwendet wird — deshalb hier keine
+// gezielten Query-Keys, sondern volle Invalidierung (wie bei useLoadSampleData): fast alles kann betroffen sein.
+export const useClearAllMasterData = (opts?: MutationOpts) => useApiMutation(() => api.clearAllMasterData(), (qc) => void qc.invalidateQueries(), opts)
+
 // Entwurf — jede Mutation schreibt qk.draft selbst, deshalb vorher das laufende GET /draft abbrechen (cancel)
 // und alle Entwurfs-Mutationen nacheinander laufen lassen (scope), damit keine späte Antwort eine frischere überschreibt.
 const DRAFT: MutationOpts = { cancel: [qk.draft], scope: 'draft' }

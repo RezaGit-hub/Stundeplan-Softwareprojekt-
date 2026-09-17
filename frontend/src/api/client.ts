@@ -127,6 +127,9 @@ deleteUser: (id) => request('DELETE', `/users/${id}`),
   putConfig: (body) => request('PUT', '/config', { body }),
   loadSampleData: (body) => request('POST', '/sample-data', { body: body ?? {} }),
 
+  
+  clearAllMasterData: () => request('DELETE', '/clear-data/all'),
+
   getTimetable: () => request('GET', '/timetable'),
   getWeek: (q) => request('GET', '/timetable/week', { query: q }),
   getMyWeek: (q) => request('GET', '/me/timetable/week', { query: q }),

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { CalendarOff, Database, KeyRound, Plus, Save, School, UserRound, Users, Trash2 } from 'lucide-react'
+import { CalendarOff, Database, KeyRound, Plus, Save, School, UserRound, Users } from 'lucide-react'
 import { useConfig, useLoadHolidayPreset, usePutConfig, useTeachers, useUsers } from '@/api/hooks'
 import type { ConfigDto } from '@/api/types'
 import { Button } from '@/components/ui/button'
@@ -20,7 +20,7 @@ import { ClassAccountsDialog } from '@/components/masterdata/ClassAccountsDialog
 import { UserDialog } from '@/components/masterdata/UserDialog'
 import { UsersTable } from '@/components/masterdata/UsersTable'
 import { TeacherAccountsDialog } from '@/components/masterdata/TeacherAccountsDialog'
-import { DataDeletionTab } from '@/components/masterdata/DataDeletionTab'
+import { ClearAllDataCard } from '@/components/masterdata/ClearAllDataCard'
 import { presetToast, SCHOOL_TYPE_LABEL, STATE_LABEL } from '@/components/masterdata/helpers'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { Field, SectionCard } from '@/components/masterdata/shared'
@@ -32,11 +32,11 @@ import { today } from '@/lib/today'
 
 const TABS = [
   { id: 'schule', label: 'Schule', icon: School },
-  { id: 'beispieldaten', label: 'Beispieldaten', icon: Database },
+  { id: 'beispieldaten', label: 'Daten verwalten', icon: Database },
   { id: 'konten', label: 'Benutzerkonten', icon: UserRound },
   { id: 'passwort', label: 'Eigenes Passwort', icon: KeyRound },
   { id: 'ferien', label: 'Unterrichtsfreie Zeiträume', icon: CalendarOff },
-  { id: 'loeschen', label: 'Grunddaten löschen', icon: Trash2 },
+  
 ] as const
 type TabId = (typeof TABS)[number]['id']
 
@@ -55,11 +55,11 @@ export function SettingsPage() {
           ))}
         </TabsList>
         <TabsContent value="schule"><SchoolTab /></TabsContent>
-        <TabsContent value="beispieldaten" className="space-y-4"><SampleDataCard /><EmptyActivePlanCard /></TabsContent>
+          <TabsContent value="beispieldaten" className="space-y-4"><SampleDataCard /><EmptyActivePlanCard /><ClearAllDataCard /></TabsContent>
         <TabsContent value="konten"><AccountsTab /></TabsContent>
         <TabsContent value="passwort"><PasswordTab /></TabsContent>
         <TabsContent value="ferien"><SectionCard title="Unterrichtsfreie Zeiträume" description="Ferien und Feiertage (Kann-Anforderung). Für das eingestellte Bundesland liegt eine Vorlage bei."><HolidaysTable /></SectionCard></TabsContent>
-        <TabsContent value="loeschen"><DataDeletionTab /></TabsContent>
+        
       </Tabs>
     </>
   )
