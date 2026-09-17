@@ -120,7 +120,7 @@
 
   --success: #4CAF50;   --success-foreground: #09090B;  --success-soft: #14251A;  /* 7.16:1 */
   --warning: #FFB300;   --warning-foreground: #09090B;  --warning-soft: #2A2007;  /* 11.08:1 */
-  --warning-surface: #FFB300;
+  --warning-surface: #3A2E0B;
 
   /* Fach-Semantik: gleiche Bedeutung, aufgehellte Töne */
   --substitution:       #FF9800;  /* 8.22:1 auf Karte */
