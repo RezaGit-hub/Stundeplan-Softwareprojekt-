@@ -9,6 +9,7 @@ import { PageHeader } from '@/components/layout/PageHeader'
 import { ProblemBanner } from '@/components/states/ProblemBanner'
 import { WeekPicker } from '@/components/plan/WeekPicker'
 import { EventForm } from '@/components/substitution/EventForm'
+import { AbsenceNoticeCard } from '@/components/substitution/AbsenceNoticeCard'
 import { EventList } from '@/components/substitution/EventList'
 import { OptionsPanel } from '@/components/substitution/OptionsPanel'
 import { PendingTable } from '@/components/substitution/PendingTable'
@@ -83,6 +84,7 @@ export function SubstitutionPage() {
       <div className="grid items-start gap-5 xl:grid-cols-[17rem_minmax(0,1fr)_19rem]">
         <div className="space-y-4">
           <EventForm defaultDate={datum} onCreated={onCreated} />
+          <AbsenceNoticeCard from={from} to={to} />
           <EventList from={from} to={to} />
         </div>
 

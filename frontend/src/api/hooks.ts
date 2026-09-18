@@ -223,6 +223,11 @@ export const usePutConfig = () => useApiMutation((body: ConfigDto) => api.putCon
   invalidate(qc, qk.health, qk.holidayPresetYears)
 })
 export const useLoadSampleData = (opts?: MutationOpts) => useApiMutation((body?: { replace?: boolean }) => api.loadSampleData(body), (qc) => void qc.invalidateQueries(), opts)
+// Grunddaten komplett löschen (#160): eine Anfrage statt Schleife über die Einzel-Endpunkte (#148, alt).
+// Löscht serverseitig mit Kaskade, unabhängig davon, ob etwas noch verwendet wird — deshalb hier keine
+// gezielten Query-Keys, sondern volle Invalidierung (wie bei useLoadSampleData): fast alles kann betroffen sein.
+export const useClearAllMasterData = (opts?: MutationOpts) => useApiMutation(() => api.clearAllMasterData(), (qc) => void qc.invalidateQueries(), opts)
+
 // Entwurf — jede Mutation schreibt qk.draft(id) selbst, deshalb vorher das laufende GET /drafts/{id}
 // abbrechen (cancel) und alle Mutationen DIESES Entwurfs nacheinander laufen lassen (scope). Seit es
 // mehrere Entwürfe nebeneinander gibt (#103), trägt der Bereich die Kennung: ein zweiter Entwurf wartet

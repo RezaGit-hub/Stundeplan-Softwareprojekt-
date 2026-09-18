@@ -127,6 +127,9 @@ deleteUser: (id) => request('DELETE', `/users/${id}`),
   putConfig: (body) => request('PUT', '/config', { body }),
   loadSampleData: (body) => request('POST', '/sample-data', { body: body ?? {} }),
 
+  
+  clearAllMasterData: () => request('DELETE', '/clear-data/all'),
+
   getTimetable: () => request('GET', '/timetable'),
   listTimetables: () => request('GET', '/timetables'),
   getTimetableById: (id) => request('GET', `/timetables/${id}`),

@@ -533,6 +533,10 @@ export interface Api {
   putConfig(body: ConfigDto): Promise<ConfigDto>
   loadSampleData(body?: { replace?: boolean }): Promise<SampleDataResult>
 
+  /** #160: Lehrkräfte, Klassen, Räume und Fächer zusammen mit allem, was noch auf sie verweist —
+   *  anders als die einzelnen DELETE-Endpunkte, die bei Verwendung mit 409 ablehnen. */
+  clearAllMasterData(): Promise<void>
+
   getTimetable(): Promise<TimetableDto>
   /** Alle angenommenen Pläne, Beginn aufsteigend (seit 1.4.0, #115) */
   listTimetables(): Promise<TimetableSummaryDto[]>

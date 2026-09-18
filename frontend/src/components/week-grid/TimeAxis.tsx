@@ -14,14 +14,14 @@ export function TimeAxisCell({ slot, number, style, className }: { slot?: Timesl
     return (
       <div style={style} className={cn('flex flex-col items-center justify-center border-b border-grid-line bg-break-row text-break-foreground', className)}>
         <span className="text-xs font-medium">Pause</span>
-        <span className="text-2xs tabular-nums">{short(slot.startTime)}–{short(slot.endTime)}</span>
+        <span className="text-2xs tabular-nums whitespace-nowrap">{short(slot.startTime)}–{short(slot.endTime)}</span>
       </div>
     )
   }
   return (
     <div style={style} className={cn('flex flex-col items-center justify-center border-b border-grid-line', className)}>
       <span className="text-lg leading-6 font-semibold tabular-nums">{number ?? ''}</span>
-      <span className="text-2xs tabular-nums text-muted-foreground">{short(slot.startTime)}–{short(slot.endTime)}</span>
+      <span className="text-2xs tabular-nums whitespace-nowrap text-muted-foreground">{short(slot.startTime)}–{short(slot.endTime)}</span>
     </div>
   )
 }

@@ -642,6 +642,27 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       return { classes: s.classes.length, teachers: s.teachers.length, rooms: s.rooms.length }
     },
 
+        async clearAllMasterData() {
+      await planning()
+      // #160: Kaskade wie im Backend — Lehrkräfte, Klassen, Räume, Fächer weg, alles, was noch auf sie
+      // verweist, geht mit (Stunden, Ereignisse, Ausnahmen, Konten außer Planung). Der Plan (Timetable-
+      // Zeile) selbst bleibt bestehen, nur leer — laut Anthony bleibt er im Hintergrund erhalten und
+      // könnte später wieder befüllt werden, statt neu angelegt zu werden.
+      for (const t of s.timetables) t.lessons = []
+      // Seit #103 rechnet der Solver je Entwurf, die Fristen stehen deshalb in einer Map statt in
+      // einem einzelnen Feld: hier alle abbrechen, sonst schriebe ein laufender Lauf die eben
+      // geleerten Stunden wieder hin.
+      for (const timer of s.solveTimers.values()) clearTimeout(timer)
+      s.solveTimers.clear()
+      s.events = []
+      s.exceptions = []
+      s.users = s.users.filter((u) => u.role === 'PLANNING')
+      s.teachers = []
+      s.classes = []
+      s.rooms = []
+      s.subjects = []
+    },
+
     // ---------------- Aktiver Plan, Wochen
     async getTimetable() { await planning(); return timetableDto(activeTimetable(s), s) },
     async listTimetables() {

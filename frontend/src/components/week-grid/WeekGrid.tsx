@@ -76,7 +76,7 @@ export function WeekGrid(props: WeekGridProps) {
       {/* --col-min ist die Mindestbreite einer Tagesspalte; der Druck setzt sie auf 0, damit alle Tage auf die Seite passen (index.css) */}
       <div
         className="week-grid grid min-w-fit"
-        style={{ gridTemplateColumns: `64px repeat(${Math.max(days.length, 1)}, minmax(var(--col-min, 140px), 1fr))`, gridTemplateRows: `36px repeat(${rows}, 72px)` }}
+        style={{ gridTemplateColumns: `76px repeat(${Math.max(days.length, 1)}, minmax(var(--col-min, 140px), 1fr))`, gridTemplateRows: `36px repeat(${rows}, 72px)` }}
       >
         <div className="sticky top-0 z-10 border-b border-grid-line bg-background" style={{ gridColumn: 1, gridRow: 1 }} />
         {days.map((d, i) => (

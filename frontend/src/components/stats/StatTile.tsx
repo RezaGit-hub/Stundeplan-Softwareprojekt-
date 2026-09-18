@@ -8,6 +8,13 @@ const TONE: Record<'default' | 'warning' | 'destructive', string> = {
   destructive: 'text-destructive',
 }
 
+/** Hintergrund/Rahmen der ganzen Kachel bei warning/destructive — nicht nur die Zahl (Issue #96). */
+const TONE_BG: Record<'default' | 'warning' | 'destructive', string> = {
+  default: '',
+  warning: 'bg-warning-surface border-warning/40',
+  destructive: 'bg-destructive/5 border-destructive/25',
+}
+
 /** Kennzahl-Kachel (Tremor-Stil). Als Link, wenn `to` gesetzt ist. Zahlen werden nicht animiert. */
 export function StatTile({ label, value, hint, tone = 'default', icon: Icon, to, className }: {
   label: string
@@ -28,6 +35,11 @@ export function StatTile({ label, value, hint, tone = 'default', icon: Icon, to,
       {hint && <div className="mt-1 text-xs text-foreground-subtle">{hint}</div>}
     </>
   )
-  const classes = cn('stat-tile block rounded-lg border bg-card p-4 shadow-xs', to && 'transition-colors hover:bg-accent/60', className)
+  const classes = cn(
+    'stat-tile block rounded-lg border p-4 shadow-xs',
+    tone === 'default' ? 'bg-card' : TONE_BG[tone],
+    to && 'transition-colors hover:bg-accent/60',
+    className,
+  )
   return to ? <Link to={to} className={classes}>{body}</Link> : <div className={classes}>{body}</div>
 }
