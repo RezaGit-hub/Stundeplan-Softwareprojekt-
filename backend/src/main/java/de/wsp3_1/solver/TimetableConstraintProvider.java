@@ -80,7 +80,7 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         teacherPreferredTime(f),
         subjectSpreadOverWeek(f),
         doubleLesson(f),
-        //avoidFreePeriods(f),
+        avoidFreePeriods(f), 
         avoidTripleLessons(f)
         };
     }
@@ -327,49 +327,43 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                 .asConstraint("avoidTripleLessons");
     }
 
-    public Constraint avoidFreePeriods(ConstraintFactory f) {
-        return f.forEach(SolverLesson.class)
-                .groupBy(
-                        SolverLesson::getClassId,
-                        lesson -> lesson.getTimeslot().day(),
-                        ConstraintCollectors.toList()
-                )
-                .filter((classId, day, lessons) -> {
-                    // Nur Tage mit mindestens 2 Stunden prüfen
-                    if (lessons.size() < 2) return false;
+        public Constraint avoidFreePeriods(ConstraintFactory f) {
+                return f.forEach(SolverLesson.class)
+                        .groupBy(
+                                SolverLesson::getClassId,
+                                lesson -> lesson.getTimeslot().day(),
+                                ConstraintCollectors.toList()
+                        )
+                        .penalize(HardMediumSoftScore.ONE_SOFT, (classId, day, lessons) -> gapPenalty(lessons))
+                        .asConstraint("avoidFreePeriods");
+                }
 
-                    // Sortierte Positionen dieser Klasse an diesem Tag
-                    List<Integer> positions = lessons.stream()
-                            .map(l -> l.getTimeslot().position())
-                            .sorted()
-                            .distinct()
-                            .toList();
-
-                    // Prüfe, ob zwischen zwei aufeinanderfolgenden Positionen eine Lücke > 1 ist
-                    for (int i = 0; i < positions.size() - 1; i++) {
-                        int gap = positions.get(i + 1) - positions.get(i);
-                        if (gap > 1) {
-                            return true; // Es gibt mindestens eine Freistunde
-                        }
-                    }
-                    return false;
-                })
-                // Hier wird nur einmal pro Tag/Klasse bestraft, nicht pro Paar
-                // Besser: Anzahl der Freistunden berechnen
-                .penalize(HardMediumSoftScore.ONE_SOFT, (classId, day, lessons) -> {
-                    List<Integer> positions = lessons.stream()
-                            .map(l -> l.getTimeslot().position())
-                            .sorted()
-                            .distinct()
-                            .toList();
-                    int totalGap = 0;
-                    for (int i = 0; i < positions.size() - 1; i++) {
-                        totalGap += positions.get(i + 1) - positions.get(i) - 1;
-                    }
-                    return totalGap; // Anzahl der tatsächlichen Freistunden
-                })
-                .asConstraint("avoidFreePeriods");
-            }
+                /**
+                 * Bestrafung eines Schultages: jede Luecke zwischen erster und letzter Stunde einer Klasse zaehlt
+                 * dreifach, jede Luecke vor der ersten Stunde einfach. Nachlaufende Luecken (die Klasse endet frueher
+                 * als der Tag) zaehlen nicht — der Solver kann sie nicht sinnvoll bestrafen, ohne die Gesamtzahl der
+                 * Stundennummern des Tages zu kennen, und sie sind der harmloseste Fall.
+                 */
+                private static int gapPenalty(List<SolverLesson> lessons) {
+                if (lessons.size() < 2) {
+                        return 0;
+                }
+                List<Integer> numbers = lessons.stream()
+                        .map(lesson -> lesson.getTimeslot().lessonNumber())
+                        .filter(java.util.Objects::nonNull)
+                        .sorted()
+                        .distinct()
+                        .toList();
+                if (numbers.size() < 2) {
+                        return 0;
+                }
+                int first = numbers.getFirst();
+                int last = numbers.getLast();
+                int span = last - first + 1;
+                int internalFree = span - numbers.size();   // Luecken zwischen erster und letzter Stunde
+                int leadingFree = first - 1;                // Luecken vor der ersten Stunde
+                return internalFree * 3 + leadingFree;
+        }
 
     // ---------------------------------------------------------------- gemeinsame Stroeme der Regel-Zwillinge
 
