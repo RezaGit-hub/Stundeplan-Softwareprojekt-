@@ -826,6 +826,8 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       if (hart.length) throw conflict409('draft-has-conflicts', 'Harte Konflikte im Entwurf', 'Der Entwurf hat harte Konflikte. Bitte erst lösen, dann annehmen.', { conflicts: hart })
       const from = body?.validFrom ?? heute
       const until = body?.validUntil ?? null
+      // Wie im Server: ein Beginn in der Vergangenheit ist 400. Ohne Angabe gilt heute.
+      if (body?.validFrom && body.validFrom < heute) throw validation([{ field: 'validFrom', message: 'Der Beginn darf nicht in der Vergangenheit liegen' }])
       if (until && until < from) throw validation([{ field: 'validUntil', message: 'Das Ende darf nicht vor dem Beginn liegen' }])
 
       const kuerzungen: { plan: MockTimetable; validUntil: string; archivieren: boolean }[] = []

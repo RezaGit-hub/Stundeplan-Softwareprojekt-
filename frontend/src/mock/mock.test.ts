@@ -434,6 +434,17 @@ describe('Gültigkeitszeitraum (#115)', () => {
     expect(s.timetables.find((t) => t.id === b.id)?.status).toBe('DRAFT')
   })
 
+  it('ein Beginn in der Vergangenheit ist 400 mit Feld validFrom', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    const d = await api.createDraft({ source: 'COPY_ACTIVE' })
+    const err = await api.acceptDraft(d.id, { validFrom: addDaysIso(heute, -1) }).catch((e: unknown) => e)
+    expect(err).toMatchObject({ status: 400 })
+    expect((err as ApiError).problem.errors?.[0].field).toBe('validFrom')
+    // Die Grenze liegt bei heute, nicht davor: derselbe Aufruf mit heute geht durch.
+    expect((await api.acceptDraft(d.id, { validFrom: heute })).validFrom).toBe(heute)
+  })
+
   it('ein Ende vor dem Beginn ist 400 mit Feld validUntil', async () => {
     const s = emptyStore(); loadSmall(s)
     const api = createMockApiForTests(s)
