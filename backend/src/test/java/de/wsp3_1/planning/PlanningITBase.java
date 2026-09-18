@@ -1,6 +1,7 @@
 package de.wsp3_1.planning;
 
 import de.wsp3_1.shared.IntegrationTestBase;
+import de.wsp3_1.solver.SolverRunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 public abstract class PlanningITBase extends IntegrationTestBase {
 
+    /** Wie lange vor einem Test auf das Ende eines fremden Solver-Laufs gewartet wird. */
+    private static final long SOLVER_STOP_TIMEOUT_MS = 30_000;
+
     /** Reihenfolge von innen nach aussen; ohne CASCADE, damit das Konto {@code admin} bestehen bleibt. */
     private static final List<String> TABLES_TO_CLEAR = List.of(
             "exception_event", "lesson_exception", "change_event", "changelog_entry",
@@ -48,10 +52,14 @@ public abstract class PlanningITBase extends IntegrationTestBase {
     @Autowired
     protected JdbcTemplate jdbc;
 
+    @Autowired
+    protected SolverRunner solverRunner;
+
     protected String token;
 
     @BeforeEach
     void resetAndLogin() throws Exception {
+        stopRunningSolves();
         // Alles ausser der Planung: Lehrkraft- UND Klassenkonten (E-50). Muss vor school_class
         // laufen, sonst haelt user_account.class_id die Klassenzeile fest.
         jdbc.execute("DELETE FROM user_account WHERE role <> 'PLANNING'");
@@ -99,6 +107,41 @@ public abstract class PlanningITBase extends IntegrationTestBase {
      * Spring-Kontext <b>und</b> eine Datenbank: wer {@code system_config} aendert und sie stehen laesst,
      * bringt {@code ConfigIT} zu Fall (gemessen 05.09.). Genauso macht es {@code ConfigIT} selbst.
      */
+    /**
+     * Kein Solver-Lauf darf in den naechsten Test hineinreichen. Timefold rechnet in einem eigenen
+     * Faden weiter, auch wenn der Test laengst zu Ende ist: sein Ergebnis landet dann in Tabellen,
+     * die dieser Test gerade erst geleert hat, und mit {@code parallel-solver-count=1} wartet der
+     * naechste Lauf ausserdem auf den alten. Das traf sporadisch fremde Testklassen — {@code WeekIT}
+     * scheiterte schon beim Aufbau der Testdaten, waehrend der Fehler in {@code SolveServiceIT}
+     * entstanden war (rote {@code backend:integration}-Laeufe, 17./18.09.).
+     *
+     * <p>Darum vor jedem Test: alles abbrechen, was noch laeuft, und abwarten, bis der Rueckruf durch
+     * ist. Erst danach wird geleert. Laeuft nichts, kostet das nichts.</p>
+     */
+    private void stopRunningSolves() {
+        List<Long> ids = jdbc.queryForList("SELECT id FROM timetable", Long.class);
+        ids.forEach(solverRunner::cancel);
+        long deadline = System.currentTimeMillis() + SOLVER_STOP_TIMEOUT_MS;
+        for (Long id : ids) {
+            while (solverRunner.isSolving(id)) {
+                if (System.currentTimeMillis() > deadline) {
+                    throw new IllegalStateException("Ein Solver-Lauf aus einem frueheren Test laeuft"
+                            + " nach " + SOLVER_STOP_TIMEOUT_MS / 1000 + " s noch (Entwurf " + id + ").");
+                }
+                sleepQuietly(50);
+            }
+        }
+    }
+
+    private static void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Warten unterbrochen", ex);
+        }
+    }
+
     @AfterEach
     void rechenzeitZurueckstellen() {
         jdbc.update("UPDATE system_config SET max_solve_seconds = 60 WHERE id = 1");
