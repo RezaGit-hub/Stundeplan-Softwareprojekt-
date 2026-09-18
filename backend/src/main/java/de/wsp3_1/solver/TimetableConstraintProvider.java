@@ -305,7 +305,7 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                         // NUR aufeinanderfolgende Stunden = Doppelstunde
                         return diff == 1;
                 })
-                .reward(HardMediumSoftScore.ONE_SOFT)
+                .reward(HardMediumSoftScore.ofSoft(3))
                 .asConstraint("doubleLesson");
         }
 
