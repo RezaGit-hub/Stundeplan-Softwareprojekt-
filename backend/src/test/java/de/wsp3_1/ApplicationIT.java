@@ -36,10 +36,9 @@ class ApplicationIT extends IntegrationTestBase {
         List<String> versionen = jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
 
-        // V10 gibt es nicht: die Nummer fiel beim Zusammenfuehren zweier Zweige aus (Flyway stoert
-        // eine Luecke nicht). V11 = mehrere Entwuerfe (#103), V12 = Gueltigkeitszeitraum und
-        // Ablage (#115, #116).
-        assertThat(versionen).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "11", "12");
+        // V10 = Rundgang (#139), V11 = mehrere Entwuerfe (#103), V12 = Gueltigkeitszeitraum und
+        // Ablage (#115, #116). Die drei kamen aus verschiedenen Zweigen und stehen erst hier zusammen.
+        assertThat(versionen).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
     }
 
     /**

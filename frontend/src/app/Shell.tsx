@@ -1,4 +1,5 @@
-// Eine Shell für alle Seiten: Sidebar + Topbar + Entwurfs-Hinweis + animierter Seiteninhalt + Command-Palette (⌘K).
+// Eine Shell für alle Seiten: Sidebar + Topbar + Entwurfs-Hinweis + animierter Seiteninhalt + Command-Palette (⌘K)
+// + Rundgang (#139, nur Planung und nur bis zum ersten „Fertig"/„Überspringen").
 import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { ArrowRight, PencilRuler } from 'lucide-react'
@@ -8,6 +9,7 @@ import { AnimatedOutlet } from './AnimatedOutlet'
 import { AppSidebar } from './AppSidebar'
 import { CommandPalette } from './CommandPalette'
 import { Topbar } from './Topbar'
+import { TourOverlay } from './TourOverlay'
 import { useAuth } from './auth'
 
 /**
@@ -62,6 +64,7 @@ export function Shell() {
         </div>
       </SidebarInset>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <TourOverlay />
     </SidebarProvider>
   )
 }

@@ -8,6 +8,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.time.Instant;
+
 /**
  * Die DTOs rund um Anmeldung und Konten. Feldnamen und Typen 1:1 wie in
  * {@code frontend/src/api/types.ts} und im Vertrag {@code api-contract/openapi.yaml}.
@@ -29,7 +31,16 @@ public final class AuthDtos {
     public record LoginResponse(String token, Role role, String displayName, Long teacherId) {
     }
 
-    public record MeDto(Long id, String username, Role role, String displayName, Long teacherId) {
+    /**
+     * {@code tourCompletedAt} (#139, seit Vertrag 1.2.0): wann das Konto den Rundgang durch die
+     * Webanwendung beendet oder uebersprungen hat; {@code null} = noch nicht — das Web zeigt ihn dann.
+     */
+    public record MeDto(Long id, String username, Role role, String displayName, Long teacherId,
+                        Instant tourCompletedAt) {
+    }
+
+    /** Body von {@code PUT /api/me/tour}: {@code true} = Rundgang beendet, {@code false} = erneut zeigen. */
+    public record TourFlag(@NotNull(message = "Bitte angeben, ob der Rundgang beendet ist.") Boolean completed) {
     }
 
     /** Body von {@code PUT /api/me/password}. */

@@ -22,13 +22,12 @@ import {
   type PasswordChange, type PatchLessonInput,
   type RepairInput,                              // ← nur wenn in types.ts vorhanden
   type RoomInput, type RuleInput, type SectionImportResult, type SubjectInput,
-  type TeacherInput, type TimegridInput, type TransferScope, type View,
+  type TeacherInput, type TimegridInput, type TourFlag, type TransferScope, type View,
 } from './types'
 
 import { api } from './api'
 import { qk } from './query-keys'
 import { toastProblem } from './errors'
-
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, staleTime: 10_000, refetchOnWindowFocus: false },
@@ -312,4 +311,7 @@ export function useImportMasterDataSection(scope: TransferScope, opts?: Mutation
 }
 
 export const useDeleteUser = (opts?: MutationOpts) => useApiMutation((id: number) => api.deleteUser(id), (qc) => invalidate(qc, qk.users), opts)
+
+// Rundgang (#139): danach /me neu laden — daran hängt, ob das Overlay in der Shell erscheint.
+export const useSetTour = () => useApiMutation((body: TourFlag) => api.setTour(body), (qc) => invalidate(qc, qk.me))
 

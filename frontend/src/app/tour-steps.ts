@@ -1,0 +1,295 @@
+// Die Schritte des Rundgangs (#139) — eigene Datei wie nav.ts, damit TourOverlay.tsx nur Komponenten exportiert.
+//
+// Der Rundgang fuehrt einmal durch den ganzen Weg und laesst dabei auf JEDER Seite etwas tun: Grunddaten
+// anlegen (Lehrkraft, Fach, Klasse, Raum, Stundenraster), Regelwerk erweitern und wieder aufraeumen, Entwurf
+// rechnen und annehmen, Vertretung erfassen. Jeder Schritt endet mit einem Klick des Nutzers — es gibt weder
+// einen „Weiter"-Knopf noch eine Wartezeit, die von selbst ablaeuft.
+//
+// Die Beispielwerte sind bewusst so gewaehlt, dass sie im Beispielbestand noch nicht vorkommen (Lehrkraft
+// Sommer/SOM, Fach Astronomie/As, Klasse 7c, Raum R301) — sonst scheitert das Speichern an 409 data-exists.
+//
+// Wo etwas einzutragen ist, erledigt das der Rundgang: `vorbereiten` tippt Texte, waehlt Auswahlfelder und
+// drueckt Hilfsknoepfe. Danach zeigt er auf „Speichern" — abgeschickt wird immer von Hand, damit niemand
+// ueberrascht Daten anlegt.
+//
+// Wie ein Ziel gefunden wird:
+//   `css`  — Selektor: Seitenleiste ueber `href`, Formularfelder ueber ihre id, Knoepfe ueber `aria-label`.
+//   `text` — erster Knopf oder Link, dessen Beschriftung so beginnt; mehrere Beschriftungen = erste vorhandene.
+//   `imDialog` — nur im offenen Dialog suchen; „Speichern" und „Annehmen" stehen oft auch auf der Seite dahinter.
+//
+// Wann ein Schritt als getan gilt (`weiter`):
+//   'route' — die Seite des Schritts ist offen
+//   'klick' — das Ziel wurde angeklickt
+//   'lesen' — Schlusswort, nur der letzte Schritt
+export type TourAktion =
+  | { art: 'tippen'; css: string; wert: string; was: string }
+  | { art: 'waehlen'; css: string; option?: string; was: string }
+  | { art: 'klick'; css: string; was: string }
+
+export interface TourStep {
+  /** Ueberschrift im Erklaerfenster */
+  title: string
+  /** Was die Planung hier tut und warum */
+  text: string
+  /** Ziel: Selektor oder Beschriftungsanfang */
+  target: { css: string; text?: never } | { text: string | string[]; css?: never }
+  /** Route, auf der der Schritt spielt */
+  route?: string
+  /** Wie der Schritt abgeschlossen wird */
+  weiter: 'route' | 'klick' | 'lesen'
+  /** Aufforderung ueber dem Erklaerfenster */
+  action: string
+  /** Was der Rundgang selbst erledigt, bevor er auf das Ziel zeigt */
+  vorbereiten?: TourAktion[]
+  /** Ziel nur im offenen Dialog suchen */
+  imDialog?: boolean
+}
+
+/** Kuerzel fuer einen Schritt „Seite oeffnen". */
+function seite(title: string, text: string, route: string, action: string): TourStep {
+  return { title, text, target: { css: `a[href="${route}"]` }, route, weiter: 'route', action }
+}
+
+/** Kuerzel fuer einen Schritt, der nur erklaert — weiter geht es mit dem Knopf im Erklaerfenster. */
+function erklaeren(title: string, text: string, route: string, action: string, ziel = `a[href="${route}"]`): TourStep {
+  return { title, text, target: { css: ziel }, route, weiter: 'lesen', action }
+}
+
+export const TOUR_STEPS: TourStep[] = [
+  // ---------------------------------------------------------------- Auftakt
+  erklaeren('Willkommen', 'Dieser Rundgang zeigt den ganzen Weg: Grunddaten anlegen, Regeln setzen, einen Plan rechnen lassen, ihn annehmen und Vertretungen erfassen. Er dauert ein paar Minuten und lässt sich jederzeit beenden.',
+    '/', 'Die Übersicht fasst zusammen, was gerade im System steht.'),
+  erklaeren('Die Übersicht', 'Hier stehen die Kennzahlen des Systems: wie viele Lehrkräfte, Klassen und Räume es gibt, ob ein Entwurf offen ist und ob ein aktiver Plan läuft. Von hier führt jede Kachel auf die passende Seite.',
+    '/', 'Schauen Sie sich die Kacheln an — weiter geht es mit dem Knopf unten.'),
+
+  // ---------------------------------------------------------------- Grunddaten
+  seite('Lehrkräfte', 'Alles beginnt bei den Grunddaten. Lehrkräfte zuerst: Sie tragen Fächer, Wochenstunden und Sperrzeiten.',
+    '/grunddaten/lehrkraefte', 'Öffnen Sie die Lehrkräfte.'),
+  {
+    title: 'Lehrkraft anlegen',
+    text: 'Die Tabelle zeigt jede Lehrkraft mit Kürzel, Fächern und Deputat. Neue kommen über den Knopf oben rechts dazu.',
+    target: { text: 'Neue Lehrkraft' }, route: '/grunddaten/lehrkraefte', weiter: 'klick',
+    action: 'Klicken Sie auf „Neue Lehrkraft".',
+  },
+  {
+    title: 'Formular der Lehrkraft',
+    text: 'Das Kürzel steht später in jeder Planzelle. Das Deputat begrenzt, wie viele Stunden der Solver dieser Lehrkraft zumutet; das Raster darunter sperrt Zeiten hart.',
+    target: { text: 'Speichern' }, route: '/grunddaten/lehrkraefte', weiter: 'klick', imDialog: true,
+    action: 'Klicken Sie auf „Speichern".',
+    vorbereiten: [
+      { art: 'tippen', css: '#teacher-name', wert: 'Sommer', was: 'Name' },
+      { art: 'tippen', css: '#teacher-short', wert: 'SOM', was: 'Kürzel' },
+    ],
+  },
+
+  seite('Fächer', 'Jedes Fach trägt ein Kürzel und kann eine Raumanforderung haben — etwa Chemie, das einen Fachraum braucht.',
+    '/grunddaten/faecher', 'Öffnen Sie die Fächer.'),
+  {
+    title: 'Fach anlegen',
+    text: 'Fächer sind die Bausteine der Stundentafel: Erst mit ihnen lässt sich einer Klasse sagen, wie viele Stunden wovon sie bekommt.',
+    target: { text: 'Neues Fach' }, route: '/grunddaten/faecher', weiter: 'klick',
+    action: 'Klicken Sie auf „Neues Fach".',
+  },
+  {
+    title: 'Formular des Fachs',
+    text: 'Die Raumanforderung bleibt hier leer — dann passt jeder Raum. Trägt man eine ein, plant der Solver das Fach nur in Räume dieser Art.',
+    target: { text: 'Speichern' }, route: '/grunddaten/faecher', weiter: 'klick', imDialog: true,
+    action: 'Klicken Sie auf „Speichern".',
+    vorbereiten: [
+      { art: 'tippen', css: '#subject-name', wert: 'Astronomie', was: 'Name' },
+      { art: 'tippen', css: '#subject-short', wert: 'As', was: 'Kürzel' },
+    ],
+  },
+
+  seite('Klassen', 'Klassen tragen ihren Jahrgang — daran hängen die Regeln, die nur für bestimmte Jahrgänge gelten.',
+    '/grunddaten/klassen', 'Öffnen Sie die Klassen.'),
+  {
+    title: 'Klasse anlegen',
+    text: 'Zu jeder Klasse gehört später die Stundentafel: welches Fach wie viele Wochenstunden bekommt und wer es unterrichtet.',
+    target: { text: 'Neue Klasse' }, route: '/grunddaten/klassen', weiter: 'klick',
+    action: 'Klicken Sie auf „Neue Klasse".',
+  },
+  {
+    title: 'Formular der Klasse',
+    text: 'Der Jahrgang ist mehr als eine Zahl: Eine Regel für Jahrgang 7 schlägt später die schulweite Regel — genau dafür steht er hier.',
+    target: { text: 'Speichern' }, route: '/grunddaten/klassen', weiter: 'klick', imDialog: true,
+    action: 'Klicken Sie auf „Speichern".',
+    vorbereiten: [
+      { art: 'tippen', css: '#class-name', wert: '7c', was: 'Name' },
+      { art: 'tippen', css: '#class-grade', wert: '7', was: 'Jahrgang' },
+    ],
+  },
+
+  {
+    title: 'Stundentafel öffnen',
+    text: 'Eine Klasse ohne Fächer kann der Solver nicht planen — sie hätte nichts zu belegen. Deshalb gehört zu jeder Klasse eine Stundentafel: welches Fach wie viele Wochenstunden bekommt und wer es unterrichtet.',
+    target: { text: '7c' }, route: '/grunddaten/klassen', weiter: 'klick',
+    action: 'Öffnen Sie die neue Klasse 7c in der Tabelle.',
+  },
+  {
+    title: 'Fach zuordnen',
+    text: 'Jede Zeile ist ein Fach der Klasse. Die Wochenstunden zählen gegen das Deputat der Lehrkraft; passt etwas nicht, erscheint ein Hinweis in der Zeile — gespeichert wird trotzdem.',
+    target: { text: 'Fach hinzufügen' }, weiter: 'klick',
+    action: 'Klicken Sie auf „Fach hinzufügen".',
+  },
+  {
+    title: 'Stundentafel speichern',
+    text: 'Ohne diese Zuordnung meldet die Berechnung später „Grunddaten unvollständig" — genau deshalb macht der Rundgang sie gleich mit.',
+    target: { text: 'Speichern' }, weiter: 'klick',
+    action: 'Klicken Sie auf „Speichern".',
+    vorbereiten: [
+      { art: 'waehlen', css: '[aria-label="Fach"]', was: 'Fach' },
+      { art: 'tippen', css: '[aria-label="Wochenstunden"]', wert: '4', was: 'Wochenstunden' },
+      { art: 'waehlen', css: '[aria-label="Lehrkraft"]', was: 'Lehrkraft' },
+    ],
+  },
+
+  seite('Räume', 'Räume tragen eine Art und können wiederkehrend gesperrt werden — etwa die Aula, die mittwochs belegt ist.',
+    '/grunddaten/raeume', 'Öffnen Sie die Räume.'),
+  {
+    title: 'Raum anlegen',
+    text: 'Die Raumart verbindet Raum und Fach: Ein Fach mit Anforderung „Fachraum Chemie" landet nur in Räumen dieser Art.',
+    target: { text: 'Neuer Raum' }, route: '/grunddaten/raeume', weiter: 'klick',
+    action: 'Klicken Sie auf „Neuer Raum".',
+  },
+  {
+    title: 'Formular des Raums',
+    text: 'Das Raster im Dialog sperrt Zeiten hart: In einer gesperrten Stunde plant der Solver diesen Raum nie — dieselbe Maske wie bei der Lehrkraft.',
+    target: { text: 'Speichern' }, route: '/grunddaten/raeume', weiter: 'klick', imDialog: true,
+    action: 'Klicken Sie auf „Speichern".',
+    vorbereiten: [
+      { art: 'tippen', css: '#room-name', wert: 'R301', was: 'Name' },
+      { art: 'tippen', css: '#room-type', wert: 'Klassenraum', was: 'Raumart' },
+    ],
+  },
+
+  seite('Stundenraster', 'Das Raster legt fest, wann Unterricht stattfindet: je Tag eine Folge von Zeitfenstern mit Beginn und Ende, dazwischen Pausen.',
+    '/grunddaten/raster', 'Öffnen Sie das Stundenraster.'),
+  {
+    title: 'Zeitfenster hinzufügen',
+    text: 'Jede Zeile ist ein Zeitfenster. Die Stundennummern werden gezählt, nicht gespeichert — schiebt man eine Pause dazwischen, rutscht alles dahinter mit.',
+    target: { text: 'Zeile hinzufügen' }, route: '/grunddaten/raster', weiter: 'klick',
+    action: 'Klicken Sie bei Montag auf „Zeile hinzufügen".',
+  },
+  {
+    title: 'Raster speichern',
+    text: 'Die neue Zeile hängt am Ende des Tages. Beginn und Ende lassen sich direkt in der Zeile ändern; das Kaffee-Symbol macht daraus eine Pause.',
+    target: { text: 'Speichern' }, route: '/grunddaten/raster', weiter: 'klick',
+    action: 'Klicken Sie auf „Speichern".',
+  },
+
+  // ---------------------------------------------------------------- Regelwerk
+  seite('Regelwerk', 'Das Regelwerk ist Daten, kein Code: Stunden pro Tag, Pausen, Blockungen. Harte Regeln bricht kein Plan, weiche wägt der Solver ab.',
+    '/regelwerk', 'Öffnen Sie das Regelwerk.'),
+  {
+    title: 'Regel für einen Jahrgang',
+    text: 'Die Tabelle zeigt die schulweiten Werte. Für einzelne Jahrgänge lässt sich ein eigener Wert daneben stellen — er schlägt den schulweiten.',
+    target: { text: 'Jahrgangswert hinzufügen' }, route: '/regelwerk', weiter: 'klick',
+    action: 'Klicken Sie auf „Jahrgangswert hinzufügen".',
+  },
+  {
+    title: 'Jahrgangswert eintragen',
+    text: 'Hart heißt: Kein Plan darf die Regel brechen. Weich heißt: Der Solver wägt sie gegen andere Wünsche ab, das Gewicht sagt wie stark.',
+    target: { text: 'Speichern' }, route: '/regelwerk', weiter: 'klick', imDialog: true,
+    action: 'Klicken Sie auf „Speichern".',
+    vorbereiten: [
+      { art: 'tippen', css: '#rule-grade', wert: '7', was: 'Jahrgang' },
+      { art: 'tippen', css: '#rule-value', wert: '6', was: 'Wert' },
+    ],
+  },
+  {
+    title: 'Regel wieder entfernen',
+    text: 'Jahrgangswerte lassen sich einzeln zurücknehmen. Danach gilt für diesen Jahrgang wieder der schulweite Wert — nichts geht verloren.',
+    target: { css: '[aria-label="Jahrgangsregel löschen"]' }, route: '/regelwerk', weiter: 'klick',
+    action: 'Klicken Sie auf das Papierkorb-Symbol der neuen Zeile.',
+  },
+  {
+    title: 'Löschen bestätigen',
+    text: 'Löschen fragt immer nach. Das gilt überall dort, wo etwas verschwindet, das der Plan benutzt.',
+    target: { text: 'Löschen' }, route: '/regelwerk', weiter: 'klick', imDialog: true,
+    action: 'Bestätigen Sie mit „Löschen".',
+  },
+
+  // ---------------------------------------------------------------- Planung
+  seite('Entwürfe', 'Geplant wird nie direkt am gültigen Plan, sondern in einem Entwurf — einer Arbeitskopie daneben. Es dürfen mehrere nebeneinander stehen, etwa um Varianten zu vergleichen.',
+    '/entwurf', 'Öffnen Sie die Entwürfe.'),
+  {
+    title: 'Entwurf anlegen',
+    text: 'Die Liste zeigt jeden Entwurf mit Name, Quelle und harten Konflikten. Ein neuer kommt über den Knopf oben rechts dazu.',
+    target: { text: ['Neuer Entwurf', 'Ersten Entwurf anlegen'] }, route: '/entwurf', weiter: 'klick',
+    action: 'Klicken Sie auf „Neuer Entwurf".',
+  },
+  {
+    title: 'Name und Quelle',
+    text: 'Der Name unterscheidet die Entwürfe später in der Liste — bleibt er leer, heißt der Entwurf „Entwurf 1", „Entwurf 2“ … Bei der Quelle gibt es zwei Wege: leer beginnen, oder den aktiven Plan kopieren und daran weiterarbeiten.',
+    target: { text: 'Anlegen' }, route: '/entwurf', weiter: 'klick', imDialog: true,
+    action: 'Legen Sie den Entwurf mit „Anlegen" an.',
+  },
+  {
+    title: 'Plan berechnen lassen',
+    text: 'Der Solver füllt die offenen Stunden nach dem Regelwerk. Von Hand festgelegte Stunden bleiben stehen — so lassen sich Vorgaben und Automatik mischen.',
+    target: { text: 'Berechnen' }, route: '/entwurf', weiter: 'klick',
+    action: 'Klicken Sie auf „Berechnen".',
+  },
+  {
+    title: 'Rechenzeit bestätigen',
+    text: 'Die Rechenzeit steht in den Einstellungen. Solange gerechnet wird, ist der Entwurf gesperrt; danach stehen die Stunden im Raster.',
+    target: { text: 'Berechnen' }, route: '/entwurf', weiter: 'klick', imDialog: true,
+    action: 'Bestätigen Sie mit „Berechnen".',
+  },
+  {
+    title: 'Konflikt auflösen',
+    text: 'Konflikte blockieren nie das Speichern — sie werden bei jedem Lesen neu berechnet. Auflösen geht per Knopf: Der Server rechnet drei kurze Läufe mit wachsendem Spielraum.',
+    target: { text: 'Lösen' }, route: '/entwurf', weiter: 'klick',
+    action: 'Klicken Sie in der Konfliktliste auf „Lösen".',
+  },
+  {
+    title: 'Entwurf annehmen',
+    text: 'Erst „Annehmen" macht aus dem Entwurf den aktiven Plan — den, den Lehrkräfte und Klassen zu sehen bekommen.',
+    target: { text: 'Annehmen' }, route: '/entwurf', weiter: 'klick',
+    action: 'Klicken Sie auf „Annehmen".',
+  },
+  {
+    title: 'Annehmen bestätigen',
+    text: 'Der Dialog zeigt vorher, was sich ändert, und stellt eine Frage: sofort aktivieren, ab einem Datum aktivieren, oder erst einmal in die Ablage legen. Mit einem Datum bleibt der bisherige Plan bis zum Vortag gültig — es dürfen mehrere angenommene Pläne nebeneinander stehen, solange sich ihre Zeiträume nicht überschneiden.',
+    target: { text: 'Annehmen' }, route: '/entwurf', weiter: 'klick', imDialog: true,
+    action: 'Bestätigen Sie mit „Annehmen".',
+  },
+
+  // ---------------------------------------------------------------- Aktiver Plan
+  seite('Aktiver Plan', 'Der angenommene Entwurf liegt jetzt als aktiver Plan vor — das ist der Plan, den alle anderen sehen.',
+    '/plan', 'Öffnen Sie den aktiven Plan.'),
+  erklaeren('Der aktive Plan', 'Drei Sichten auf dieselben Daten: die ganze Schule, eine Klasse oder eine Lehrkraft. Gedruckt wird aus dieser Ansicht; geändert wird hier nichts — Änderungen laufen über Entwurf oder Vertretung.',
+    '/plan', 'Probieren Sie später die Sichten oben aus.'),
+
+  // ---------------------------------------------------------------- Vertretung
+  seite('Vertretung', 'Fällt jemand aus, wird der Plan nicht neu gerechnet. Stattdessen legt sich eine datierte Ausnahme über den Regelplan.',
+    '/vertretung', 'Öffnen Sie die Vertretung.'),
+  {
+    title: 'Ereignis erfassen',
+    text: 'Links wird das Ereignis erfasst — Ausfall, Raumsperrung oder Zusatzstunde. Daraus entstehen die offenen Stunden, die rechts zu vertreten sind.',
+    target: { text: 'Ereignis speichern' }, route: '/vertretung', weiter: 'klick',
+    action: 'Klicken Sie auf „Ereignis speichern".',
+    vorbereiten: [
+      { art: 'waehlen', css: '#ev-teacher', was: 'Lehrkraft' },
+      { art: 'waehlen', css: '#ev-slot', was: 'Stunde' },
+      { art: 'tippen', css: '#ev-reason', wert: 'Fortbildung', was: 'Anlass' },
+    ],
+  },
+  seite('Änderungsverlauf', 'Jede Umplanung wird mitgeschrieben: wer wann was aus welchem Anlass geändert hat.',
+    '/verlauf', 'Öffnen Sie den Änderungsverlauf.'),
+  erklaeren('Der Änderungsverlauf', 'Die Liste lässt sich nach Zeitraum, Klasse und Lehrkraft filtern. Einträge verschwinden nie — auch dann nicht, wenn die Stunde später wieder zurückgeplant wird.',
+    '/verlauf', 'Sehen Sie sich die Filter an.'),
+
+  seite('Einstellungen', 'Zum Schluss die Systemseite: Schulname, Bundesland, Rechenzeit des Solvers, Konten und unterrichtsfreie Zeiträume.',
+    '/einstellungen', 'Öffnen Sie die Einstellungen.'),
+  erklaeren('Die Einstellungen', 'Hier liegen auch die Beispieldaten und die Konten für Lehrkräfte und Klassen. Und ganz unten: „Rundgang erneut zeigen" — damit startet diese Führung jederzeit wieder von vorn.',
+    '/einstellungen', 'Merken Sie sich den Knopf „Rundgang erneut zeigen".'),
+
+  {
+    title: 'Geschafft',
+    text: 'Das war der Weg von den Grunddaten bis zur Vertretung. Jede Entscheidung landet im Änderungsverlauf: wer wann was aus welchem Anlass umgeplant hat. Den Rundgang können Sie in den Einstellungen jederzeit neu starten.',
+    target: { css: 'a[href="/verlauf"]' }, route: '/vertretung', weiter: 'lesen',
+    action: 'Der Änderungsverlauf steht in der Seitenleiste.',
+  },
+]

@@ -286,7 +286,7 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
     },
     async me() {
       const u = await authenticated()
-      return { id: u.id, username: u.username, role: u.role, displayName: displayNameOf(u, s), teacherId: u.teacherId }
+      return { id: u.id, username: u.username, role: u.role, displayName: displayNameOf(u, s), teacherId: u.teacherId, tourCompletedAt: u.tourCompletedAt ?? null }
     },
     async changeMyPassword(body) {
       const u = await authenticated()
@@ -297,6 +297,12 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       if (!body.newPassword || body.newPassword.length < 8) errors.push({ field: 'newPassword', message: 'mindestens 8 Zeichen' })
       throwIfErrors(errors)
       u.password = body.newPassword
+    },
+    async setTour(body) {
+      const u = await authenticated()
+      // Wie PUT /api/me/password: ein Klassenkonto kommt hier nicht vorbei (SecurityConfig, E-50).
+      if (u.role === 'STUDENT') throw forbidden()
+      u.tourCompletedAt = body.completed ? new Date().toISOString() : null
     },
 
     // ---------------- Konten

@@ -33,7 +33,8 @@ import java.io.IOException;
  *   <li>jedes angemeldete Konto: {@code GET /api/me/class-week} — die Klasse kommt aus dem Token,
  *       ein Konto ohne Klasse (Planung, Lehrkraft) bekommt dort 404 statt Daten</li>
  *   <li>{@code PLANNING} und {@code TEACHER}: das uebrige {@code /api/me/**}
- *       (also {@code PUT /api/me/password} und {@code GET /api/me/timetable/week})</li>
+ *       (also {@code PUT /api/me/password}, {@code PUT /api/me/tour} und
+ *       {@code GET /api/me/timetable/week})</li>
  *   <li>alles Uebrige unter {@code /api/**}: nur Rolle {@code PLANNING}</li>
  * </ul>
  * Ein Klassenkonto kommt damit an genau sechs Stellen vorbei und bekommt sonst ueberall 403 —
