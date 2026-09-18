@@ -111,9 +111,9 @@ android:build:
       - .android-sdk/
       - .gradle-android/
   before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq curl unzip
     - |
+      apt-get update -qq
+      apt-get install -y -qq curl unzip
       if [ ! -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
         echo "==> Android-Kommandozeilenwerkzeuge holen"
         mkdir -p "$ANDROID_HOME/cmdline-tools" /tmp/cl
@@ -122,8 +122,8 @@ android:build:
         unzip -q /tmp/cmdline.zip -d /tmp/cl
         mv /tmp/cl/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
       fi
-    - yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
-    - "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+      yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+      "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
         "platform-tools" "platforms;android-36" "build-tools;36.0.0"
   script:
     - cd android-starter
