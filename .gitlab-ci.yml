@@ -80,6 +80,28 @@ frontend:build:
       - frontend/dist
     expire_in: 1 week
 
+android:build:
+  stage: build
+  image: docker:27-cli
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+  variables:
+    DOCKER_HOST: "unix:///var/run/docker.sock"
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - bash scripts/ci-android-build.sh
+  artifacts:
+    name: "android-$CI_COMMIT_REF_NAME"
+    expire_in: 30 days
+    paths:
+      - app/stundenplan.apk
+      - android-starter/app/build/outputs/apk/debug/app-debug.apk
+
 # ---------------------------------------------------------------- test
 
 # Schnelle Tests ohne Datenbank: Fachlogik, ArchUnit, Solver-Constraints, Sicherheitsregeln.
@@ -352,3 +374,38 @@ deploy:vm:
       docker compose logs --tail 100 backend || true
       docker compose logs --tail 100 web || true
       exit 1
+
+android:release:
+stage: deploy
+image: registry.gitlab.com/gitlab-org/release-cli:latest
+needs: ["android:build"]
+rules:
+  - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    when: on_success
+variables:
+  PACKAGE_NAME: "android-app"
+script:
+  - apk add --no-cache curl jq
+  - export VERSION="${CI_COMMIT_TAG#v}"
+  - export PKG_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE_NAME}/${CI_COMMIT_TAG}"
+  - export APK_URL="${PKG_URL}/stundenplan-${VERSION}.apk"
+  - |
+    curl --fail --silent --show-error \
+      --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+      --upload-file app/stundenplan.apk \
+      "${APK_URL}"
+  - |
+    RELEASE_EXISTS=$(curl --silent --output /dev/null --write-out "%{http_code}" \
+      --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+      "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}")
+    if [ "${RELEASE_EXISTS}" = "404" ]; then
+      release-cli create \
+        --tag-name "${CI_COMMIT_TAG}" \
+        --name "Release ${CI_COMMIT_TAG}" \
+        --description "Automatisches Release für ${CI_COMMIT_TAG}" \
+        --assets-link "{\"name\":\"Android APK (stundenplan-${VERSION}.apk)\",\"url\":\"${APK_URL}\",\"link_type\":\"package\"}"
+    else
+      release-cli create \
+        --tag-name "${CI_COMMIT_TAG}" \
+        --assets-link "{\"name\":\"Android APK (stundenplan-${VERSION}.apk)\",\"url\":\"${APK_URL}\",\"link_type\":\"package\"}"
+    fi
