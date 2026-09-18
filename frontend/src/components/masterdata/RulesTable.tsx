@@ -133,8 +133,7 @@ function RuleRow({ rule }: { rule: RuleDto }) {
   )
 }
 
-/** Segmentschalter hart/weich. Radiogruppe von Radix: Pfeiltasten wechseln, die Gruppe hat einen Tabstopp. */
-export function SeveritySwitch({ value, onChange, disabled }: { value: Severity; onChange(v: Severity): void; disabled?: boolean }) {
+export function SeveritySwitch({ value, onChange, disabled, fullWidth = false }: { value: Severity; onChange(v: Severity): void; disabled?: boolean; fullWidth?: boolean }) {
   const opt = (v: Severity, label: string, hint: string) => (
     <RadioGroupItem
       value={v}
@@ -142,6 +141,7 @@ export function SeveritySwitch({ value, onChange, disabled }: { value: Severity;
       title={hint}
       className={cn(
         'h-6 rounded-md border px-2.5 text-xs font-medium transition-colors',
+        fullWidth && 'flex flex-1 items-center justify-center',
         value === v
           ? 'border-primary bg-card text-foreground shadow-xs'
           : 'border-transparent text-foreground-subtle hover:text-foreground',
@@ -156,7 +156,10 @@ export function SeveritySwitch({ value, onChange, disabled }: { value: Severity;
       onValueChange={(v) => onChange(v as Severity)}
       disabled={disabled}
       aria-label="Hart oder weich"
-      className="inline-flex h-8 items-center gap-0.5 rounded-lg border bg-surface-sunken p-0.5"
+      className={cn(
+        'h-8 items-center gap-0.5 rounded-lg border bg-surface-sunken p-0.5',
+        fullWidth ? 'flex w-full' : 'inline-flex',
+      )}
     >
       {opt('HARD', 'hart', 'Harte Regel: ein Verstoß macht den Plan ungültig')}
       {opt('SOFT', 'weich', 'Weiche Regel: Verstöße werden gezählt und mit Gewicht bewertet')}
