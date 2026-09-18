@@ -175,7 +175,12 @@ public class DraftService {
      */
     @Transactional
     public DraftView patch(Long draftId, String name, Boolean finished) {
-        Timetable draft = requireDraft(draftId);
+        // Mit Schreibsperre wie in `accept`: ohne sie liest ein gleichzeitiges Umbenennen die Zeile noch
+        // als Entwurf, waehrend die Annahme sie auf ACTIVE umstellt — und schreibt beim Zuruecklegen den
+        // Status samt Zeitraum wieder auf den alten Stand. Timetable traegt keine Fassungsnummer, also
+        // wartet die zweite Anfrage hier und findet den Entwurf danach nicht mehr als Entwurf (404).
+        Timetable draft = timetables.findByIdAndStatusForUpdate(draftId, TimetableStatus.DRAFT)
+                .orElseThrow(() -> new NotFoundException("Entwurf " + draftId + " nicht gefunden."));
         if (name == null && finished == null) {
             throw new ValidationException("name", "Name oder Ablage angeben");
         }
@@ -735,11 +740,16 @@ public class DraftService {
     /**
      * Vorschau auf den Verlust: wie viele Vertretungen das Annehmen dieses Entwurfs verfallen liesse.
      *
-     * <p>Gerechnet wird ab heute — den Gueltigkeitsbeginn waehlt die Planung erst im Dialog, und ein
-     * spaeterer Beginn kann die Zahl nur kleiner machen. Ohne aktiven Plan gibt es nichts zu verlieren.</p>
+     * <p>Gerechnet wird ab heute gegen den heute geltenden Plan (sonst den naechsten kuenftigen) — den
+     * Gueltigkeitsbeginn waehlt die Planung erst im Dialog. Ohne aktiven Plan gibt es nichts zu verlieren.</p>
      *
      * <p>Gefragt wird nach den Tagen des <b>aktiven</b> Plans: genau ihn ersetzt der Entwurf, und nur an
      * seinen Tagen haengen Ausnahmen, die der Wechsel betrifft.</p>
+     *
+     * <p><b>Grenze der Vorschau (18.09.):</b> Gelten mehrere Plaene nacheinander und ersetzt der Entwurf
+     * einen erst spaeter beginnenden, zaehlt diese Zahl trotzdem die Ausnahmen des heutigen Plans — sie
+     * kann dann zu hoch oder zu niedrig sein. Verbindlich ist die Zahl, die {@code accept} mit dem
+     * tatsaechlich gewaehlten Zeitraum rechnet und als Warnung zurueckgibt.</p>
      */
     private long expiringPreview(List<Lesson> draftLessons) {
         Timetable active = planReader.currentOrNextActive().orElse(null);
