@@ -125,9 +125,9 @@ function AddGradeRuleDialog({ open, onOpenChange }: { open: boolean; onOpenChang
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Hart / weich" error={fields.errors.severity}>
-          <SeveritySwitch value={form.severity} onChange={(severity) => set({ severity })} />
-        </Field>
+      <Field label="Hart / weich" error={fields.errors.severity}>
+        <SeveritySwitch value={form.severity} onChange={(severity) => set({ severity })} fullWidth />
+      </Field>
         <Field label="Gewicht" htmlFor="rule-weight" error={fields.errors.weight}>
           <Input id="rule-weight" type="number" min={1} value={form.weight} disabled={form.severity === 'HARD'} onChange={(e) => set({ weight: Number(e.target.value) })} className="tabular-nums" />
         </Field>

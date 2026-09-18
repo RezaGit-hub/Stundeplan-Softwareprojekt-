@@ -196,7 +196,7 @@ function GradeRuleDialog({ open, onOpenChange, grade, type, rules }: {
         </Field>
       </div>
       <Field label="Hart / weich" error={fields.errors.severity}>
-        <SeveritySwitch value={form.severity} onChange={(severity) => set({ severity })} />
+        <SeveritySwitch value={form.severity} onChange={(severity) => set({ severity })} fullWidth />
       </Field>
       <label className="flex items-center justify-between rounded-md border bg-surface px-3 py-2 text-sm">
         <span className="font-medium">Sofort aktiv</span>
