@@ -19,7 +19,7 @@ class AppContainer(context: Context) {
 
     val settings: Settings = Settings(appContext)
 
-    val themePreferences: ThemePreferences = ThemePreferences(appContext)
+    val themePreferences: ThemePreferences = DataStoreThemePreferences(appContext)
 
     private val apiFactory: ApiFactory = ApiFactory()
 
