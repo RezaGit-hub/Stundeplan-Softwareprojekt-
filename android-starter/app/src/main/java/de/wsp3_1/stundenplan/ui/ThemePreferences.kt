@@ -8,16 +8,23 @@ import de.wsp3_1.stundenplan.data.ThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+/** Schnittstelle, damit ViewModel-Tests ohne Android-Context auskommen. */
+interface ThemePreferences {
+    val themeMode: Flow<ThemeMode>
+    suspend fun saveThemeMode(themeMode: ThemeMode)
+}
+
 private val Context.dataStore by preferencesDataStore(
     name = "settings"
 )
 
-class ThemePreferences(
+class DataStoreThemePreferences(
     private val context: Context
-) {
+) : ThemePreferences {
+
     private val themeKey = stringPreferencesKey("themeMode")
 
-    val themeMode: Flow<ThemeMode> =
+    override val themeMode: Flow<ThemeMode> =
         context.dataStore.data.map { preferences ->
             when (preferences[themeKey]) {
                 "LIGHT" -> ThemeMode.LIGHT
@@ -26,7 +33,7 @@ class ThemePreferences(
             }
         }
 
-    suspend fun saveThemeMode(themeMode: ThemeMode) {
+    override suspend fun saveThemeMode(themeMode: ThemeMode) {
         context.dataStore.edit { preferences ->
             preferences[themeKey] = themeMode.name
         }

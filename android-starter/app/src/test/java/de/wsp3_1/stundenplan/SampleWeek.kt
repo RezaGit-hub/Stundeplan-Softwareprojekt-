@@ -8,11 +8,13 @@ import de.wsp3_1.stundenplan.data.EntryKind
 import de.wsp3_1.stundenplan.data.EntryOriginal
 import de.wsp3_1.stundenplan.data.HealthResult
 import de.wsp3_1.stundenplan.data.LoginResult
+import de.wsp3_1.stundenplan.data.ThemeMode
 import de.wsp3_1.stundenplan.data.TimegridDto
 import de.wsp3_1.stundenplan.data.TimeslotDto
 import de.wsp3_1.stundenplan.data.TimetableRepository
 import de.wsp3_1.stundenplan.data.WeekDto
 import de.wsp3_1.stundenplan.data.WeekResult
+import de.wsp3_1.stundenplan.ui.ThemePreferences
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -136,26 +138,38 @@ class FakeSettings(
     serverUrl: String? = null,
     token: String? = null,
     displayName: String? = null,
+    role: String? = null,
 ) : AppSettings {
     val serverUrlFlow = MutableStateFlow(serverUrl)
     val tokenFlow = MutableStateFlow(token)
     val displayNameFlow = MutableStateFlow(displayName)
+    val roleFlow = MutableStateFlow(role)
 
     override val serverUrl: Flow<String?> get() = serverUrlFlow
     override val token: Flow<String?> get() = tokenFlow
     override val displayName: Flow<String?> get() = displayNameFlow
+    override val role: Flow<String?> get() = roleFlow
 
     override suspend fun setServerUrl(url: String) { serverUrlFlow.value = url.trim() }
 
-    override suspend fun saveLogin(token: String, displayName: String) {
+    override suspend fun saveLogin(token: String, displayName: String, role: String) {
         tokenFlow.value = token
         displayNameFlow.value = displayName
+        roleFlow.value = role
     }
 
     override suspend fun clearToken() {
         tokenFlow.value = null
         displayNameFlow.value = null
+        roleFlow.value = null
     }
+}
+
+/** Theme-Attrappe fuer JVM-Tests: haelt die Auswahl im Speicher. */
+class FakeThemePreferences : ThemePreferences {
+    private val _mode = MutableStateFlow(ThemeMode.SYSTEM)
+    override val themeMode: Flow<ThemeMode> = _mode
+    override suspend fun saveThemeMode(themeMode: ThemeMode) { _mode.value = themeMode }
 }
 
 /** Repository-Attrappe fuer den ViewModel-Test: Antworten je Montag vorgeben. */
@@ -179,7 +193,13 @@ class FakeRepository(private val settings: FakeSettings) : TimetableRepository {
 
     override suspend fun login(username: String, password: String): LoginResult {
         val result = loginResult
-        if (result is LoginResult.Success) settings.saveLogin(result.response.token, result.response.displayName)
+        if (result is LoginResult.Success) {
+            settings.saveLogin(
+                result.response.token,
+                result.response.displayName,
+                result.response.role,
+            )
+        }
         return result
     }
 
@@ -189,6 +209,12 @@ class FakeRepository(private val settings: FakeSettings) : TimetableRepository {
     }
 
     override suspend fun loadWeek(monday: LocalDate): WeekResult {
+        loadedMondays += monday
+        gates[monday]?.await()
+        return weekResults[monday] ?: WeekResult.Offline
+    }
+
+    override suspend fun loadClassWeek(monday: LocalDate): WeekResult {
         loadedMondays += monday
         gates[monday]?.await()
         return weekResults[monday] ?: WeekResult.Offline
