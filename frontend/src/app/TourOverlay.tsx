@@ -139,12 +139,19 @@ function useZielRect(target: TourStep['target'], aktiv: boolean, imDialog = fals
   // Das Ziel-Objekt ist bei jedem Render neu; als Abhaengigkeit taugt nur sein Inhalt.
   const schluesselDesZiels = `${imDialog ? 'dlg:' : ''}${target.css ?? `text:${[target.text].flat().join('|')}`}`
   const zielRef = useRef(target)
-  zielRef.current = target
+  // Nachfuehren erst nach dem Rendern: waehrend des Renderns ist ein Ref tabu. Dieser Effekt steht
+  // bewusst VOR dem Mess-Effekt — React fuehrt sie in der Reihenfolge ihrer Deklaration aus, der
+  // Merker ist unten also schon auf dem neuesten Stand.
+  useLayoutEffect(() => {
+    zielRef.current = target
+  })
 
   useLayoutEffect(() => {
     // Den Merker mit zuruecksetzen: sonst gilt beim naechsten Anlauf dieselbe Messung als „unveraendert",
     // und der Ausschnitt bliebe aus, obwohl das Ziel wieder da ist.
     letzte.current = ''
+    // Gemessen wird der echte Seitenzustand — genau der Fall, fuer den ein Effekt da ist.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!aktiv) { setRect(null); return }
     let frame = 0
     const messen = () => {
@@ -270,6 +277,9 @@ export function TourOverlay() {
   }, NACHLAUF), [])
 
   useEffect(() => {
+    // Der Suchlauf gehoert zum Schritt, nicht zum Rendern: bei jedem Schritt- und Seitenwechsel
+    // faengt er neu an und laeuft nach 1,5 s von selbst aus.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSuchtNoch(true)
     const t = window.setTimeout(() => setSuchtNoch(false), 1500)
     return () => window.clearTimeout(t)
@@ -349,8 +359,11 @@ export function TourOverlay() {
   // echten Bedienelement und verschwindet mit dem Schritt — nichts bleibt zurueck, auch nicht beim Abbruch.
   const [rundung, setRundung] = useState<string | null>(null)
   useEffect(() => {
+    // Die Rundung wird am echten Bedienelement abgelesen — ohne DOM gibt es sie nicht.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!sichtbar || nurLesen) { setRundung(null); return }
     const el = zielFinden(ziel, imDialog)
+     
     if (!el) { setRundung(null); return }
     el.classList.add('tour-ziel-aktiv')
     setRundung(getComputedStyle(el).borderRadius || null)
