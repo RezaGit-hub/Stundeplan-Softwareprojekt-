@@ -30,17 +30,6 @@ final class SampleSolveInputs {
         return (long) (day.ordinal() * POSITIONEN + position);
     }
 
-    /** Mo–Fr, sieben Positionen, Position 3 ist die grosse Pause: 35 Zeitfenster, 30 davon planbar. */
-    static List<TimeslotFact> timeslots() {
-        List<TimeslotFact> result = new ArrayList<>();
-        for (Weekday day : TAGE) {
-            for (int position = 1; position <= POSITIONEN; position++) {
-                result.add(new TimeslotFact(timeslotId(day, position), day, position, position == PAUSE_POSITION));
-            }
-        }
-        return result;
-    }
-
     static List<RuleFact> rules(List<Long> classIds, List<Long> teacherIds) {
         List<RuleFact> rules = new ArrayList<>();
         for (Long classId : classIds) {
