@@ -1452,8 +1452,10 @@ paths:
         ohne Stunden. Seit 1.4.0 darf es mehrere geben; ihre Zeiträume überschneiden sich nie
         (Ausschlussbedingung in der Datenbank). `current: true` trägt der Plan, der **heute** gilt —
         höchstens einer, in einer Lücke zwischen zwei Zeiträumen keiner. Leere Liste = noch nichts
-        angenommen (ein Zustand, kein Fehler). Abgelaufene und ersetzte Pläne stehen **nicht** in der
-        Liste; einzeln lesbar bleiben sie über `GET /api/timetables/{id}`.
+        angenommen (ein Zustand, kein Fehler). Ersetzte Pläne stehen **nicht** in der Liste; einzeln
+        lesbar bleiben sie über `GET /api/timetables/{id}`. Ein Plan, dessen `validUntil` verstrichen
+        ist, wird erst beim nächsten Annehmen ins Archiv geräumt und steht bis dahin noch hier — dann
+        ohne `current`, weil er an keinem Tag mehr gilt.
       x-role: PLANNING
       responses:
         '200':
