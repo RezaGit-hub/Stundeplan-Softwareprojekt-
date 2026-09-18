@@ -141,8 +141,10 @@ export function SeveritySwitch({ value, onChange, disabled }: { value: Severity;
       disabled={disabled}
       title={hint}
       className={cn(
-        'h-6 rounded-md px-2.5 text-xs font-medium',
-        value === v ? 'bg-card text-foreground shadow-xs' : 'text-foreground-subtle hover:text-foreground',
+        'h-6 rounded-md border px-2.5 text-xs font-medium transition-colors',
+        value === v
+          ? 'border-primary bg-card text-foreground shadow-xs'
+          : 'border-transparent text-foreground-subtle hover:text-foreground',
       )}
     >
       {label}
