@@ -49,6 +49,7 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         movableLessonInBreak(f),
         movableLessonInInactiveRoom(f),
         roomBlockedTime(f),
+        doubleLessonSameRoom(f),
         
         // ============================================================
         // REGELWERK – HARTE ZWILLINGE
