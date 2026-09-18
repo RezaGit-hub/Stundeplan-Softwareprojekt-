@@ -16,6 +16,8 @@ import de.wsp3_1.shared.Weekday;
 import java.util.List;
 import java.util.function.Function;
 
+import java.util.EnumMap;
+import java.util.Map;
 /**
  * Die Bewertungsregeln des Solvers (docs/SOLVER-PLAN.md Abschnitt 4). Die Methodennamen sind stabil:
  * sie stehen so in der Entwurfsdokumentation, in {@code TimetableConstraintProviderTest} und in der
@@ -81,7 +83,8 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         subjectSpreadOverWeek(f),
         doubleLesson(f),
         avoidFreePeriods(f), 
-        avoidTripleLessons(f)
+        avoidTripleLessons(f),
+        balancedClassWeek(f)
         };
     }
 
@@ -325,6 +328,38 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                 .filter((classId, subjectId, day, count) -> count > 2)
                 .penalize(HardMediumSoftScore.ONE_SOFT, (classId, subjectId, day, count) -> count - 2)
                 .asConstraint("avoidTripleLessons");
+    }
+
+    public Constraint balancedClassWeek(ConstraintFactory f) {
+        return f.forEach(SolverLesson.class)
+                .groupBy(SolverLesson::getClassId, ConstraintCollectors.toList())
+                .penalize(HardMediumSoftScore.ONE_SOFT, (classId, lessons) -> balancePenalty(lessons))
+                .asConstraint("balancedClassWeek");
+    }
+
+    /** Tage der Schulwoche für die Mittelwertrechnung — Mo–Fr; bei Samstagsunterricht auf 6 setzen. */
+    private static final int SCHOOL_DAYS = 5;
+
+    /**
+     * Summe der quadrierten Abweichungen vom Mittelwert; {@code 0} heißt „alle Tage gleich belegt".
+     * Reine Funktion, damit sie sich im Test einzeln nachrechnen lässt.
+     */
+    private static int balancePenalty(List<SolverLesson> lessons) {
+        if (lessons.size() < 2) {
+            return 0;
+        }
+        Map<Weekday, Integer> perDay = new EnumMap<>(Weekday.class);
+        for (SolverLesson lesson : lessons) {
+            perDay.merge(lesson.getTimeslot().day(), 1, Integer::sum);
+        }
+        double average = (double) lessons.size() / SCHOOL_DAYS;
+        double sumOfSquares = 0;
+        for (int day = 0; day < SCHOOL_DAYS; day++) {
+            int count = perDay.getOrDefault(Weekday.values()[day], 0);
+            double difference = count - average;
+            sumOfSquares += difference * difference;
+        }
+        return (int) Math.round(sumOfSquares);
     }
 
         public Constraint avoidFreePeriods(ConstraintFactory f) {
