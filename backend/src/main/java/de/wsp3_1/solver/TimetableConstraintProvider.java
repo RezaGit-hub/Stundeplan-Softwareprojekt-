@@ -273,6 +273,25 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                 .asConstraint("subjectSpreadOverWeek");
         }
 
+        public Constraint doubleLessonSameRoom(ConstraintFactory f) {
+            return f.forEachUniquePair(SolverLesson.class,
+                            Joiners.equal(SolverLesson::getClassId),
+                            Joiners.equal(SolverLesson::getSubjectId),
+                            Joiners.equal(SolverLesson::getTeacherId),
+                            Joiners.equal(lesson -> lesson.getTimeslot().day()))
+                    .filter((a, b) -> {
+                        int diff = Math.abs(a.getTimeslot().position() - b.getTimeslot().position());
+                        // Nur echte Nachbarstunden sind eine Doppelstunde. Pausen liegen nicht im
+                        // Wertebereich, deshalb bleibt `diff == 1` innerhalb eines Tages auch dann
+                        // korrekt, wenn zwischen den beiden Positionen im Raster eine Pause steht
+                        // (dann ist `diff` naemlich > 1 und die Regel greift nicht).
+                        return diff == 1
+                                && !a.getRoom().id().equals(b.getRoom().id());
+                    })
+                    .penalize(HardMediumSoftScore.ONE_HARD)
+                    .asConstraint("doubleLessonSameRoom");
+        }
+
         /* S3: Belohnung für Doppelstunden */
         public Constraint doubleLesson(ConstraintFactory f) {
         return f.forEachUniquePair(SolverLesson.class,
@@ -291,8 +310,8 @@ public class TimetableConstraintProvider implements ConstraintProvider {
 
         /* S4: Bestrafung für mehr als 2 gleiche Fachstunden hintereinander */
         // ================================================================
-// NEU 3: 3+ Stunden hintereinander vermeiden (Blockunterricht)
-// ================================================================
+        // NEU 3: 3+ Stunden hintereinander vermeiden (Blockunterricht)
+        // ================================================================
 
     public Constraint avoidTripleLessons(ConstraintFactory f) {
         return f.forEach(SolverLesson.class)
