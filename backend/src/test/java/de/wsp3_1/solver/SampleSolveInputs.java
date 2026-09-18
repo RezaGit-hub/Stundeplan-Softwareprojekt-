@@ -30,17 +30,6 @@ final class SampleSolveInputs {
         return (long) (day.ordinal() * POSITIONEN + position);
     }
 
-    /** Mo–Fr, sieben Positionen, Position 3 ist die grosse Pause: 35 Zeitfenster, 30 davon planbar. */
-    static List<TimeslotFact> timeslots() {
-        List<TimeslotFact> result = new ArrayList<>();
-        for (Weekday day : TAGE) {
-            for (int position = 1; position <= POSITIONEN; position++) {
-                result.add(new TimeslotFact(timeslotId(day, position), day, position, position == PAUSE_POSITION));
-            }
-        }
-        return result;
-    }
-
     static List<RuleFact> rules(List<Long> classIds, List<Long> teacherIds) {
         List<RuleFact> rules = new ArrayList<>();
         for (Long classId : classIds) {
@@ -54,7 +43,22 @@ final class SampleSolveInputs {
         rules.add(new RuleFact(RuleType.NO_LESSONS_IN_BREAKS, null, null, 1, Severity.HARD, 1));
         return rules;
     }
-
+    static List<TimeslotFact> timeslots() {
+        List<TimeslotFact> result = new ArrayList<>();
+        for (Weekday day : TAGE) {
+            int lessonNumber = 0;
+            for (int position = 1; position <= POSITIONEN; position++) {
+                boolean isBreak = position == PAUSE_POSITION;
+                Integer number = null;
+                if (!isBreak) {
+                    lessonNumber++;
+                    number = lessonNumber;
+                }
+                result.add(new TimeslotFact(timeslotId(day, position), day, position, isBreak, number));
+            }
+        }
+        return result;
+    }
     // ---------------------------------------------------------------- kleiner Bestand (Pflichtenheft)
 
     static final Long MEYER = 1L;

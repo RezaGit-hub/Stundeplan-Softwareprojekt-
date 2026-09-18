@@ -235,8 +235,11 @@ public class SolveService {
                         lesson.getRoom() == null ? null : lesson.getRoom().getId()))
                 .toList();
 
-        List<TimeslotFact> slotFacts = Timegrid.sortedByGrid(timeslots.findAll()).stream()
-                .map(slot -> new TimeslotFact(slot.getId(), slot.getDay(), slot.getPosition(), slot.isBreak()))
+        List<de.wsp3_1.masterdata.persistence.Timeslot> alleSlots = timeslots.findAll();
+        Map<Long, Integer> lessonNumbers = Timegrid.lessonNumbers(alleSlots);
+        List<TimeslotFact> slotFacts = Timegrid.sortedByGrid(alleSlots).stream()
+                .map(slot -> new TimeslotFact(slot.getId(), slot.getDay(), slot.getPosition(), slot.isBreak(),
+                        lessonNumbers.get(slot.getId())))
                 .toList();
 
         List<RoomFact> roomFacts = new ArrayList<>();

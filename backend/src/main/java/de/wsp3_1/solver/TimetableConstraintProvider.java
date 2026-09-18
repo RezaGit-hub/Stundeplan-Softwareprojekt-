@@ -16,6 +16,8 @@ import de.wsp3_1.shared.Weekday;
 import java.util.List;
 import java.util.function.Function;
 
+import java.util.EnumMap;
+import java.util.Map;
 /**
  * Die Bewertungsregeln des Solvers (docs/SOLVER-PLAN.md Abschnitt 4). Die Methodennamen sind stabil:
  * sie stehen so in der Entwurfsdokumentation, in {@code TimetableConstraintProviderTest} und in der
@@ -49,6 +51,7 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         movableLessonInBreak(f),
         movableLessonInInactiveRoom(f),
         roomBlockedTime(f),
+        doubleLessonSameRoom(f),
         
         // ============================================================
         // REGELWERK – HARTE ZWILLINGE
@@ -79,8 +82,9 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         teacherPreferredTime(f),
         subjectSpreadOverWeek(f),
         doubleLesson(f),
-        //avoidFreePeriods(f),
-        avoidTripleLessons(f)
+        avoidFreePeriods(f), 
+        avoidTripleLessons(f),
+        balancedClassWeek(f)
         };
     }
 
@@ -273,6 +277,25 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                 .asConstraint("subjectSpreadOverWeek");
         }
 
+        public Constraint doubleLessonSameRoom(ConstraintFactory f) {
+            return f.forEachUniquePair(SolverLesson.class,
+                            Joiners.equal(SolverLesson::getClassId),
+                            Joiners.equal(SolverLesson::getSubjectId),
+                            Joiners.equal(SolverLesson::getTeacherId),
+                            Joiners.equal(lesson -> lesson.getTimeslot().day()))
+                    .filter((a, b) -> {
+                        int diff = Math.abs(a.getTimeslot().position() - b.getTimeslot().position());
+                        // Nur echte Nachbarstunden sind eine Doppelstunde. Pausen liegen nicht im
+                        // Wertebereich, deshalb bleibt `diff == 1` innerhalb eines Tages auch dann
+                        // korrekt, wenn zwischen den beiden Positionen im Raster eine Pause steht
+                        // (dann ist `diff` naemlich > 1 und die Regel greift nicht).
+                        return diff == 1
+                                && !a.getRoom().id().equals(b.getRoom().id());
+                    })
+                    .penalize(HardMediumSoftScore.ONE_HARD)
+                    .asConstraint("doubleLessonSameRoom");
+        }
+
         /* S3: Belohnung für Doppelstunden */
         public Constraint doubleLesson(ConstraintFactory f) {
         return f.forEachUniquePair(SolverLesson.class,
@@ -285,14 +308,14 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                         // NUR aufeinanderfolgende Stunden = Doppelstunde
                         return diff == 1;
                 })
-                .reward(HardMediumSoftScore.ONE_SOFT)
+                .reward(HardMediumSoftScore.ofSoft(4))
                 .asConstraint("doubleLesson");
         }
 
         /* S4: Bestrafung für mehr als 2 gleiche Fachstunden hintereinander */
         // ================================================================
-// NEU 3: 3+ Stunden hintereinander vermeiden (Blockunterricht)
-// ================================================================
+        // NEU 3: 3+ Stunden hintereinander vermeiden (Blockunterricht)
+        // ================================================================
 
     public Constraint avoidTripleLessons(ConstraintFactory f) {
         return f.forEach(SolverLesson.class)
@@ -307,49 +330,75 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                 .asConstraint("avoidTripleLessons");
     }
 
-    public Constraint avoidFreePeriods(ConstraintFactory f) {
+    public Constraint balancedClassWeek(ConstraintFactory f) {
         return f.forEach(SolverLesson.class)
-                .groupBy(
-                        SolverLesson::getClassId,
-                        lesson -> lesson.getTimeslot().day(),
-                        ConstraintCollectors.toList()
-                )
-                .filter((classId, day, lessons) -> {
-                    // Nur Tage mit mindestens 2 Stunden prüfen
-                    if (lessons.size() < 2) return false;
+                .groupBy(SolverLesson::getClassId, ConstraintCollectors.toList())
+                .penalize(HardMediumSoftScore.ONE_SOFT, (classId, lessons) -> balancePenalty(lessons))
+                .asConstraint("balancedClassWeek");
+    }
 
-                    // Sortierte Positionen dieser Klasse an diesem Tag
-                    List<Integer> positions = lessons.stream()
-                            .map(l -> l.getTimeslot().position())
-                            .sorted()
-                            .distinct()
-                            .toList();
+    /** Tage der Schulwoche für die Mittelwertrechnung — Mo–Fr; bei Samstagsunterricht auf 6 setzen. */
+    private static final int SCHOOL_DAYS = 5;
 
-                    // Prüfe, ob zwischen zwei aufeinanderfolgenden Positionen eine Lücke > 1 ist
-                    for (int i = 0; i < positions.size() - 1; i++) {
-                        int gap = positions.get(i + 1) - positions.get(i);
-                        if (gap > 1) {
-                            return true; // Es gibt mindestens eine Freistunde
-                        }
-                    }
-                    return false;
-                })
-                // Hier wird nur einmal pro Tag/Klasse bestraft, nicht pro Paar
-                // Besser: Anzahl der Freistunden berechnen
-                .penalize(HardMediumSoftScore.ONE_SOFT, (classId, day, lessons) -> {
-                    List<Integer> positions = lessons.stream()
-                            .map(l -> l.getTimeslot().position())
-                            .sorted()
-                            .distinct()
-                            .toList();
-                    int totalGap = 0;
-                    for (int i = 0; i < positions.size() - 1; i++) {
-                        totalGap += positions.get(i + 1) - positions.get(i) - 1;
-                    }
-                    return totalGap; // Anzahl der tatsächlichen Freistunden
-                })
-                .asConstraint("avoidFreePeriods");
-            }
+    /**
+     * Summe der quadrierten Abweichungen vom Mittelwert; {@code 0} heißt „alle Tage gleich belegt".
+     * Reine Funktion, damit sie sich im Test einzeln nachrechnen lässt.
+     */
+    private static int balancePenalty(List<SolverLesson> lessons) {
+        if (lessons.size() < 2) {
+            return 0;
+        }
+        Map<Weekday, Integer> perDay = new EnumMap<>(Weekday.class);
+        for (SolverLesson lesson : lessons) {
+            perDay.merge(lesson.getTimeslot().day(), 1, Integer::sum);
+        }
+        double average = (double) lessons.size() / SCHOOL_DAYS;
+        double sumOfSquares = 0;
+        for (int day = 0; day < SCHOOL_DAYS; day++) {
+            int count = perDay.getOrDefault(Weekday.values()[day], 0);
+            double difference = count - average;
+            sumOfSquares += difference * difference;
+        }
+        return (int) Math.round(sumOfSquares);
+    }
+
+        public Constraint avoidFreePeriods(ConstraintFactory f) {
+                return f.forEach(SolverLesson.class)
+                        .groupBy(
+                                SolverLesson::getClassId,
+                                lesson -> lesson.getTimeslot().day(),
+                                ConstraintCollectors.toList()
+                        )
+                        .penalize(HardMediumSoftScore.ONE_SOFT, (classId, day, lessons) -> gapPenalty(lessons))
+                        .asConstraint("avoidFreePeriods");
+                }
+
+                /**
+                 * Bestrafung eines Schultages: jede Luecke zwischen erster und letzter Stunde einer Klasse zaehlt
+                 * dreifach, jede Luecke vor der ersten Stunde einfach. Nachlaufende Luecken (die Klasse endet frueher
+                 * als der Tag) zaehlen nicht — der Solver kann sie nicht sinnvoll bestrafen, ohne die Gesamtzahl der
+                 * Stundennummern des Tages zu kennen, und sie sind der harmloseste Fall.
+                 */
+                private static int gapPenalty(List<SolverLesson> lessons) {
+                if (lessons.size() < 2) {
+                        return 0;
+                }
+                List<Integer> numbers = lessons.stream()
+                        .map(lesson -> lesson.getTimeslot().lessonNumber())
+                        .filter(java.util.Objects::nonNull)
+                        .sorted()
+                        .distinct()
+                        .toList();
+                if (numbers.size() < 2) {
+                        return 0;
+                }
+                int first = numbers.getFirst();
+                int last = numbers.getLast();
+                int span = last - first + 1;
+                int internalFree = span - numbers.size();   // Luecken zwischen erster und letzter Stunde
+                int leadingFree = first - 1;                // Luecken vor der ersten Stunde
+                return internalFree * 3 + leadingFree;
+        }
 
     // ---------------------------------------------------------------- gemeinsame Stroeme der Regel-Zwillinge
 
