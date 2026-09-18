@@ -278,7 +278,9 @@ export function DraftPage() {
       />
       <SolveDialog open={solveOpen || aktion === 'berechnen'} onOpenChange={closeAction(setSolveOpen)} draftId={draftId} classes={classes.data ?? []} defaultClassId={view === 'CLASS' ? id : null} />
       {/* Nach dem Annehmen in die erste Woche, in der der Plan gilt — nicht in die Woche von heute, die noch
-          den vorherigen Stand zeigt (Befund 05.09.). */}
+          den vorherigen Stand zeigt (Befund 05.09.). Der angenommene Entwurf behält seine Kennung, darum
+          `plan=`: ohne das zeigt die Planseite bei einem erst künftig geltenden Plan zwar dessen Woche,
+          Kopfzeile und Konflikte aber den heute gültigen. */}
       <AcceptDialog
         open={acceptOpen || aktion === 'annehmen'}
         onOpenChange={closeAction(setAcceptOpen)}
@@ -287,7 +289,7 @@ export function DraftPage() {
         openLessons={d.openLessons}
         expiringExceptions={d.expiringExceptions}
         hardConflicts={hardConflicts}
-        onAccepted={(validFrom) => navigate(`/plan?woche=${firstWeekMonday(validFrom)}`)}
+        onAccepted={(validFrom) => navigate(`/plan?plan=${draftId}&woche=${firstWeekMonday(validFrom)}`)}
         onShowConflicts={showConflicts}
       />
       {renameKey > 0 && <RenameDraftDialog key={renameKey} open onOpenChange={(o) => { if (!o) setRenameKey(0) }} draftId={draftId} currentName={d.name} />}
