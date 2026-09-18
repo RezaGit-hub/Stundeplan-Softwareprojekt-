@@ -1,6 +1,9 @@
 package de.wsp3_1.planning;
 
+import ai.timefold.solver.core.api.solver.SolverManager;
+import ai.timefold.solver.core.api.solver.SolverStatus;
 import de.wsp3_1.sampledata.domain.SampleDataLoader;
+import de.wsp3_1.solver.SolverTimetable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +47,9 @@ class SolveServiceIT extends PlanningITBase {
 
     @Autowired
     private SampleDataLoader sampleData;
+
+    @Autowired
+    private SolverManager<SolverTimetable> solverManager;
 
     @Test
     @DisplayName("Vorbedingung: eine aktive Klasse ohne Fach verhindert den Lauf (409 master-data-incomplete)")
@@ -389,6 +395,12 @@ class SolveServiceIT extends PlanningITBase {
                 {"source":"EMPTY"}"""), 201);
         call(post("/api/draft/solve").content("{}"), 202);
 
+        // Erst rechnen lassen, dann abbrechen. 202 heisst nur „vorgemerkt": bricht der Test sofort
+        // danach ab, kann Timefold noch keine einzige Loesung gefunden haben — dann ist `lastScore`
+        // zu Recht null und die Zusicherung unten schlaegt zu, obwohl nichts kaputt ist. Auf einem
+        // schnellen Rechner ging das gut, auf dem ausgelasteten Runner mal so, mal so (17./18.09.).
+        waitForSolverToWork();
+
         call(delete("/api/draft/solve"), 202);
         JsonNode draft = waitForRunToFinish(2);
 
@@ -441,6 +453,28 @@ class SolveServiceIT extends PlanningITBase {
      * Geduld haengt an der eingestellten Rechenzeit: ein Lauf, der viel laenger braucht als sein Limit,
      * ist ein Befund und kein Grund zu warten.
      */
+    /**
+     * Wartet, bis Timefold den Lauf wirklich angefangen hat, und laesst ihn danach einen Augenblick
+     * rechnen. {@code SOLVING_ACTIVE} allein genuegt nicht: der Faden laeuft dann zwar, die erste
+     * Loesung der Aufbauheuristik ist aber noch nicht zwingend da. Fuer die acht Stunden dieses
+     * Bestandes ist sie in Millisekunden fertig — die halbe Sekunde ist reichlich bemessen.
+     */
+    private void waitForSolverToWork() throws Exception {
+        long deadline = System.currentTimeMillis() + 30_000;
+        while (solverManager.getSolverStatus(currentDraftId()) != SolverStatus.SOLVING_ACTIVE) {
+            if (System.currentTimeMillis() > deadline) {
+                throw new AssertionError("Der Solver hat den Lauf nach 30 s nicht begonnen.");
+            }
+            Thread.sleep(50);
+        }
+        Thread.sleep(500);
+    }
+
+    /** Die Kennung des einen Entwurfs, an dem diese Tests arbeiten. */
+    private long currentDraftId() throws Exception {
+        return getJson("/api/draft").get("id").asLong();
+    }
+
     private JsonNode waitForRunToFinish(int limitSeconds) throws Exception {
         int maxSeconds = limitSeconds + WAIT_RESERVE_SECONDS;
         for (int second = 0; second < maxSeconds; second++) {
