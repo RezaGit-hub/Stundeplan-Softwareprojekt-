@@ -254,7 +254,7 @@ public class SolveService {
                 roomInfo, planningTimeslots, resolvedRules);
         if (!violations.isEmpty()) {
             throw new ConflictException("solve-capacity-exceeded",
-                    "Die verfuegbaren Kapazitaeten reichen fuer einen vollstaendigen Plan nicht aus.",
+                    "Die verfügbaren Kapazitäten reichen für einen vollständigen Plan nicht aus.",
                     Map.of("capacityViolations", violations));
         }
     }

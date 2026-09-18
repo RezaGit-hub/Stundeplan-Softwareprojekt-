@@ -22,11 +22,11 @@ export function ProblemBanner({ problem, className }: { problem: ProblemDetail; 
             {capacityViolations.map((violation, i) => (
               <li key={`${violation.type}-${violation.ownerId ?? violation.roomType ?? i}`}>
                 <span className="font-medium">{violation.label}:</span>{' '}
-                Bedarf {violation.demand}, Kapazitaet {violation.capacity}, es fehlen {violation.shortfall}.
-                {violation.capacityFromDays != null && <> Tageskapazitaeten zusammen: {violation.capacityFromDays}.</>}
+                Bedarf {violation.demand}, Kapazität {violation.capacity}, es fehlen {violation.shortfall}.
+                {violation.capacityFromDays != null && <> Tageskapazitäten zusammen: {violation.capacityFromDays}.</>}
                 {violation.dailyRuleLimit != null && <> Tagesregel: maximal {violation.dailyRuleLimit}.</>}
                 {violation.weeklyRuleLimit != null && <> Wochenregel: maximal {violation.weeklyRuleLimit}.</>}
-                {violation.activeRoomCount != null && <> Aktive Raeume: {violation.activeRoomCount}.</>}
+                {violation.activeRoomCount != null && <> Aktive Räume: {violation.activeRoomCount}.</>}
                 {violation.planningTimeslotCount != null && <> Planbare Zeitfenster: {violation.planningTimeslotCount}.</>}
               </li>
             ))}
