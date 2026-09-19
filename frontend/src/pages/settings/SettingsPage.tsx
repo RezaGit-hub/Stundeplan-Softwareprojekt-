@@ -1,10 +1,10 @@
 // /einstellungen?bereich=schule|beispieldaten|konten|passwort|ferien — Tabs mit Systemkonfiguration, Beispieldaten,
 // Benutzerkonten, eigenem Passwort und unterrichtsfreien Zeiträumen (Kann).
-import { useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useState, useRef } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { CalendarOff, Database, KeyRound, Plus, Save, School, UserRound, Users } from 'lucide-react'
-import { useConfig, useLoadHolidayPreset, usePutConfig, useTeachers, useUsers } from '@/api/hooks'
+import { useConfig, useLoadHolidayPreset, usePutConfig, useTeachers, useUsers, useResetRules } from '@/api/hooks'
 import type { ConfigDto } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -72,42 +72,108 @@ export function SettingsPage() {
 }
 
 // ------------------------------------------------------------------ Schule
+// ------------------------------------------------------------------ Schule
 function SchoolTab() {
   const config = useConfig()
+  const loadPreset = useLoadHolidayPreset()
+  const resetRules = useResetRules()
+  const navigate = useNavigate()
+  // Diese drei Zustände liegen bewusst hier, nicht in SchoolForm: usePutConfig aktualisiert config.data
+  // sofort, SchoolForm bekommt daraufhin einen neuen `key` und wird komplett neu gemountet (siehe unten).
+  // Läge der Dialog-Zustand in SchoolForm, würde er von diesem Remount sofort wieder gelöscht.
+  const [ruleFlow, setRuleFlow] = useState<{ state: string; stage: 'ask' | 'offer' } | null>(null)
+  const [askPreset, setAskPreset] = useState<string | null>(null)
+  // ConfirmDialog meldet Bestätigen und Abbrechen beide über onOpenChange(false); dieser Ref unterscheidet
+  // "gerade erfolgreich übernommen" (der Übergang läuft dann schon in onConfirm) von "abgebrochen".
+  const rulesAppliedRef = useRef(false)
+  const schoolYear = schoolYearOf(today())
+  const ruleFlowStateLabel = ruleFlow ? (STATE_LABEL[ruleFlow.state] ?? ruleFlow.state) : ''
+
   if (config.isPending) return <PageSkeleton />
   if (config.isError) return <ErrorState problem={config.error} retry={() => void config.refetch()} />
-  return <SchoolForm key={JSON.stringify(config.data)} config={config.data} />
-}
-
-function SchoolForm({ config }: { config: ConfigDto }) {
-  const put = usePutConfig()
-  const loadPreset = useLoadHolidayPreset()
-  const fields = useFieldErrors()
-  const [form, setForm] = useState<ConfigDto>(config)
-  // Nach dem Speichern mit geändertem Bundesland: Rückfrage, ob die mitgelieferten Ferien und
-  // Feiertage dieses Landes übernommen werden sollen (E-51). Das Schuljahr kommt aus dem Datum.
-  const [askPreset, setAskPreset] = useState<string | null>(null)
-  const set = (p: Partial<ConfigDto>) => setForm((f) => ({ ...f, ...p }))
-  const dirty = JSON.stringify(form) !== JSON.stringify(config)
-  const schoolYear = schoolYearOf(today())
-
-  const save = async () => {
-    fields.clear()
-    const stateChanged = form.state !== config.state
-    try {
-      await put.mutateAsync(form)
-      toast.success('Einstellungen gespeichert')
-      if (stateChanged) setAskPreset(form.state)
-    } catch (err) {
-      fields.handle(err)
-    }
-  }
 
   const uebernehmen = async () => {
     try {
       const res = await loadPreset.mutateAsync({ schoolYear })
       toast.success(presetToast(res.added, res.skipped))
     } catch { /* Toast aus dem Hook; „Später" ist immer möglich */ }
+  }
+
+  return (
+    <>
+      <SchoolForm
+        key={JSON.stringify(config.data)}
+        config={config.data}
+        onStateChanged={(state) => setRuleFlow({ state, stage: 'ask' })}
+      />
+
+      {/* #106, Dialog 1: Regelwerk des neu gewählten Bundeslands übernehmen? */}
+      <ConfirmDialog
+        open={ruleFlow?.stage === 'ask'}
+        onOpenChange={(o) => {
+          if (o) return
+          if (rulesAppliedRef.current) { rulesAppliedRef.current = false; return }
+          setRuleFlow((f) => (f ? { ...f, stage: 'offer' } : null))
+        }}
+        title={`Regelwerk ${ruleFlowStateLabel} übernehmen?`}
+        description="Der mitgelieferte Regelsatz dieses Bundeslands ersetzt die schulweiten Werte. Bestehende Jahrgangswerte bleiben erhalten."
+        confirmLabel="Übernehmen"
+        cancelLabel="Nein"
+        onConfirm={async () => {
+          await resetRules.mutateAsync()
+          toast.success(`Regelwerk ${ruleFlowStateLabel} übernommen`)
+          rulesAppliedRef.current = true
+          setAskPreset(ruleFlow?.state ?? null)
+          setRuleFlow(null)
+        }}
+      />
+
+      {/* #106, Dialog 2: nach "Nein" — direkt zum Regelwerk anbieten statt kommentarlos hinzuleiten */}
+      <ConfirmDialog
+        open={ruleFlow?.stage === 'offer'}
+        onOpenChange={(o) => {
+          if (o) return
+          setAskPreset(ruleFlow?.state ?? null)
+          setRuleFlow(null)
+        }}
+        title="Regelwerk stattdessen selbst anpassen?"
+        description="Die Regeln bleiben unverändert. Auf der Regelwerk-Seite lassen sich alle Werte einzeln anpassen."
+        confirmLabel="Zum Regelwerk"
+        cancelLabel="Nicht jetzt"
+        onConfirm={() => navigate('/regelwerk')}
+      />
+
+      <ConfirmDialog
+        open={askPreset != null}
+        onOpenChange={(o) => { if (!o) setAskPreset(null) }}
+        title={`Ferien und Feiertage ${STATE_LABEL[askPreset ?? ''] ?? askPreset ?? ''} ${schoolYear} übernehmen?`}
+        description={'Die Zeiträume sind mitgeliefert — es wird nichts aus dem Internet geholt. Was schon eingetragen ist, bleibt unverändert; jeder übernommene Eintrag ist danach einzeln änderbar und löschbar. Weitere Schuljahre gibt es im Bereich „Unterrichtsfreie Zeiträume".'}
+        confirmLabel="Übernehmen"
+        cancelLabel="Später"
+        onConfirm={uebernehmen}
+      />
+    </>
+  )
+}
+
+function SchoolForm({ config, onStateChanged }: { config: ConfigDto; onStateChanged(state: string): void }) {
+  const put = usePutConfig()
+  const fields = useFieldErrors()
+  const [form, setForm] = useState<ConfigDto>(config)
+  const set = (p: Partial<ConfigDto>) => setForm((f) => ({ ...f, ...p }))
+  const dirty = JSON.stringify(form) !== JSON.stringify(config)
+
+  const save = async () => {
+    fields.clear()
+    const stateChanged = form.state !== config.state
+    const newState = form.state
+    try {
+      await put.mutateAsync(form)
+      toast.success('Einstellungen gespeichert')
+      if (stateChanged) onStateChanged(newState)
+    } catch (err) {
+      fields.handle(err)
+    }
   }
 
   const stateOptions = Object.keys(STATE_LABEL).includes(form.state) ? Object.keys(STATE_LABEL) : [form.state, ...Object.keys(STATE_LABEL)]
@@ -150,15 +216,6 @@ function SchoolForm({ config }: { config: ConfigDto }) {
           </Field>
         </div>
       </SectionCard>
-      <ConfirmDialog
-        open={askPreset != null}
-        onOpenChange={(o) => { if (!o) setAskPreset(null) }}
-        title={`Ferien und Feiertage ${STATE_LABEL[askPreset ?? ''] ?? askPreset ?? ''} ${schoolYear} übernehmen?`}
-        description={'Die Zeiträume sind mitgeliefert — es wird nichts aus dem Internet geholt. Was schon eingetragen ist, bleibt unverändert; jeder übernommene Eintrag ist danach einzeln änderbar und löschbar. Weitere Schuljahre gibt es im Bereich „Unterrichtsfreie Zeiträume".'}
-        confirmLabel="Übernehmen"
-        cancelLabel="Später"
-        onConfirm={uebernehmen}
-      />
     </form>
   )
 }
