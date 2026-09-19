@@ -317,9 +317,13 @@ deploy:vm:
   variables:
     # Der Job laeuft auf demselben Rechner wie der Stack. Der Docker-Socket ist durchgereicht.
     DOCKER_HOST: "unix:///var/run/docker.sock"
+    # Kurzschreibweise fuer die Compose-Aufrufe unten. Der HTTPS-Teil kommt aus dem Overlay
+    # docker-compose.https.yml; ohne das Overlay bliebe nur HTTP auf WEBPORT erreichbar.
+    # Aus Gruenden der Lesbarkeit wiederhole ich unten trotzdem die langen -f-Ketten, damit
+    # jede Zeile fuer sich verstaendlich bleibt.
   environment:
     name: vm-gruppe-5
-    url: http://134.245.1.240:1500
+    url: https://134.245.1.240:1510
   before_script:
     - apk add --no-cache rsync bash curl
     - |
@@ -369,18 +373,34 @@ deploy:vm:
       else
         echo "    .env vorhanden — unveraendert gelassen."
       fi
+    - |
+      # HTTPSPORT und SSLCN ergaenzen, falls sie in einer bestehenden .env fehlen.
+      # Bestehende Werte bleiben unangetastet — ein Passwortwechsel auf der VM geht nicht verloren.
+      # HTTPSPORT=8440 ist der VM-Port; die VM-NAT macht daraus von aussen 1510.
+      # SSLCN ist der Common Name des selbstsignierten Zertifikats (keine Domain vorhanden).
+      if ! grep -q '^HTTPSPORT=' /deploy-target/deployment/.env; then
+        echo "HTTPSPORT=8440" >> /deploy-target/deployment/.env
+        echo "    HTTPSPORT=8440 ergaenzt."
+      fi
+      if ! grep -q '^SSLCN=' /deploy-target/deployment/.env; then
+        echo "SSLCN=134.245.1.240" >> /deploy-target/deployment/.env
+        echo "    SSLCN=134.245.1.240 ergaenzt."
+      fi
 
-    # ---- 3. Stack neu bauen und starten --------------------------------------
+    # ---- 3. Stack neu bauen und starten (mit HTTPS-Overlay) ------------------
     # Nacheinander statt `up -d --build`: BuildKit baut sonst Backend und Frontend gleichzeitig,
     # waehrend der alte Stack mit 512 + 1536 MB weiterlaeuft — auf einer 4-GB-VM der
     # wahrscheinlichste Grund fuer einen abgebrochenen Deploy.
+    #
+    # Das zweite -f docker-compose.https.yml veroeffentlicht zusaetzlich Port 8443 im Container
+    # auf HTTPSPORT (8440) auf der VM. Ohne dieses Overlay bliebe nur HTTP auf WEBPORT erreichbar.
     - echo "==> Backend bauen"
-    - cd /deploy-target/deployment && docker compose build backend
+    - cd /deploy-target/deployment && docker compose -f docker-compose.yml -f docker-compose.https.yml build backend
     - echo "==> Frontend bauen"
-    - docker compose build web
+    - docker compose -f docker-compose.yml -f docker-compose.https.yml build web
     - echo "==> Stack starten"
-    - docker compose up -d
-    - docker compose ps
+    - docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+    - docker compose -f docker-compose.yml -f docker-compose.https.yml ps
 
     # ---- 4. Pruefen --------------------------------------------------------
     # Der Job laeuft in einem Runner-Container, der nur den Docker-Socket sieht. Sein
@@ -396,9 +416,14 @@ deploy:vm:
     # Vorherige Versuche (bis 14.09.): `curl localhost:$PORT` (falscher Host),
     # `docker compose exec -T web wget` (nginx-Log zeigt kein /api/health),
     # `docker run --net container:$WEB_ID` (Verbindung schlaegt fehl). Befund BETRIEB-11.
+    #
+    # Der Health-Check laeuft weiterhin gegen http://web:8080 (Container-interner HTTP-Port).
+    # Das HTTPS-Overlay aendert daran nichts — es veroeffentlicht nur zusaetzlich Port 8443
+    # nach aussen. Wuerde man gegen https://web:8443 pruefen, muesste der curl-Container
+    # das selbstsignierte Zertifikat ignorieren (-k); der einfache HTTP-Port reicht.
     - echo "==> Health-Pruefung"
     - |
-      WEB_ID=$(docker compose ps -q web)
+      WEB_ID=$(docker compose -f docker-compose.yml -f docker-compose.https.yml ps -q web)
       NET=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$WEB_ID")
       echo "    Netzwerk: $NET"
       for i in $(seq 1 30); do
@@ -411,8 +436,8 @@ deploy:vm:
         sleep 1
       done
       echo "FEHLER: /api/health antwortet nach 30 s nicht."
-      docker compose logs --tail 100 backend || true
-      docker compose logs --tail 100 web || true
+      docker compose -f docker-compose.yml -f docker-compose.https.yml logs --tail 100 backend || true
+      docker compose -f docker-compose.yml -f docker-compose.https.yml logs --tail 100 web || true
       exit 1
 
 android:release:
