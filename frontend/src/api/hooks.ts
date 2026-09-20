@@ -220,7 +220,7 @@ export const useDeleteDraft = () => useApiMutation(() => api.deleteDraft(), (qc)
 export const useAddDraftLesson = () => useApiMutation((body: AddLessonInput) => api.addDraftLesson(body), (qc, data) => qc.setQueryData(qk.draft, data), DRAFT)
 export const usePatchDraftLesson = () => useApiMutation((v: { id: number; body: PatchLessonInput }) => api.patchDraftLesson(v.id, v.body), (qc, data) => qc.setQueryData(qk.draft, data), DRAFT)
 export const useDeleteDraftLesson = () => useApiMutation((id: number) => api.deleteDraftLesson(id), (qc, data) => qc.setQueryData(qk.draft, data), DRAFT)
-export const useStartSolve = () => useApiMutation((body?: { classId?: number }) => api.startSolve(body), (qc) => invalidate(qc, qk.draft), DRAFT)
+export const useStartSolve = () => useApiMutation((body?: { classId?: number; force?: boolean }) => api.startSolve(body), (qc) => invalidate(qc, qk.draft), DRAFT)
 export const useCancelSolve = () => useApiMutation(() => api.cancelSolve(), (qc) => invalidate(qc, qk.draft), DRAFT)
 export const useAcceptDraft = () => useApiMutation((body?: { validFrom?: string }) => api.acceptDraft(body), (qc) => {
   qc.setQueryData(qk.draft, null)
@@ -279,4 +279,3 @@ export function useImportMasterDataSection(scope: TransferScope, opts?: Mutation
 }
 
 export const useDeleteUser = (opts?: MutationOpts) => useApiMutation((id: number) => api.deleteUser(id), (qc) => invalidate(qc, qk.users), opts)
-

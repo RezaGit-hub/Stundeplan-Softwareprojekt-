@@ -176,8 +176,12 @@ public final class PlanningDtos {
     public record PatchLessonInput(Long timeslotId, Long roomId, Boolean pinned) {
     }
 
-    /** Kann (E-40): {@code classId} begrenzt die Neuberechnung auf eine Klasse. */
-    public record StartSolveInput(Long classId) {
+    /**
+     * {@code classId} begrenzt die Neuberechnung auf eine Klasse. {@code force} ueberspringt ausschliesslich
+     * die Kapazitaetsvorpruefung nach einer vorher angezeigten Unterkapazitaet; alle anderen Vorbedingungen
+     * gelten weiterhin.
+     */
+    public record StartSolveInput(Long classId, Boolean force) {
     }
 
     /** Kann (E-40): {@code validFrom} laesst den neuen Plan erst ab diesem Tag gelten. */

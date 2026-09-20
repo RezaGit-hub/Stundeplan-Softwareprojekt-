@@ -92,9 +92,11 @@ public class SolveService {
      * @param classId Kann-Option (E-40): nur diese Klasse neu berechnen. Alle Stunden anderer Klassen
      *                gelten fuer diesen Lauf als festgelegt — nur im Eingaberecord, nicht in der
      *                Datenbank. Leer = ganzer Plan.
+     * @param forceCapacityCheck {@code true} nach einer angezeigten Kapazitaetswarnung: Der Solver darf
+     *                           trotz sicherer Unterkapazitaet starten und offene Stunden ausweisen.
      */
     @Transactional
-    public void start(Long classId) {
+    public void start(Long classId, boolean forceCapacityCheck) {
         Timetable draft = draftService.requireDraft();
         draftService.requireNotSolving(draft);
         requireCompleteMasterData();
@@ -106,7 +108,9 @@ public class SolveService {
 
         draftService.syncRequiredLessons(draft);
         requireNoPinnedContradiction(draft, classId);
-        requireSufficientCapacity(draft);
+        if (!forceCapacityCheck) {
+            requireSufficientCapacity(draft);
+        }
 
         int seconds = config.maxSolveSeconds();
         draft.setSolveStartedAt(Instant.now());
@@ -243,7 +247,8 @@ public class SolveService {
                         Set.copyOf(teacher.getBlockedTimeslotIds())))
                 .toList();
         List<CapacityChecker.RoomInfo> roomInfo = rooms.findAllByOrderByIdAsc().stream()
-                .map(room -> new CapacityChecker.RoomInfo(room.getRoomType(), room.isActive()))
+                .map(room -> new CapacityChecker.RoomInfo(room.getRoomType(), room.isActive(),
+                        Set.copyOf(room.getBlockedTimeslotIds())))
                 .toList();
         List<CapacityChecker.PlanningTimeslot> planningTimeslots = timeslots.findAll().stream()
                 .filter(slot -> !slot.isBreak())

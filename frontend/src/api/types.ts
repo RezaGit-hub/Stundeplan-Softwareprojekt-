@@ -419,6 +419,8 @@ export interface CapacityViolation {
   capacityFromDays: number | null
   dailyRuleLimit: number | null
   weeklyRuleLimit: number | null
+  dailyRuleLimitsCapacity: boolean
+  weeklyRuleLimitsCapacity: boolean
   activeRoomCount: number | null
   planningTimeslotCount: number | null
 }
@@ -515,7 +517,7 @@ export interface Api {
   addDraftLesson(body: AddLessonInput): Promise<DraftDto>
   patchDraftLesson(id: number, body: PatchLessonInput): Promise<DraftDto>
   deleteDraftLesson(id: number): Promise<DraftDto>
-  startSolve(body?: { classId?: number }): Promise<void>
+  startSolve(body?: { classId?: number; force?: boolean }): Promise<void>
   cancelSolve(): Promise<void>
   acceptDraft(body?: { validFrom?: string }): Promise<AcceptDraftResponse>
   /** Vorschläge zum Auflösen eines Konflikts (#110); synchron bis zu 15 s, speichert nichts */
@@ -547,4 +549,3 @@ export interface Api {
   exportMasterDataSection(scope: TransferScope): Promise<MasterDataSection>
   importMasterDataSection(body: MasterDataSection): Promise<SectionImportResult>
 }
-

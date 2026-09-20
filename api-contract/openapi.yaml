@@ -1939,7 +1939,9 @@ paths:
         Fehler (409): `master-data-incomplete` mit `missing[]` (eine aktive Klasse hat kein Fach),
         `pinned-contradiction` mit `conflicts[]` (harte Konflikte allein zwischen festgelegten Stunden),
         `solve-capacity-exceeded` mit `capacityViolations[]` (Stunden-, Lehrkraft- oder Raumkapazität
-        reicht sicher nicht) oder `solving` (läuft schon).
+        reicht sicher nicht) oder `solving` (läuft schon). Nach `solve-capacity-exceeded` darf der
+        Client denselben Aufruf mit `force: true` wiederholen; dann startet der Solver trotz der
+        Unterkapazität und weist gegebenenfalls offene Stunden aus.
 
         **Kann (E-40, nach Rückfrage R1):** `classId` begrenzt die Neuberechnung auf eine Klasse; alle
         Stunden anderer Klassen gelten für diesen Lauf als festgelegt. Ohne Body oder mit `{}`: ganzer Plan.
@@ -3572,7 +3574,8 @@ components:
         Rechnung je nach Art: Tages- und Wochenregeln bei Klassen/Lehrkraeften, Raum- und
         Zeitfensterzahl bei Raumkapazitaeten.
       required: [type, ownerId, label, roomType, demand, capacity, shortfall, dailyCapacities,
-                 capacityFromDays, dailyRuleLimit, weeklyRuleLimit, activeRoomCount, planningTimeslotCount]
+                 capacityFromDays, dailyRuleLimit, weeklyRuleLimit, dailyRuleLimitsCapacity,
+                 weeklyRuleLimitsCapacity, activeRoomCount, planningTimeslotCount]
       properties:
         type:
           $ref: '#/components/schemas/CapacityViolationType'
@@ -3603,6 +3606,12 @@ components:
           type: [integer, 'null']
           minimum: 1
           description: aufgeloeste harte Wochenregel, sonst null
+        dailyRuleLimitsCapacity:
+          type: boolean
+          description: true, wenn die Tagesregel die endgültige Kapazität verringert
+        weeklyRuleLimitsCapacity:
+          type: boolean
+          description: true, wenn die Wochenregel die endgültige Kapazität verringert
         activeRoomCount:
           type: [integer, 'null']
           minimum: 0
@@ -3846,6 +3855,10 @@ components:
           type: integer
           format: int64
           description: 'Kann (E-40, nach R1): nur diese Klasse neu berechnen; alle anderen Stunden gelten für den Lauf als festgelegt. Fehlt: ganzer Plan.'
+        force:
+          type: boolean
+          default: false
+          description: 'Kann: nur nach einem 409 `solve-capacity-exceeded` setzen. Überspringt ausschließlich die Kapazitätsvorprüfung; alle übrigen Vorbedingungen gelten weiterhin.'
 
     AcceptDraftInput:
       type: object

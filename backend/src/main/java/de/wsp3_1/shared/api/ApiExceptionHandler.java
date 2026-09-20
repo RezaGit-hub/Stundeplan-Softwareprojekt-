@@ -211,7 +211,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ProblemDetail onConflict(ConflictException ex) {
         String title = "solve-capacity-exceeded".equals(ex.slug())
-                ? "Plan kann nicht berechnet werden"
+                ? "Warnung:"
                 : "Konflikt";
         ProblemDetail problem = ApiProblems.of(HttpStatus.CONFLICT, ex.slug(), title, ex.getMessage());
         ex.extras().forEach(problem::setProperty);

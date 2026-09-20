@@ -15,5 +15,6 @@ public record CapacityViolation(CapacityViolationType type, Long ownerId, String
                                 int demand, int capacity, int shortfall,
                                 Map<Weekday, Integer> dailyCapacities, Integer capacityFromDays,
                                 Integer dailyRuleLimit, Integer weeklyRuleLimit,
+                                boolean dailyRuleLimitsCapacity, boolean weeklyRuleLimitsCapacity,
                                 Integer activeRoomCount, Integer planningTimeslotCount) {
 }
