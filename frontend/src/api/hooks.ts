@@ -314,4 +314,3 @@ export const useDeleteUser = (opts?: MutationOpts) => useApiMutation((id: number
 
 // Rundgang (#139): danach /me neu laden — daran hängt, ob das Overlay in der Shell erscheint.
 export const useSetTour = () => useApiMutation((body: TourFlag) => api.setTour(body), (qc) => invalidate(qc, qk.me))
-

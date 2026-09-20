@@ -363,7 +363,7 @@ export function TourOverlay() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!sichtbar || nurLesen) { setRundung(null); return }
     const el = zielFinden(ziel, imDialog)
-     
+
     if (!el) { setRundung(null); return }
     el.classList.add('tour-ziel-aktiv')
     setRundung(getComputedStyle(el).borderRadius || null)
