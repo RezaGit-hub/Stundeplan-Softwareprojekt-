@@ -19,11 +19,16 @@ export function SolveDialog({ open, onOpenChange, draftId, classes, defaultClass
   const [problem, setProblem] = useState<ProblemDetail | null>(null)
   const active = classes.filter((c) => c.active)
   const chosen = classId ?? defaultClassId ?? active[0]?.id ?? null
+  const forceCapacityCheck = problem?.type === 'urn:pushnpull:problem:solve-capacity-exceeded'
 
   const submit = async () => {
+    const body = {
+      ...(onlyClass && chosen != null ? { classId: chosen } : {}),
+      ...(forceCapacityCheck ? { force: true } : {}),
+    }
     setProblem(null)
     try {
-      await start.mutateAsync(onlyClass && chosen != null ? { classId: chosen } : undefined)
+      await start.mutateAsync(Object.keys(body).length > 0 ? body : undefined)
       toast.success('Berechnung gestartet')
       onOpenChange(false)
     } catch (err) {
@@ -39,27 +44,29 @@ export function SolveDialog({ open, onOpenChange, draftId, classes, defaultClass
       description="Alle offenen Stunden werden belegt. Festgelegte Stunden bleiben unverändert; nicht festgelegte können wandern."
       onSubmit={submit}
       pending={start.isPending}
-      submitLabel="Berechnen"
+      submitLabel={forceCapacityCheck ? 'Trotzdem berechnen' : 'Berechnen'}
     >
-      <p className="text-sm">
-        Rechenzeit: <span className="font-semibold tabular-nums">{config.data ? `${config.data.maxSolveSeconds} s` : '…'}</span>{' '}
-        <Link to="/einstellungen" className="text-primary underline-offset-2 hover:underline">(Einstellungen)</Link>
-      </p>
-      <div className="rounded-md border bg-surface-sunken/50 p-3">
-        <div className="flex items-center gap-2">
-          <Checkbox id="solve-only-class" checked={onlyClass} onCheckedChange={(v) => setOnlyClass(v === true)} disabled={active.length === 0} />
-          <Label htmlFor="solve-only-class" className="font-normal">Nur eine Klasse neu berechnen</Label>
-        </div>
-        {onlyClass && (
-          <div className="mt-2">
-            <Select value={chosen != null ? String(chosen) : ''} onValueChange={(v) => { if (v) setClassId(Number(v)) }}>
-              <SelectTrigger className="w-full" aria-label="Klasse"><SelectValue placeholder="Klasse wählen" /></SelectTrigger>
-              <SelectContent>{active.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}</SelectContent>
-            </Select>
-            <p className="mt-1.5 text-xs text-foreground-subtle">Die Stunden der anderen Klassen bleiben, wo sie sind.</p>
+      {!forceCapacityCheck && <>
+        <p className="text-sm">
+          Rechenzeit: <span className="font-semibold tabular-nums">{config.data ? `${config.data.maxSolveSeconds} s` : '…'}</span>{' '}
+          <Link to="/einstellungen" className="text-primary underline-offset-2 hover:underline">(Einstellungen)</Link>
+        </p>
+        <div className="rounded-md border bg-surface-sunken/50 p-3">
+          <div className="flex items-center gap-2">
+            <Checkbox id="solve-only-class" checked={onlyClass} onCheckedChange={(v) => setOnlyClass(v === true)} disabled={active.length === 0} />
+            <Label htmlFor="solve-only-class" className="font-normal">Nur eine Klasse neu berechnen</Label>
           </div>
-        )}
-      </div>
+          {onlyClass && (
+            <div className="mt-2">
+              <Select value={chosen != null ? String(chosen) : ''} onValueChange={(v) => { if (v) setClassId(Number(v)) }}>
+                <SelectTrigger className="w-full" aria-label="Klasse"><SelectValue placeholder="Klasse wählen" /></SelectTrigger>
+                <SelectContent>{active.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}</SelectContent>
+              </Select>
+              <p className="mt-1.5 text-xs text-foreground-subtle">Die Stunden der anderen Klassen bleiben, wo sie sind.</p>
+            </div>
+          )}
+        </div>
+      </>}
       {problem && <ProblemBanner problem={problem} />}
     </FormDialog>
   )

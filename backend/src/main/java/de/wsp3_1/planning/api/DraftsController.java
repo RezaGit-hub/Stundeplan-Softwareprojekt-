@@ -110,7 +110,8 @@ public class DraftsController {
     @PostMapping("/{id}/solve")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public void startSolve(@PathVariable Long id, @RequestBody(required = false) StartSolveInput input) {
-        solveService.start(id, input == null ? null : input.classId());
+        solveService.start(id, input == null ? null : input.classId(),
+                input != null && Boolean.TRUE.equals(input.force()));
     }
 
     /** 202 auch dann, wenn gerade nichts laeuft — Abbrechen ist nie ein Fehler. */

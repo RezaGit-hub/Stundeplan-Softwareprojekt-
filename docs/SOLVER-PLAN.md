@@ -391,7 +391,8 @@ der Datenbank. `score = solution.getScore().toString()` („0hard/0medium/-2soft
 
 **`DraftService.syncRequiredLessons(draft)`** (vor jedem Lauf): je aktive Klasse und je `ClassSubject`:
 `fehlend = weeklyHours − Anzahl Stunden dieses ClassSubject im Entwurf`; für jede fehlende eine `Lesson(pinned=false,
-timeslot=null, room=null)` anlegen. Überzählige Zeilen bleiben (Warnung im `DraftDto`). Keine Entities löschen.
+timeslot=null, room=null)` anlegen. Bei einer Verringerung der Wochenstunden werden überzählige, nicht festgelegte
+Stunden entfernt; festgelegte Zusatzstunden bleiben als Warnung im `DraftDto` bestehen.
 
 ## 7. Vorbedingungen (`SolveService.start(classId)`)
 
@@ -405,12 +406,19 @@ Reihenfolge und exakte Antworten (alle `ProblemDetail`, Slugs aus `openapi.yaml`
 | 4 | Kann: `classId` gesetzt, Klasse unbekannt oder inaktiv | 404 `not-found` |
 | 5 | `syncRequiredLessons` | — |
 | 6 | Widerspruch festgelegter Stunden: `ConflictChecker.check(nur Assignments mit pinned = true)` liefert einen Konflikt mit `severity = HARD` | 409 `pinned-contradiction`, `conflicts[]` = genau diese Konflikte, detail „Festgelegte Stunden stehen im Konflikt. Bitte auflösen oder Festlegung aufheben." |
-| 7 | Start: `solveStartedAt = now`, `solveLimitSeconds = SystemConfig.maxSolveSeconds`, `solveError = null`, `solveLastScore` bleibt; `solverRunner.start(...)` | 202, kein Body |
+| 7 | Notwendige Kapazitaet: Klasse und Lehrkraft haben unter harten Tages-/Wochenregeln genug planbare Stunden; Spezialraumtypen und alle aktiven Raeume haben unter Beruecksichtigung ihrer Sperrzeiten genug Raumstunden | 409 `solve-capacity-exceeded`, `capacityViolations[]` mit Bedarf, Kapazitaet, Fehlmenge und den Berechnungswerten |
+| 8 | Start: `solveStartedAt = now`, `solveLimitSeconds = SystemConfig.maxSolveSeconds`, `solveError = null`, `solveLastScore` bleibt; `solverRunner.start(...)` | 202, kein Body |
 
 Punkt 6 nutzt denselben `ConflictChecker` wie `GET /api/draft` — Doppelbelegung, Sperrzeit, Raumart **und** harte
 Regeln zählen (eine festgelegte Stunde in einer Pause bei harter Pausenregel ist ein Widerspruch: der Solver könnte
 ihn nie auflösen). Wochenstunden-Vorbedingung („Fach ohne Wochenstunden") gibt es nicht — die Datenbank erzwingt
 `weekly_hours >= 1` und `teacher_id NOT NULL`.
+
+Punkt 7 ist eine Vorpruefung, kein zweiter Solver: Sie erkennt nur sichere Unterkapazitaet. Weiche Regeln werden
+nicht einbezogen, weil sie eine Loesung nicht ungueltig machen. Bestehen alle vier Einzelpruefungen, kann die
+Kombination der Daten trotzdem noch dazu fuehren, dass Timefold einzelne Stunden offen lassen muss. Nach einer
+Antwort `409 solve-capacity-exceeded` darf die Oberflaeche den Lauf mit `force: true` dennoch starten; nur diese
+Kapazitaetspruefung wird dabei uebersprungen, alle anderen Vorbedingungen bleiben aktiv.
 
 Mit `classId` gilt Punkt 6 für alle Stunden, die im `SolveInput` als `pinned` gelten (also auch die anderen Klassen):
 Widersprüche dort blockieren den Lauf genauso, weil der Solver sie nicht anfassen darf.

@@ -96,7 +96,8 @@ public class DraftController {
     @PostMapping("/solve")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public void startSolve(@RequestBody(required = false) StartSolveInput input) {
-        solveService.start(draftService.currentDraftId(), input == null ? null : input.classId());
+        solveService.start(draftService.currentDraftId(), input == null ? null : input.classId(),
+                input != null && Boolean.TRUE.equals(input.force()));
     }
 
     /** 202 auch dann, wenn gerade nichts laeuft — Abbrechen ist nie ein Fehler. */

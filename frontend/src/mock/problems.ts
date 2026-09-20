@@ -1,5 +1,5 @@
 // Fabriken für ProblemDetail-Fehler der Attrappe (RFC 9457, wie der Spring-@RestControllerAdvice).
-import { ApiError, type ConflictDto, type FieldErrorDto } from '@/api/types'
+import { ApiError, type CapacityViolation, type ConflictDto, type FieldErrorDto } from '@/api/types'
 
 const T = 'urn:pushnpull:problem:'
 
@@ -14,10 +14,10 @@ export function notFound(detail: string): ApiError {
 export function conflict409(
   // `draft-exists` stand hier bis 1.3.0 (ein Entwurf je Schule); seit #103 stehen Entwürfe nebeneinander
   // und der Slug kommt nicht mehr vor.
-  suffix: 'in-use' | 'solving' | 'master-data-incomplete' | 'pinned-contradiction' | 'data-exists' | 'exception-exists' | 'preset-missing' | 'protected-account' | 'draft-has-conflicts' | 'plan-overlap' | 'draft-finished',
+  suffix: 'in-use' | 'solving' | 'master-data-incomplete' | 'pinned-contradiction' | 'solve-capacity-exceeded' | 'data-exists' | 'exception-exists' | 'preset-missing' | 'protected-account' | 'draft-has-conflicts' | 'plan-overlap' | 'draft-finished',
   title: string,
   detail: string,
-  extra?: { missing?: string[]; conflicts?: ConflictDto[] },
+  extra?: { missing?: string[]; conflicts?: ConflictDto[]; capacityViolations?: CapacityViolation[] },
 ): ApiError {
   return new ApiError({ type: `${T}${suffix}`, title, status: 409, detail, ...extra })
 }

@@ -87,11 +87,14 @@ class TimetableViewModel(
         val savedUrl = settings.serverUrl.first()
         val token = settings.token.first()
         val name = settings.displayName.first()
+        val role = settings.role.first()
+
         _settingsState.update {
             it.copy(
                 serverUrlInput = savedUrl ?: Defaults.DEFAULT_SERVER_URL,
                 savedServerUrl = savedUrl,
                 displayName = if (token != null) name else null,
+                role = if (token != null) role else null
             )
         }
     }
@@ -246,12 +249,19 @@ class TimetableViewModel(
         _screen.value = Screen.Settings
     }
 
+    // AbsenceScreen
+
+    fun openAbsence() {
+        _screen.value = Screen.Absence(PlanDates.mondayOf(dayDate))
+    }
+
     /**
      * Zurueck-Taste. Detail -> darunterliegender Screen, Woche -> Tag, Einstellungen -> Tag (nur
      * angemeldet). Liefert false, wenn das System die Taste behandeln soll (App verlassen).
      */
     fun back(): Boolean = when (val s = _screen.value) {
         is Screen.Detail -> { _screen.value = s.from; true }
+        is Screen.Absence -> { _screen.value = Screen.Day(dayDate); true }
         is Screen.Week -> { _screen.value = Screen.Day(dayDate); true }
         Screen.Settings -> {
             val state = _uiState.value
@@ -310,24 +320,9 @@ class TimetableViewModel(
         _settingsState.update {
             it.copy(
                 serverUrlInput = url,
-                //check = CheckState.Running,
                 savedNotice = false
             )
         }
-
-        /*
-        viewModelScope.launch {
-            val result = repository.checkHealth(url)
-            _settingsState.update {
-                it.copy(
-                    check = when (result) {
-                        is HealthResult.Reachable -> CheckState.Reachable(result.schoolName)
-                        HealthResult.Unreachable -> CheckState.Unreachable
-                    }
-                )
-            }
-        }
-        */
         viewModelScope.launch { performCheck(url) }
     }
 
@@ -418,8 +413,14 @@ class TimetableViewModel(
             when (val result = repository.login(username, form.password)) {
                 is LoginResult.Success -> {
                     _settingsState.update {
-                        it.copy(loginRunning = false, password = "", displayName = result.response.displayName)
+                        it.copy(
+                            loginRunning = false,
+                            password = "",
+                            displayName = result.response.displayName,
+                            role = result.response.role
+                        )
                     }
+
                     dayDate = today()
                     _screen.value = Screen.Day(dayDate)
                     _uiState.value = UiState.Loading
@@ -441,7 +442,13 @@ class TimetableViewModel(
             // gerade geloeschten Offline-Stand wieder hin.
             stopLoads()
             repository.logout()
-            _settingsState.update { it.copy(displayName = null, username = "", password = "", loginError = null) }
+            _settingsState.update {
+                it.copy(
+                    displayName = null,
+                    role = null,
+                    username = "",
+                    password = "",
+                    loginError = null) }
             _uiState.value = UiState.LoginRequired()
             _screen.value = Screen.Settings
         }

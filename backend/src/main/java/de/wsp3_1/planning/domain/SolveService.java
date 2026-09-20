@@ -93,9 +93,11 @@ public class SolveService {
      * @param classId Kann-Option (E-40): nur diese Klasse neu berechnen. Alle Stunden anderer Klassen
      *                gelten fuer diesen Lauf als festgelegt — nur im Eingaberecord, nicht in der
      *                Datenbank. Leer = ganzer Plan.
+     * @param forceCapacityCheck {@code true} nach einer angezeigten Kapazitaetswarnung: Der Solver darf
+     *                           trotz sicherer Unterkapazitaet starten und offene Stunden ausweisen.
      */
     @Transactional
-    public void start(Long draftId, Long classId) {
+    public void start(Long draftId, Long classId, boolean forceCapacityCheck) {
         Timetable draft = draftService.requireDraft(draftId);
         draftService.requireNotSolving(draft);
         draftService.requireNotFinished(draft);
@@ -108,6 +110,9 @@ public class SolveService {
 
         draftService.syncRequiredLessons(draft);
         requireNoPinnedContradiction(draft, classId);
+        if (!forceCapacityCheck) {
+            requireSufficientCapacity(draft);
+        }
 
         int seconds = config.maxSolveSeconds();
         draft.setSolveStartedAt(Instant.now());
@@ -153,6 +158,7 @@ public class SolveService {
         draftService.requireNotFinished(draft);
         requireCompleteMasterData();
         draftService.syncRequiredLessons(draft);
+        requireSufficientCapacity(draft);
 
         int limit = Math.min(seconds, MAX_BLOCKING_SECONDS);
         requireReservation(draftId);
@@ -211,6 +217,54 @@ public class SolveService {
         }
     }
 
+    /**
+     * Verhindert einen Lauf, wenn die Daten schon eine notwendige Kapazitaetsbedingung verletzen.
+     *
+     * <p>Die Pruefung passiert nach {@link DraftService#syncRequiredLessons(Timetable)}, damit der
+     * Bedarf der gerade angelegten Soll-Stunden zaehlt. Sie verwendet nur harte Regeln: Eine weiche
+     * Regel darf die Berechnung nicht blockieren, weil der Solver eine weiche Abweichung bewusst als
+     * gueltiges, nur schlechteres Ergebnis behandeln darf.</p>
+     */
+    private void requireSufficientCapacity(Timetable draft) {
+        List<Lesson> rows = lessons.findAllOfTimetable(draft.getId());
+        List<CapacityChecker.LessonDemand> lessonDemand = rows.stream()
+                .map(lesson -> new CapacityChecker.LessonDemand(
+                        lesson.getClassSubject().getSchoolClass().getId(),
+                        lesson.getClassSubject().getTeacher().getId(),
+                        lesson.getClassSubject().getSubject().getRequiredRoomType()))
+                .toList();
+        List<CapacityChecker.ClassInfo> activeClasses = classes.findAllByOrderByIdAsc().stream()
+                .filter(SchoolClass::isActive)
+                .map(schoolClass -> new CapacityChecker.ClassInfo(schoolClass.getId(), schoolClass.getName()))
+                .toList();
+        List<Long> teacherIds = lessonDemand.stream()
+                .map(CapacityChecker.LessonDemand::teacherId)
+                .distinct()
+                .sorted()
+                .toList();
+        List<EffectiveRule> resolvedRules = ruleResolver.resolve(activeClassRefs(), teacherIds);
+        List<CapacityChecker.TeacherInfo> teacherInfo = teachers.findAllByOrderByIdAsc().stream()
+                .map(teacher -> new CapacityChecker.TeacherInfo(teacher.getId(), teacher.getName(),
+                        Set.copyOf(teacher.getBlockedTimeslotIds())))
+                .toList();
+        List<CapacityChecker.RoomInfo> roomInfo = rooms.findAllByOrderByIdAsc().stream()
+                .map(room -> new CapacityChecker.RoomInfo(room.getRoomType(), room.isActive(),
+                        Set.copyOf(room.getBlockedTimeslotIds())))
+                .toList();
+        List<CapacityChecker.PlanningTimeslot> planningTimeslots = timeslots.findAll().stream()
+                .filter(slot -> !slot.isBreak())
+                .map(slot -> new CapacityChecker.PlanningTimeslot(slot.getId(), slot.getDay()))
+                .toList();
+
+        List<CapacityViolation> violations = CapacityChecker.check(lessonDemand, activeClasses, teacherInfo,
+                roomInfo, planningTimeslots, resolvedRules);
+        if (!violations.isEmpty()) {
+            throw new ConflictException("solve-capacity-exceeded",
+                    "Die verfügbaren Kapazitäten reichen für einen vollständigen Plan nicht aus.",
+                    Map.of("capacityViolations", violations));
+        }
+    }
+
     // ------------------------------------------------------------------ Uebersetzung in die Solver-Eingabe
 
     /**
@@ -236,8 +290,11 @@ public class SolveService {
                         lesson.getRoom() == null ? null : lesson.getRoom().getId()))
                 .toList();
 
-        List<TimeslotFact> slotFacts = Timegrid.sortedByGrid(timeslots.findAll()).stream()
-                .map(slot -> new TimeslotFact(slot.getId(), slot.getDay(), slot.getPosition(), slot.isBreak()))
+        List<de.wsp3_1.masterdata.persistence.Timeslot> alleSlots = timeslots.findAll();
+        Map<Long, Integer> lessonNumbers = Timegrid.lessonNumbers(alleSlots);
+        List<TimeslotFact> slotFacts = Timegrid.sortedByGrid(alleSlots).stream()
+                .map(slot -> new TimeslotFact(slot.getId(), slot.getDay(), slot.getPosition(), slot.isBreak(),
+                        lessonNumbers.get(slot.getId())))
                 .toList();
 
         List<RoomFact> roomFacts = new ArrayList<>();

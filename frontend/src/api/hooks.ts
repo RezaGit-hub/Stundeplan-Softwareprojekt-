@@ -246,7 +246,7 @@ export const useDeleteDraft = (id: number) => useApiMutation(() => api.deleteDra
 export const useAddDraftLesson = (id: number) => useApiMutation((body: AddLessonInput) => api.addDraftLesson(id, body), draftChanged, forDraft(id))
 export const usePatchDraftLesson = (id: number) => useApiMutation((v: { lessonId: number; body: PatchLessonInput }) => api.patchDraftLesson(id, v.lessonId, v.body), draftChanged, forDraft(id))
 export const useDeleteDraftLesson = (id: number) => useApiMutation((lessonId: number) => api.deleteDraftLesson(id, lessonId), draftChanged, forDraft(id))
-export const useStartSolve = (id: number) => useApiMutation((body?: { classId?: number }) => api.startSolve(id, body), (qc) => invalidate(qc, qk.draft(id), qk.drafts), forDraft(id))
+export const useStartSolve = (id: number) => useApiMutation((body?: { classId?: number; force?: boolean }) => api.startSolve(id, body), (qc) => invalidate(qc, qk.draft(id), qk.drafts), forDraft(id))
 export const useCancelSolve = (id: number) => useApiMutation(() => api.cancelSolve(id), (qc) => invalidate(qc, qk.draft(id), qk.drafts), forDraft(id))
 /**
  * Annehmen (#115): der Entwurf wird zum angenommenen Plan mit Zeitraum. Danach kann es mehrere

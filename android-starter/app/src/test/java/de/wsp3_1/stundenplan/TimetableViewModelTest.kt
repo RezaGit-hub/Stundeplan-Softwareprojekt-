@@ -53,7 +53,13 @@ class TimetableViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun viewModel() = TimetableViewModel(settings, repository, today = { today }, clock = { 555L })
+    private fun viewModel() = TimetableViewModel(
+        settings,
+        repository,
+        FakeThemePreferences(),
+        today = { today },
+        clock = { 555L },
+    )
 
     @Test
     fun `ohne Serveradresse springt die App in die Einstellungen`() = runTest {

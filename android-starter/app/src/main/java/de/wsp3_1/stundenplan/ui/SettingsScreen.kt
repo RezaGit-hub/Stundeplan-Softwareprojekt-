@@ -92,12 +92,14 @@ fun SettingsScreen(
         ) {
             ServerSection(state, onServerUrlChange, onCheck, onSave)
 
-            HorizontalDivider()
+            if (state.loggedIn) {
+                HorizontalDivider()
 
-            AnsichtSection(
-                themeMode = themeMode,
-                onThemeModeChange = onThemeModeChange
-            )
+                AnsichtSection(
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange
+                )
+            }
 
             HorizontalDivider()
 

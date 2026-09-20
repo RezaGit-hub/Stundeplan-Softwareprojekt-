@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Stundenplanung — REST-API
-  version: 1.4.0
+  version: 1.5.0
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -2101,8 +2101,10 @@ paths:
         Wie `POST /api/draft/solve`, für den Entwurf mit dieser Kennung: Vorbedingungen prüfen, fehlende
         Stunden ergänzen, Solver **asynchron** starten, 202 sofort; Stand über `GET /api/drafts/{id}`
         (`status: SOLVING` → alle 2 s). Es läuft **ein** Lauf zugleich je Entwurf; andere Entwürfe bleiben
-        bearbeitbar. Fehler (409): `master-data-incomplete`, `pinned-contradiction`, `solving`.
-        Kann (E-40): `classId` begrenzt den Lauf auf eine Klasse.
+        bearbeitbar. Fehler (409): `master-data-incomplete`, `pinned-contradiction`,
+        `solve-capacity-exceeded`, `solving`.
+        Kann (E-40): `classId` begrenzt den Lauf auf eine Klasse; `force: true` überspringt nach einem
+        409 `solve-capacity-exceeded` ausschließlich die Kapazitätsvorprüfung (seit 1.5.0).
       x-role: PLANNING
       requestBody:
         required: false
@@ -2121,7 +2123,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
         '409':
-          description: Vorbedingung verletzt, Berechnung läuft schon oder der Entwurf liegt in der Ablage (`master-data-incomplete`, `pinned-contradiction`, `solving`, `draft-finished` seit 1.4.0)
+          description: Vorbedingung verletzt, Berechnung läuft schon, Unterkapazität oder der Entwurf liegt in der Ablage (`master-data-incomplete`, `pinned-contradiction`, `solve-capacity-exceeded`, `solving`, `draft-finished` seit 1.4.0)
           content:
             application/problem+json:
               schema:
@@ -2563,7 +2565,10 @@ paths:
 
         Fehler (409): `master-data-incomplete` mit `missing[]` (eine aktive Klasse hat kein Fach),
         `pinned-contradiction` mit `conflicts[]` (harte Konflikte allein zwischen festgelegten Stunden),
-        `solving` (läuft schon).
+        `solve-capacity-exceeded` mit `capacityViolations[]` (Stunden-, Lehrkraft- oder Raumkapazität
+        reicht sicher nicht) oder `solving` (läuft schon). Nach `solve-capacity-exceeded` darf der
+        Client denselben Aufruf mit `force: true` wiederholen; dann startet der Solver trotz der
+        Unterkapazität und weist gegebenenfalls offene Stunden aus.
 
         **Kann (E-40, nach Rückfrage R1):** `classId` begrenzt die Neuberechnung auf eine Klasse; alle
         Stunden anderer Klassen gelten für diesen Lauf als festgelegt. Ohne Body oder mit `{}`: ganzer Plan.
@@ -2585,7 +2590,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
         '409':
-          description: Vorbedingung verletzt, Berechnung läuft schon oder der Entwurf liegt in der Ablage (`master-data-incomplete`, `pinned-contradiction`, `solving`, `draft-finished` seit 1.4.0)
+          description: Vorbedingung verletzt, Berechnung läuft schon, Unterkapazität oder der Entwurf liegt in der Ablage (`master-data-incomplete`, `pinned-contradiction`, `solve-capacity-exceeded`, `solving`, `draft-finished` seit 1.4.0)
           content:
             application/problem+json:
               schema:
@@ -4254,6 +4259,65 @@ components:
           items:
             $ref: '#/components/schemas/ConflictObject'
 
+    CapacityViolationType:
+      type: string
+      enum: [CLASS_CAPACITY, TEACHER_CAPACITY, SPECIAL_ROOM_CAPACITY, ROOM_CAPACITY]
+
+    CapacityViolation:
+      type: object
+      description: |
+        Eine notwendige Kapazitaetsbedingung fuer einen vollstaendigen Solver-Plan ist verletzt.
+        `demand`, `capacity` und `shortfall` sind immer gesetzt. Die uebrigen Werte erklaeren die
+        Rechnung je nach Art: Tages- und Wochenregeln bei Klassen/Lehrkraeften, Raum- und
+        Zeitfensterzahl bei Raumkapazitaeten.
+      required: [type, ownerId, label, roomType, demand, capacity, shortfall, dailyCapacities,
+                 capacityFromDays, dailyRuleLimit, weeklyRuleLimit, dailyRuleLimitsCapacity,
+                 weeklyRuleLimitsCapacity, activeRoomCount, planningTimeslotCount]
+      properties:
+        type:
+          $ref: '#/components/schemas/CapacityViolationType'
+        ownerId:
+          type: [integer, 'null']
+          format: int64
+          description: Kennung der Klasse oder Lehrkraft; bei Raumkapazitaeten null
+        label: { type: string, description: Bezeichnung des betroffenen Objekts }
+        roomType:
+          type: [string, 'null']
+          description: erforderliche Raumart, nur bei SPECIAL_ROOM_CAPACITY gesetzt
+        demand: { type: integer, minimum: 0, description: zuzuweisende Stunden }
+        capacity: { type: integer, minimum: 0, description: maximal verplanbare Stunden }
+        shortfall: { type: integer, minimum: 1, description: fehlende Kapazitaet }
+        dailyCapacities:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+          description: planbare Stunden je Wochentag, nur bei Klasse oder Lehrkraft
+        capacityFromDays:
+          type: [integer, 'null']
+          minimum: 0
+          description: Summe der Tageskapazitaeten vor Anwendung der Wochenregel
+        dailyRuleLimit:
+          type: [integer, 'null']
+          minimum: 1
+          description: aufgeloeste harte Tagesregel, sonst null
+        weeklyRuleLimit:
+          type: [integer, 'null']
+          minimum: 1
+          description: aufgeloeste harte Wochenregel, sonst null
+        dailyRuleLimitsCapacity:
+          type: boolean
+          description: true, wenn die Tagesregel die endgültige Kapazität verringert
+        weeklyRuleLimitsCapacity:
+          type: boolean
+          description: true, wenn die Wochenregel die endgültige Kapazität verringert
+        activeRoomCount:
+          type: [integer, 'null']
+          minimum: 0
+          description: passende aktive Raeume, nur bei Raumkapazitaeten
+        planningTimeslotCount:
+          type: [integer, 'null']
+          minimum: 0
+          description: Nicht-Pausen-Zeitfenster, nur bei Raumkapazitaeten
+
     FieldErrorDto:
       type: object
       required: [field, message]
@@ -4267,7 +4331,8 @@ components:
         Fehlerkörper nach RFC 9457, ausgeliefert als `application/problem+json`.
         `type` ist immer `urn:pushnpull:problem:<slug>` mit den Slugs `validation`, `unauthenticated`,
         `forbidden`, `not-found`, `in-use`, `solving`, `master-data-incomplete`,
-        `pinned-contradiction`, `data-exists`, `exception-exists`, `preset-missing`,
+        `pinned-contradiction`, `solve-capacity-exceeded` (seit 1.5.0: sichere Unterkapazität vor dem
+        Solverlauf, `capacityViolations[]`), `data-exists`, `exception-exists`, `preset-missing`,
         `draft-has-conflicts` (seit 1.3.0: Annehmen eines Entwurfs mit harten Konflikten, `conflicts[]`
         wie bei `pinned-contradiction`), `plan-overlap` (seit 1.4.0: der gewünschte Zeitraum
         überschneidet sich mit einem Plan, der erst künftig beginnt — auch bei „jetzt aktivieren"; und
@@ -4296,6 +4361,11 @@ components:
           description: nur bei `pinned-contradiction` und `draft-has-conflicts`
           items:
             $ref: '#/components/schemas/ConflictDto'
+        capacityViolations:
+          type: array
+          description: nur bei `solve-capacity-exceeded`
+          items:
+            $ref: '#/components/schemas/CapacityViolation'
 
     # ---------------------------------------------------------------------------------------------- v1
 
@@ -4558,6 +4628,10 @@ components:
           type: integer
           format: int64
           description: 'Kann (E-40, nach R1): nur diese Klasse neu berechnen; alle anderen Stunden gelten für den Lauf als festgelegt. Fehlt: ganzer Plan.'
+        force:
+          type: boolean
+          default: false
+          description: 'Kann: nur nach einem 409 `solve-capacity-exceeded` setzen. Überspringt ausschließlich die Kapazitätsvorprüfung; alle übrigen Vorbedingungen gelten weiterhin.'
 
     AcceptDraftInput:
       type: object

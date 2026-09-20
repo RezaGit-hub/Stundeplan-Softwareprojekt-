@@ -460,6 +460,25 @@ export const PROBLEM_PREFIX = 'urn:pushnpull:problem:'
 export type ProblemSlug = 'validation' | 'draft-has-conflicts' | 'plan-overlap' | 'draft-finished' | 'solving'
 
 export interface FieldErrorDto { field: string; message: string }
+export type CapacityViolationType = 'CLASS_CAPACITY' | 'TEACHER_CAPACITY' | 'SPECIAL_ROOM_CAPACITY' | 'ROOM_CAPACITY'
+/** Eine fehlende notwendige Kapazitaet vor dem Start des Stundenplan-Solvers. */
+export interface CapacityViolation {
+  type: CapacityViolationType
+  ownerId: number | null
+  label: string
+  roomType: string | null
+  demand: number
+  capacity: number
+  shortfall: number
+  dailyCapacities: Partial<Record<Weekday, number>>
+  capacityFromDays: number | null
+  dailyRuleLimit: number | null
+  weeklyRuleLimit: number | null
+  dailyRuleLimitsCapacity: boolean
+  weeklyRuleLimitsCapacity: boolean
+  activeRoomCount: number | null
+  planningTimeslotCount: number | null
+}
 export interface ProblemDetail {
   type: string
   title: string
@@ -469,6 +488,7 @@ export interface ProblemDetail {
   errors?: FieldErrorDto[]
   missing?: string[]
   conflicts?: ConflictDto[]
+  capacityViolations?: CapacityViolation[]
 }
 
 export class ApiError extends Error {
@@ -562,7 +582,8 @@ export interface Api {
   addDraftLesson(draftId: number, body: AddLessonInput): Promise<DraftDto>
   patchDraftLesson(draftId: number, lessonId: number, body: PatchLessonInput): Promise<DraftDto>
   deleteDraftLesson(draftId: number, lessonId: number): Promise<DraftDto>
-  startSolve(draftId: number, body?: { classId?: number }): Promise<void>
+  /** `force` uebergeht die Kapazitaetspruefung (409 `solve-capacity-exceeded`, Vertrag 1.5.0) */
+  startSolve(draftId: number, body?: { classId?: number; force?: boolean }): Promise<void>
   cancelSolve(draftId: number): Promise<void>
   acceptDraft(draftId: number, body?: AcceptDraftInput): Promise<AcceptDraftResponse>
   /** Vorschläge zum Auflösen eines Konflikts (#110); synchron bis zu 15 s, speichert nichts */
@@ -594,4 +615,3 @@ export interface Api {
   exportMasterDataSection(scope: TransferScope): Promise<MasterDataSection>
   importMasterDataSection(body: MasterDataSection): Promise<SectionImportResult>
 }
-

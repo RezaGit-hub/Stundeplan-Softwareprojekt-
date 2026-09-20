@@ -80,6 +80,68 @@ frontend:build:
       - frontend/dist
     expire_in: 1 week
 
+# ---------------------------------------------------------------- Android
+
+# Baut die Android-App direkt im Runner-Container.
+#
+# Warum nicht ueber scripts/ci-android-build.sh? Dieses Skript startet einen
+# inneren docker-Container mit Bind-Mount "$PWD/android-starter:/proj". Der
+# Runner laeuft aber selbst im Container und spricht nur den Docker-Daemon des
+# Hosts an — der sieht den Pfad /builds/ifi-ag-se/... nicht, mountet einen
+# leeren Ordner, und ./gradlew fehlt. DinD steht hier nicht zur Verfuegung
+# (siehe image:build, stillgelegt). Also laufen die Schritte direkt im Job.
+android:build:
+  stage: build
+  image: eclipse-temurin:17-jdk
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+  variables:
+    ANDROID_HOME: "$CI_PROJECT_DIR/.android-sdk"
+    ANDROID_SDK_ROOT: "$CI_PROJECT_DIR/.android-sdk"
+    GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle-android"
+  # SDK (~1,5 GB) und Gradle-Cache ueber Laeufe hinweg behalten. Der Schluessel
+  # enthaelt die SDK-Version; wer die wechselt, gibt einen neuen an.
+  cache:
+    key: android-sdk-v1
+    paths:
+      - .android-sdk/
+      - .gradle-android/
+  before_script:
+    - |
+      apt-get update -qq
+      apt-get install -y -qq curl unzip
+      if [ ! -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+        echo "==> Android-Kommandozeilenwerkzeuge holen"
+        mkdir -p "$ANDROID_HOME/cmdline-tools" /tmp/cl
+        curl -sSL -o /tmp/cmdline.zip \
+          "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+        unzip -q /tmp/cmdline.zip -d /tmp/cl
+        mv /tmp/cl/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+      fi
+      yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+      "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+        "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+  script:
+    - cd android-starter
+    - chmod +x gradlew
+    - ./gradlew --no-daemon --no-watch-fs :app:testDebugUnitTest :app:assembleDebug
+    # Dieselbe Auslage wie im Skript: das Debug-APK zusaetzlich als app/stundenplan.apk
+    # ablegen, damit der Release-Job und die Artefakte denselben Pfad nutzen.
+    - mkdir -p ../app
+    - cp app/build/outputs/apk/debug/app-debug.apk ../app/stundenplan.apk
+  artifacts:
+    name: "android-$CI_COMMIT_REF_NAME"
+    expire_in: 30 days
+    paths:
+      - app/stundenplan.apk
+      - android-starter/app/build/outputs/apk/debug/app-debug.apk
+    reports:
+      junit: android-starter/app/build/test-results/testDebugUnitTest/TEST-*.xml
+
 # ---------------------------------------------------------------- test
 
 # Schnelle Tests ohne Datenbank: Fachlogik, ArchUnit, Solver-Constraints, Sicherheitsregeln.
@@ -255,9 +317,13 @@ deploy:vm:
   variables:
     # Der Job laeuft auf demselben Rechner wie der Stack. Der Docker-Socket ist durchgereicht.
     DOCKER_HOST: "unix:///var/run/docker.sock"
+    # Kurzschreibweise fuer die Compose-Aufrufe unten. Der HTTPS-Teil kommt aus dem Overlay
+    # docker-compose.https.yml; ohne das Overlay bliebe nur HTTP auf WEBPORT erreichbar.
+    # Aus Gruenden der Lesbarkeit wiederhole ich unten trotzdem die langen -f-Ketten, damit
+    # jede Zeile fuer sich verstaendlich bleibt.
   environment:
     name: vm-gruppe-5
-    url: http://134.245.1.240:1500
+    url: https://134.245.1.240:1510
   before_script:
     - apk add --no-cache rsync bash curl
     - |
@@ -307,18 +373,34 @@ deploy:vm:
       else
         echo "    .env vorhanden — unveraendert gelassen."
       fi
+    - |
+      # HTTPSPORT und SSLCN ergaenzen, falls sie in einer bestehenden .env fehlen.
+      # Bestehende Werte bleiben unangetastet — ein Passwortwechsel auf der VM geht nicht verloren.
+      # HTTPSPORT=8440 ist der VM-Port; die VM-NAT macht daraus von aussen 1510.
+      # SSLCN ist der Common Name des selbstsignierten Zertifikats (keine Domain vorhanden).
+      if ! grep -q '^HTTPSPORT=' /deploy-target/deployment/.env; then
+        echo "HTTPSPORT=8440" >> /deploy-target/deployment/.env
+        echo "    HTTPSPORT=8440 ergaenzt."
+      fi
+      if ! grep -q '^SSLCN=' /deploy-target/deployment/.env; then
+        echo "SSLCN=134.245.1.240" >> /deploy-target/deployment/.env
+        echo "    SSLCN=134.245.1.240 ergaenzt."
+      fi
 
-    # ---- 3. Stack neu bauen und starten --------------------------------------
+    # ---- 3. Stack neu bauen und starten (mit HTTPS-Overlay) ------------------
     # Nacheinander statt `up -d --build`: BuildKit baut sonst Backend und Frontend gleichzeitig,
     # waehrend der alte Stack mit 512 + 1536 MB weiterlaeuft — auf einer 4-GB-VM der
     # wahrscheinlichste Grund fuer einen abgebrochenen Deploy.
+    #
+    # Das zweite -f docker-compose.https.yml veroeffentlicht zusaetzlich Port 8443 im Container
+    # auf HTTPSPORT (8440) auf der VM. Ohne dieses Overlay bliebe nur HTTP auf WEBPORT erreichbar.
     - echo "==> Backend bauen"
-    - cd /deploy-target/deployment && docker compose build backend
+    - cd /deploy-target/deployment && docker compose -f docker-compose.yml -f docker-compose.https.yml build backend
     - echo "==> Frontend bauen"
-    - docker compose build web
+    - docker compose -f docker-compose.yml -f docker-compose.https.yml build web
     - echo "==> Stack starten"
-    - docker compose up -d
-    - docker compose ps
+    - docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+    - docker compose -f docker-compose.yml -f docker-compose.https.yml ps
 
     # ---- 4. Pruefen --------------------------------------------------------
     # Der Job laeuft in einem Runner-Container, der nur den Docker-Socket sieht. Sein
@@ -334,9 +416,14 @@ deploy:vm:
     # Vorherige Versuche (bis 14.09.): `curl localhost:$PORT` (falscher Host),
     # `docker compose exec -T web wget` (nginx-Log zeigt kein /api/health),
     # `docker run --net container:$WEB_ID` (Verbindung schlaegt fehl). Befund BETRIEB-11.
+    #
+    # Der Health-Check laeuft weiterhin gegen http://web:8080 (Container-interner HTTP-Port).
+    # Das HTTPS-Overlay aendert daran nichts — es veroeffentlicht nur zusaetzlich Port 8443
+    # nach aussen. Wuerde man gegen https://web:8443 pruefen, muesste der curl-Container
+    # das selbstsignierte Zertifikat ignorieren (-k); der einfache HTTP-Port reicht.
     - echo "==> Health-Pruefung"
     - |
-      WEB_ID=$(docker compose ps -q web)
+      WEB_ID=$(docker compose -f docker-compose.yml -f docker-compose.https.yml ps -q web)
       NET=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$WEB_ID")
       echo "    Netzwerk: $NET"
       for i in $(seq 1 30); do
@@ -349,6 +436,41 @@ deploy:vm:
         sleep 1
       done
       echo "FEHLER: /api/health antwortet nach 30 s nicht."
-      docker compose logs --tail 100 backend || true
-      docker compose logs --tail 100 web || true
+      docker compose -f docker-compose.yml -f docker-compose.https.yml logs --tail 100 backend || true
+      docker compose -f docker-compose.yml -f docker-compose.https.yml logs --tail 100 web || true
       exit 1
+
+android:release:
+  stage: deploy
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs: ["android:build"]
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+      when: on_success
+  variables:
+    PACKAGE_NAME: "android-app"
+  script:
+    - apk add --no-cache curl
+    - export VERSION="${CI_COMMIT_TAG#v}"
+    - export PKG_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE_NAME}/${CI_COMMIT_TAG}"
+    - export APK_URL="${PKG_URL}/stundenplan-${VERSION}.apk"
+    - |
+      curl --fail --silent --show-error \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --upload-file app/stundenplan.apk \
+        "${APK_URL}"
+    - |
+      RELEASE_EXISTS=$(curl --silent --output /dev/null --write-out "%{http_code}" \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}")
+      if [ "${RELEASE_EXISTS}" = "404" ]; then
+        release-cli create \
+          --tag-name "${CI_COMMIT_TAG}" \
+          --name "Release ${CI_COMMIT_TAG}" \
+          --description "Automatisches Release für ${CI_COMMIT_TAG}" \
+          --assets-link "{\"name\":\"Android APK (stundenplan-${VERSION}.apk)\",\"url\":\"${APK_URL}\",\"link_type\":\"package\"}"
+      else
+        release-cli create \
+          --tag-name "${CI_COMMIT_TAG}" \
+          --assets-link "{\"name\":\"Android APK (stundenplan-${VERSION}.apk)\",\"url\":\"${APK_URL}\",\"link_type\":\"package\"}"
+      fi
