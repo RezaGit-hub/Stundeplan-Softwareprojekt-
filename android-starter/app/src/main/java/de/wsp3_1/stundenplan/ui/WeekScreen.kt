@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -25,6 +27,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,6 +50,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import de.wsp3_1.stundenplan.R
 import de.wsp3_1.stundenplan.data.EntryDto
 import de.wsp3_1.stundenplan.data.PlanDates
@@ -68,10 +74,12 @@ fun WeekScreen(
     uiState: UiState,
     monday: LocalDate,
     today: LocalDate,
+    isTeacher: Boolean,
     refreshing: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onDay: (LocalDate) -> Unit,
+    onAbsence: () -> Unit,
     onRefresh: () -> Unit,
     onEntry: (EntryDto) -> Unit,
     onSettings: () -> Unit,
@@ -95,14 +103,78 @@ fun WeekScreen(
                     )
                 },
                         actions = {
-                    TextButton(onClick = { onDay(if (PlanDates.mondayOf(today) == monday) today else monday) }) {
-                        Text(stringResource(R.string.week_day))
-                    }
+                    //TextButton(onClick = { onDay(if (PlanDates.mondayOf(today) == monday) today else monday) }) {
+                    //    Text(stringResource(R.string.week_day))
+                    //}
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.cd_settings))
                     }
                 },
             )
+        },
+
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = false,
+                    onClick = { onDay(if (PlanDates.mondayOf(today) == monday) today else monday) },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Filled.DateRange,
+                            contentDescription = "Tagesansicht"
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "Tag",
+                            fontSize = 18.sp
+                        )
+                    }
+                )
+
+                NavigationBarItem(
+                    selected = true,
+                    onClick = { /* Wochenansicht */},
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Filled.DateRange,
+                            contentDescription = "Wochenansicht"
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "Woche",
+                            fontSize = 18.sp
+                        )
+                    },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
+
+                if (isTeacher) {
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { onAbsence() },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Filled.Email,
+                                contentDescription = "Abwesenheiten"
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = "Abwesenheit",
+                                fontSize = 18.sp
+                            )
+                        }
+                    )
+                }
+            }
         }
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
