@@ -50,10 +50,9 @@ sealed interface Message {
 /** Bildschirmwechsel als Zustand im ViewModel - keine Navigations-Bibliothek. */
 sealed interface Screen {
     data object Settings : Screen
-
+    data class Absence(val monday: LocalDate) : Screen
     data class Day(val date: LocalDate) : Screen
     data class Week(val monday: LocalDate) : Screen
-
     /** Stundendetail als Bottom Sheet ueber [from]. */
     data class Detail(val entry: EntryDto, val from: Screen) : Screen
 }
@@ -70,6 +69,7 @@ data class SettingsUiState(
     val loginError: LoginError? = null,
     /** Anzeigename der angemeldeten Lehrkraft; null = nicht angemeldet. */
     val displayName: String? = null,
+    val role: String? = null,
 ) {
     val loggedIn: Boolean get() = displayName != null
 }

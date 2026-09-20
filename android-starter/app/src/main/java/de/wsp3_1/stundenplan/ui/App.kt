@@ -28,6 +28,7 @@ fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: 
         is Screen.Day -> false
         Screen.Settings -> uiState !is UiState.NoServerConfigured && uiState !is UiState.LoginRequired
         is Screen.Week, is Screen.Detail -> true
+        is Screen.Absence -> true
     }
     BackHandler(enabled = backEnabled) { viewModel.back() }
 
@@ -53,29 +54,41 @@ fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: 
             date = base.date,
             today = LocalDate.now(),
             refreshing = refreshing,
+            isTeacher = settingsState.role == "TEACHER",
             onPrev = viewModel::previousDay,
             onNext = viewModel::nextDay,
             onToday = viewModel::showToday,
             onWeek = viewModel::showWeek,
+            onAbsence = viewModel::openAbsence,
             onRefresh = viewModel::refresh,
             onEntry = viewModel::openDetail,
             onSettings = viewModel::openSettings,
             onPickDate = viewModel::showDay,
-
         )
 
         is Screen.Week -> WeekScreen(
             uiState = uiState,
             monday = base.monday,
             today = LocalDate.now(),
+            isTeacher = settingsState.role == "TEACHER",
             refreshing = refreshing,
             onPrev = viewModel::previousWeek,
             onNext = viewModel::nextWeek,
             onDay = viewModel::showDay,
+            onAbsence = viewModel::openAbsence,
             onRefresh = viewModel::refresh,
             onEntry = viewModel::openDetail,
             onSettings = viewModel::openSettings,
             onPickDate = viewModel::selectWeek,
+        )
+
+        is Screen.Absence -> AbsenceScreen(
+            monday = base.monday,
+            today = LocalDate.now(),
+            isTeacher = settingsState.role == "TEACHER",
+            onDay = viewModel::showDay,
+            onWeek = viewModel::showWeek,
+            onSettings = viewModel::openSettings,
         )
 
         is Screen.Detail -> Unit // kommt nicht vor: base ist nie ein Detail
