@@ -405,6 +405,25 @@ export interface MasterDataImportResult {
 
 // ------------------------------------------------------------------ Fehler (RFC 9457)
 export interface FieldErrorDto { field: string; message: string }
+export type CapacityViolationType = 'CLASS_CAPACITY' | 'TEACHER_CAPACITY' | 'SPECIAL_ROOM_CAPACITY' | 'ROOM_CAPACITY'
+/** Eine fehlende notwendige Kapazitaet vor dem Start des Stundenplan-Solvers. */
+export interface CapacityViolation {
+  type: CapacityViolationType
+  ownerId: number | null
+  label: string
+  roomType: string | null
+  demand: number
+  capacity: number
+  shortfall: number
+  dailyCapacities: Partial<Record<Weekday, number>>
+  capacityFromDays: number | null
+  dailyRuleLimit: number | null
+  weeklyRuleLimit: number | null
+  dailyRuleLimitsCapacity: boolean
+  weeklyRuleLimitsCapacity: boolean
+  activeRoomCount: number | null
+  planningTimeslotCount: number | null
+}
 export interface ProblemDetail {
   type: string
   title: string
@@ -414,6 +433,7 @@ export interface ProblemDetail {
   errors?: FieldErrorDto[]
   missing?: string[]
   conflicts?: ConflictDto[]
+  capacityViolations?: CapacityViolation[]
 }
 
 export class ApiError extends Error {
@@ -497,7 +517,7 @@ export interface Api {
   addDraftLesson(body: AddLessonInput): Promise<DraftDto>
   patchDraftLesson(id: number, body: PatchLessonInput): Promise<DraftDto>
   deleteDraftLesson(id: number): Promise<DraftDto>
-  startSolve(body?: { classId?: number }): Promise<void>
+  startSolve(body?: { classId?: number; force?: boolean }): Promise<void>
   cancelSolve(): Promise<void>
   acceptDraft(body?: { validFrom?: string }): Promise<AcceptDraftResponse>
   /** Vorschläge zum Auflösen eines Konflikts (#110); synchron bis zu 15 s, speichert nichts */
@@ -529,4 +549,3 @@ export interface Api {
   exportMasterDataSection(scope: TransferScope): Promise<MasterDataSection>
   importMasterDataSection(body: MasterDataSection): Promise<SectionImportResult>
 }
-

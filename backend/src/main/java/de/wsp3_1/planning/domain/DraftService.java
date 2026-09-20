@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * Der Lebenslauf des Plans: Entwurf anlegen, Stunden von Hand bauen, festlegen, verwerfen, annehmen
@@ -246,20 +247,27 @@ public class DraftService {
     // ------------------------------------------------------------------ Berechnung: Vor- und Nacharbeit
 
     /**
-     * Ergaenzt vor jedem Lauf die fehlenden Stunden: je Klasse und Fach so viele offene, nicht
-     * festgelegte Zeilen, wie an den Wochenstunden fehlen. Ueberzaehlige Zeilen bleiben stehen (sie
-     * stehen als Hinweis in {@code warnings}); geloescht wird hier nichts.
+     * Gleicht vor jedem Lauf die automatisch berechenbaren Stunden an die Wochenstunden je Klasse und
+     * Fach an. Fehlende Stunden werden als offene Zeilen ergaenzt. Bei einer Verringerung der
+     * Wochenstunden werden ueberzaehlige, nicht festgelegte Stunden entfernt; manuell festgelegte
+     * Zusatzstunden bleiben als Hinweis in {@code warnings} bestehen.
      */
     @Transactional
     public void syncRequiredLessons(Timetable draft) {
-        Map<Long, Integer> countByClassSubject = new HashMap<>();
-        for (Lesson lesson : lessons.findAllOfTimetable(draft.getId())) {
-            countByClassSubject.merge(lesson.getClassSubject().getId(), 1, Integer::sum);
-        }
+        Map<Long, List<Lesson>> lessonsByClassSubject = lessons.findAllOfTimetable(draft.getId()).stream()
+                .collect(Collectors.groupingBy(lesson -> lesson.getClassSubject().getId()));
         for (ClassSubject row : activeClassSubjects()) {
-            int have = countByClassSubject.getOrDefault(row.getId(), 0);
+            List<Lesson> existing = lessonsByClassSubject.getOrDefault(row.getId(), List.of());
+            int have = existing.size();
             for (int i = have; i < row.getWeeklyHours(); i++) {
                 lessons.save(new Lesson(draft, row, false, null, null));
+            }
+            int excess = have - row.getWeeklyHours();
+            if (excess > 0) {
+                existing.stream()
+                        .filter(lesson -> !lesson.isPinned())
+                        .limit(excess)
+                        .forEach(lessons::delete);
             }
         }
     }

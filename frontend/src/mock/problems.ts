@@ -1,5 +1,5 @@
 // Fabriken für ProblemDetail-Fehler der Attrappe (RFC 9457, wie der Spring-@RestControllerAdvice).
-import { ApiError, type ConflictDto, type FieldErrorDto } from '@/api/types'
+import { ApiError, type CapacityViolation, type ConflictDto, type FieldErrorDto } from '@/api/types'
 
 const T = 'urn:pushnpull:problem:'
 
@@ -12,10 +12,10 @@ export function notFound(detail: string): ApiError {
 }
 
 export function conflict409(
-  suffix: 'in-use' | 'draft-exists' | 'solving' | 'master-data-incomplete' | 'pinned-contradiction' | 'data-exists' | 'exception-exists' | 'preset-missing' | 'protected-account',
+  suffix: 'in-use' | 'draft-exists' | 'solving' | 'master-data-incomplete' | 'pinned-contradiction' | 'solve-capacity-exceeded' | 'data-exists' | 'exception-exists' | 'preset-missing' | 'protected-account',
   title: string,
   detail: string,
-  extra?: { missing?: string[]; conflicts?: ConflictDto[] },
+  extra?: { missing?: string[]; conflicts?: ConflictDto[]; capacityViolations?: CapacityViolation[] },
 ): ApiError {
   return new ApiError({ type: `${T}${suffix}`, title, status: 409, detail, ...extra })
 }

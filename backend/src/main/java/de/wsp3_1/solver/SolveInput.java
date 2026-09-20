@@ -26,9 +26,12 @@ public record SolveInput(List<LessonInput> lessons,
                          List<RoomBlockedTimeFact> roomBlockedTimes) {
 
     /** Ohne Raumsperren — fuer Tests und Aufrufer aus der Zeit vor #133. */
-    public SolveInput(List<LessonInput> lessons, List<TimeslotFact> timeslots, List<RoomFact> rooms,
-                      List<RuleFact> rules, List<BlockedTimeFact> blockedTimes,
-                      List<PreferredTimeFact> preferredTimes) {
+    public SolveInput(  List<LessonInput> lessons,
+                        List<TimeslotFact> timeslots,
+                        List<RoomFact> rooms,
+                        List<RuleFact> rules,
+                        List<BlockedTimeFact> blockedTimes,
+                        List<PreferredTimeFact> preferredTimes) {
         this(lessons, timeslots, rooms, rules, blockedTimes, preferredTimes, List.of());
     }
 
@@ -38,7 +41,6 @@ public record SolveInput(List<LessonInput> lessons,
      * das gilt fuer festgelegte Stunden (W-9) und, bei der Kann-Option {@code classId}, fuer alle
      * Stunden anderer Klassen (nur im Eingaberecord, nicht in der Datenbank).
      */
-    public record LessonInput(Long id, Long classId, Long subjectId, Long teacherId, String requiredRoomType,
-                              boolean pinned, Long timeslotId, Long roomId) {
+    public record LessonInput(Long id, Long classId, Long subjectId, Long teacherId, String requiredRoomType, boolean pinned, Long timeslotId, Long roomId) {
     }
 }

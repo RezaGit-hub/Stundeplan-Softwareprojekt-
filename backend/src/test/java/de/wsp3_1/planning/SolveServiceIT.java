@@ -26,6 +26,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 /**
  * Die Berechnung eines Vorschlags gegen den echten Solver und die echte Datenbank (W-8, W-9):
@@ -92,6 +93,63 @@ class SolveServiceIT extends PlanningITBase {
 
         call(post("/api/draft/solve").content("""
                 {"classId":999999}"""), 404);
+    }
+
+    @Test
+    @DisplayName("Kapazitaetswarnung: force startet den Solver beim zweiten Aufruf trotzdem")
+    void forceStartsSolverAfterCapacityWarning() throws Exception {
+        pflichtenheftGrunddaten();
+        setMaxSolveSeconds(2);
+        try {
+            JsonNode rules = call(post("/api/rules/reset"), 200);
+            long weeklyClassRuleId = 0;
+            for (JsonNode rule : rules) {
+                if ("MAX_LESSONS_PER_WEEK".equals(rule.get("type").asString())
+                        && "CLASS".equals(rule.get("scope").asString())
+                        && rule.get("grade").isNull()) {
+                    weeklyClassRuleId = rule.get("id").asLong();
+                    break;
+                }
+            }
+            assertThat(weeklyClassRuleId).isPositive();
+            call(put("/api/rules/" + weeklyClassRuleId).content("""
+                    {"value":3,"severity":"HARD","weight":1,"active":true}"""), 200);
+            call(post("/api/draft").content("""
+                    {"source":"EMPTY"}"""), 201);
+
+            JsonNode problem = call(post("/api/draft/solve").content("{}"), 409);
+            assertThat(problem.get("type").asString())
+                    .isEqualTo("urn:pushnpull:problem:solve-capacity-exceeded");
+
+            call(post("/api/draft/solve").content("""
+                    {"force":true}"""), 202);
+            assertThat(waitForRunToFinish(2).get("status").asString()).isEqualTo("EDITING");
+        } finally {
+            // Die Regelzeilen teilen sich alle Tests desselben Spring-Kontexts.
+            call(post("/api/rules/reset"), 200);
+        }
+    }
+
+    @Test
+    @DisplayName("Verringerte Wochenstunden entfernen nicht festgelegte Entwurfsstunden vor dem nächsten Lauf")
+    void reducedWeeklyHoursRemoveUnpinnedLessonsBeforeSolving() throws Exception {
+        Testdaten daten = pflichtenheftGrunddaten();
+        setMaxSolveSeconds(2);
+        call(post("/api/draft").content("""
+                {"source":"EMPTY"}"""), 201);
+        call(post("/api/draft/solve").content("{}"), 202);
+        assertThat(waitForRunToFinish(2).get("lessons")).hasSize(8);
+
+        call(put("/api/classes/" + daten.klasse7a + "/subjects").content("""
+                [{"subjectId":%d,"weeklyHours":1,"teacherId":%d},
+                 {"subjectId":%d,"weeklyHours":1,"teacherId":%d},
+                 {"subjectId":%d,"weeklyHours":1,"teacherId":%d}]"""
+                .formatted(daten.mathe, daten.meyer, daten.deutsch, daten.weber, daten.physik, daten.meyer)), 200);
+
+        call(post("/api/draft/solve").content("{}"), 202);
+        assertThat(waitForRunToFinish(2).get("lessons"))
+                .as("eine verringerte Fachstunde wird nicht weiter als Bedarf gezaehlt")
+                .hasSize(7);
     }
 
     @Test
