@@ -1,6 +1,10 @@
 // Absicherung des Mock-Stores: Doppelbelegung → Konflikt, Deputat-Überschreitung → Warnung (npm test).
 import { describe, expect, it } from 'vitest'
+import { ApiError } from '@/api/types'
+import { addDaysIso } from '@/lib/dates'
+import { today } from '@/lib/today'
 import { emptyStore } from './store'
+import { planValidAt } from './logic/week-resolver'
 import { loadSmall } from './data-small'
 import { loadFull } from './data-full'
 import { checkConflicts } from './logic/conflicts'
@@ -63,13 +67,13 @@ describe('Mock-Store (Testdaten SMALL)', () => {
     const s = emptyStore()
     loadSmall(s)
     const api = createMockApiForTests(s)
-    await api.createDraft({ source: 'COPY_ACTIVE' })
+    const entwurf = await api.createDraft({ source: 'COPY_ACTIVE' })
     const mo1 = s.timeslots.find((t) => t.day === 'MO' && t.position === 1)!.id
     const mo6 = s.timeslots.find((t) => t.day === 'MO' && t.position === 6)!.id
-    const d1 = await api.addDraftLesson({ classId: 3, subjectId: 1, timeslotId: mo1, roomId: 1 })
+    const d1 = await api.addDraftLesson(entwurf.id, { classId: 3, subjectId: 1, timeslotId: mo1, roomId: 1 })
     expect(d1.conflicts.map((c) => c.type)).toEqual(['ROOM_DOUBLE_BOOKED'])
     const added = d1.lessons.find((l) => l.classId === 3)!
-    const d2 = await api.patchDraftLesson(added.id, { timeslotId: mo6 })
+    const d2 = await api.patchDraftLesson(entwurf.id, added.id, { timeslotId: mo6 })
     expect(d2.conflicts).toHaveLength(0)
     expect(d2.lessons.find((l) => l.id === added.id)?.pinned).toBe(true)
   })
@@ -78,10 +82,10 @@ describe('Mock-Store (Testdaten SMALL)', () => {
     const s = emptyStore()
     loadSmall(s)
     const api = createMockApiForTests(s)
-    await api.createDraft({ source: 'EMPTY' })
-    await api.startSolve()
-    await api.cancelSolve() // platziert sofort statt nach 3 s
-    const d = await api.getDraft()
+    const entwurf = await api.createDraft({ source: 'EMPTY' })
+    await api.startSolve(entwurf.id)
+    await api.cancelSolve(entwurf.id) // platziert sofort statt nach 3 s
+    const d = await api.getDraftById(entwurf.id)
     expect(d.status).toBe('EDITING')
     expect(d.openLessons).toHaveLength(0)
     expect(d.conflicts.filter((c) => c.type.endsWith('DOUBLE_BOOKED'))).toHaveLength(0)
@@ -304,5 +308,161 @@ describe('Bereichsweise Sicherung (Transfer, Version 2)', () => {
     doc.timeslots = doc.timeslots!.slice(0, 2)
     await api.importMasterDataSection(doc)
     expect(s.timeslots).toHaveLength(2)
+  })
+})
+
+// ------------------------------------------------------------------ #103 / #115 / #116
+//
+// Drei Regeln, die Attrappe und Server gleich halten müssen, weil die Oberfläche auf ihnen aufbaut:
+// mehrere Entwürfe nebeneinander (#103), Gültigkeitszeiträume ohne Überschneidung (#115) und die
+// Ablage als Sperre (#116). Die Wochenauflösung wird direkt über `planValidAt` geprüft — sie ist die
+// Stelle, an der ein Tag seinen Plan bekommt.
+describe('Mehrere Entwürfe (#103)', () => {
+  it('stehen nebeneinander, jüngster zuerst, mit automatischem Namen', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    const a = await api.createDraft({ source: 'EMPTY' })
+    const b = await api.createDraft({ source: 'COPY_ACTIVE', name: 'Variante B' })
+
+    expect(a.name).toBe('Entwurf 1')
+    expect(b.name).toBe('Variante B')
+    const liste = await api.listDrafts()
+    expect(liste.map((d) => d.name)).toEqual(['Variante B', 'Entwurf 1'])
+    expect(liste.map((d) => d.source)).toEqual(['COPY_ACTIVE', 'EMPTY'])
+    // Ein Entwurf annehmen lässt die anderen stehen (Vertrag 1.3.0).
+    await api.acceptDraft(b.id)
+    expect((await api.listDrafts()).map((d) => d.id)).toEqual([a.id])
+  })
+
+  it('leerer oder zu langer Name ist 400 mit Feld name', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    await expect(api.createDraft({ source: 'EMPTY', name: '  ' })).rejects.toMatchObject({ status: 400 })
+    await expect(api.createDraft({ source: 'EMPTY', name: 'x'.repeat(81) })).rejects.toMatchObject({ status: 400 })
+  })
+})
+
+describe('Ablage (#116)', () => {
+  it('sperrt Stunden und Berechnung mit 409 draft-finished; Annehmen und Wiederöffnen gehen', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    const d = await api.createDraft({ source: 'COPY_ACTIVE' })
+    const mo6 = s.timeslots.find((t) => t.day === 'MO' && t.position === 6)!.id
+
+    const abgelegt = await api.patchDraft(d.id, { finished: true })
+    expect(abgelegt.finished).toBe(true)
+    expect((await api.listDrafts())[0].finished).toBe(true)
+
+    const erwartet = { status: 409, problem: { type: 'urn:pushnpull:problem:draft-finished' } }
+    await expect(api.addDraftLesson(d.id, { classId: 3, subjectId: 1, timeslotId: mo6, roomId: 1 })).rejects.toMatchObject(erwartet)
+    await expect(api.patchDraftLesson(d.id, d.lessons[0].id, { pinned: false })).rejects.toMatchObject(erwartet)
+    await expect(api.deleteDraftLesson(d.id, d.lessons[0].id)).rejects.toMatchObject(erwartet)
+    await expect(api.startSolve(d.id)).rejects.toMatchObject(erwartet)
+
+    // Umbenennen geht weiter, Wiederöffnen hebt die Sperre auf.
+    await api.patchDraft(d.id, { name: 'Später' })
+    const offen = await api.patchDraft(d.id, { finished: false })
+    expect(offen.finished).toBe(false)
+    expect(offen.name).toBe('Später')
+    await api.patchDraftLesson(d.id, d.lessons[0].id, { pinned: false })
+  })
+
+  it('leerer Rumpf ist 400 — ein PATCH ohne Feld ändert nichts und soll das sagen', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    const d = await api.createDraft({ source: 'EMPTY' })
+    await expect(api.patchDraft(d.id, {})).rejects.toMatchObject({ status: 400 })
+  })
+})
+
+describe('Gültigkeitszeitraum (#115)', () => {
+  const heute = today()
+
+  it('ein künftiger Beginn lässt den Vorgänger ACTIVE bis zum Vortag; jeder Tag trifft seinen Plan', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    const alt = s.timetables[0]
+    const ab = addDaysIso(heute, 7)
+    const d = await api.createDraft({ source: 'COPY_ACTIVE' })
+    const neu = await api.acceptDraft(d.id, { validFrom: ab })
+
+    expect(neu.validFrom).toBe(ab)
+    expect(neu.validUntil).toBeNull()
+    expect(alt.status).toBe('ACTIVE')
+    expect(alt.validUntil).toBe(addDaysIso(ab, -1))
+    // An der Datumsgrenze: letzter Tag alt, erster Tag neu.
+    expect(planValidAt(addDaysIso(ab, -1), s)?.id).toBe(alt.id)
+    expect(planValidAt(ab, s)?.id).toBe(neu.id)
+    // Beide Pläne stehen in der Liste, heute gilt der alte.
+    const plaene = await api.listTimetables()
+    expect(plaene.map((p) => [p.id, p.current])).toEqual([[alt.id, true], [neu.id, false]])
+  })
+
+  it('„jetzt annehmen" archiviert den Vorgänger — er endet gestern', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    const alt = s.timetables[0]
+    const d = await api.createDraft({ source: 'COPY_ACTIVE' })
+    const neu = await api.acceptDraft(d.id)
+
+    expect(alt.status).toBe('ARCHIVED')
+    expect(alt.validUntil).toBe(addDaysIso(heute, -1))
+    expect(planValidAt(heute, s)?.id).toBe(neu.id)
+    // Der archivierte Plan bleibt für vergangene Wochen auflösbar.
+    expect(planValidAt(addDaysIso(heute, -1), s)?.id).toBe(alt.id)
+    expect(await api.listTimetables()).toHaveLength(1)
+  })
+
+  it('ein Zeitraum, den ein künftiger Plan schon belegt, ist 409 plan-overlap — und nichts ändert sich', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    const alt = s.timetables[0]
+    const spaet = addDaysIso(heute, 30)
+    const a = await api.createDraft({ source: 'COPY_ACTIVE' })
+    const kuenftig = await api.acceptDraft(a.id, { validFrom: spaet })
+    expect(alt.validUntil).toBe(addDaysIso(spaet, -1))
+
+    const b = await api.createDraft({ source: 'COPY_ACTIVE' })
+    await expect(api.acceptDraft(b.id, { validFrom: addDaysIso(heute, 10) })).rejects.toMatchObject({
+      status: 409,
+      problem: { type: 'urn:pushnpull:problem:plan-overlap' },
+    })
+    // Unverändert: der künftige Plan gilt weiter, der Vorgänger endet wie zuvor, der Entwurf bleibt Entwurf.
+    expect(s.timetables.find((t) => t.id === kuenftig.id)?.status).toBe('ACTIVE')
+    expect(alt.validUntil).toBe(addDaysIso(spaet, -1))
+    expect(alt.status).toBe('ACTIVE')
+    expect(s.timetables.find((t) => t.id === b.id)?.status).toBe('DRAFT')
+  })
+
+  it('ein Beginn in der Vergangenheit ist 400 mit Feld validFrom', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    const d = await api.createDraft({ source: 'COPY_ACTIVE' })
+    const err = await api.acceptDraft(d.id, { validFrom: addDaysIso(heute, -1) }).catch((e: unknown) => e)
+    expect(err).toMatchObject({ status: 400 })
+    expect((err as ApiError).problem.errors?.[0].field).toBe('validFrom')
+    // Die Grenze liegt bei heute, nicht davor: derselbe Aufruf mit heute geht durch.
+    expect((await api.acceptDraft(d.id, { validFrom: heute })).validFrom).toBe(heute)
+  })
+
+  it('ein Ende vor dem Beginn ist 400 mit Feld validUntil', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    const d = await api.createDraft({ source: 'COPY_ACTIVE' })
+    const err = await api.acceptDraft(d.id, { validFrom: heute, validUntil: addDaysIso(heute, -1) }).catch((e: unknown) => e)
+    expect(err).toMatchObject({ status: 400 })
+    expect((err as ApiError).problem.errors?.[0].field).toBe('validUntil')
+  })
+
+  it('ein Plan mit Ende lässt die Zeit danach leer, bis ein weiterer angenommen wird', async () => {
+    const s = emptyStore(); loadSmall(s)
+    const api = createMockApiForTests(s)
+    const bis = addDaysIso(heute, 20)
+    const d = await api.createDraft({ source: 'COPY_ACTIVE' })
+    const neu = await api.acceptDraft(d.id, { validFrom: heute, validUntil: bis })
+
+    expect(neu.validUntil).toBe(bis)
+    expect(planValidAt(bis, s)?.id).toBe(neu.id)
+    expect(planValidAt(addDaysIso(bis, 1), s)).toBeUndefined()
   })
 })

@@ -13,9 +13,10 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DAY_SHORT, slotById, slotLabel } from '@/lib/timegrid'
 
-export function RepairDialog({ open, onOpenChange, pending, failed, proposals, lessons, slots, rooms }: {
+export function RepairDialog({ open, onOpenChange, draftId, pending, failed, proposals, lessons, slots, rooms }: {
   open: boolean
   onOpenChange(open: boolean): void
+  draftId: number
   /** Der Server rechnet noch (drei Stufen je 5 s) */
   pending: boolean
   failed: boolean
@@ -25,7 +26,7 @@ export function RepairDialog({ open, onOpenChange, pending, failed, proposals, l
   slots: TimeslotDto[]
   rooms: RoomDto[]
 }) {
-  const patch = usePatchDraftLesson()
+  const patch = usePatchDraftLesson(draftId)
   const [applying, setApplying] = useState<number | null>(null)
 
   const place = (timeslotId: number | null, roomId: number | null) => {
@@ -47,7 +48,7 @@ export function RepairDialog({ open, onOpenChange, pending, failed, proposals, l
     let done = 0
     try {
       for (const move of proposal.moves) {
-        await patch.mutateAsync({ id: move.lessonId, body: { timeslotId: move.timeslotId, roomId: move.roomId, pinned: false } })
+        await patch.mutateAsync({ lessonId: move.lessonId, body: { timeslotId: move.timeslotId, roomId: move.roomId, pinned: false } })
         done += 1
       }
       toast.success(proposal.moves.length === 1 ? 'Vorschlag übernommen — eine Stunde verschoben' : `Vorschlag übernommen — ${proposal.moves.length} Stunden verschoben`)

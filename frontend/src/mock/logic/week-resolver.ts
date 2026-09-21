@@ -2,19 +2,23 @@
 import type { DayDto, EntryDto, View, WeekDto } from '@/api/types'
 import { addDaysIso, between } from '@/lib/dates'
 import { DAY_SHORT, dayOfDate, daysOf, lessonNumber, weekdayIndex } from '@/lib/timegrid'
-import type { MockLesson, MockTimetable, Store } from '../store'
+import { planStart, type MockLesson, type MockTimetable, type Store } from '../store'
 
 export function isHoliday(dateIso: string, s: Store): boolean {
   return s.holidays.some((h) => between(dateIso, h.dateFrom, h.dateTo))
 }
 
-/** Der am Datum gültige Plan: ACTIVE, außer sein validFrom liegt in der Zukunft — dann der zuletzt archivierte */
+/**
+ * Der an diesem Kalendertag gültige Plan (#115). Jeder angenommene Plan trägt einen Zeitraum
+ * [Beginn, Ende|∞]; die Zeiträume der ACTIVE-Pläne überschneiden sich nie, archivierte Pläne bleiben für
+ * vergangene Wochen auflösbar. Gesucht wird der späteste Plan, dessen Zeitraum den Tag enthält —
+ * dieselbe Regel wie `PlanReader.timetableIdAt` im Server. Kein Treffer = leere Woche.
+ */
 export function planValidAt(dateIso: string, s: Store): MockTimetable | undefined {
-  const active = s.timetables.find((t) => t.status === 'ACTIVE')
-  if (!active) return undefined
-  if (!active.validFrom || active.validFrom <= dateIso) return active
-  const archived = s.timetables.filter((t) => t.status === 'ARCHIVED')
-  return archived[archived.length - 1]
+  return s.timetables
+    .filter((t) => t.status === 'ACTIVE' || t.status === 'ARCHIVED')
+    .filter((t) => planStart(t) <= dateIso && (t.validUntil == null || dateIso <= t.validUntil))
+    .sort((a, b) => planStart(b).localeCompare(planStart(a)) || b.id - a.id)[0]
 }
 
 export function eventsAt(dateIso: string, s: Store) {

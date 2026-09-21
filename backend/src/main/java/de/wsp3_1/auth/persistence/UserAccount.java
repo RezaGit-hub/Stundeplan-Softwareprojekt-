@@ -10,6 +10,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.time.Instant;
+
 /**
  * Benutzerkonto. {@code teacherId} verweist auf die Lehrkraft, {@code classId} auf die Klasse — beides
  * ist bewusst nur eine Spalte: die Entities {@code Teacher} und {@code SchoolClass} gehoeren dem Modul
@@ -45,6 +47,14 @@ public class UserAccount {
     /** Klasse eines Klassenkontos (Rolle {@code STUDENT}); bei den anderen Rollen {@code null}. */
     @Column(name = "class_id")
     private Long classId;
+
+    /**
+     * Wann dieses Konto den Rundgang durch die Webanwendung beendet oder uebersprungen hat (#139,
+     * V10); {@code null} = noch nicht gezeigt. Am Konto statt im Browser, damit ein zweiter Rechner
+     * den Rundgang nicht noch einmal bringt.
+     */
+    @Column(name = "tour_completed_at")
+    private Instant tourCompletedAt;
 
     protected UserAccount() {
     }
@@ -95,5 +105,13 @@ public class UserAccount {
 
     public void setClassId(Long classId) {
         this.classId = classId;
+    }
+
+    public Instant getTourCompletedAt() {
+        return tourCompletedAt;
+    }
+
+    public void setTourCompletedAt(Instant tourCompletedAt) {
+        this.tourCompletedAt = tourCompletedAt;
     }
 }

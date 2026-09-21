@@ -20,7 +20,7 @@ function installStorage(): void {
   })
 }
 
-const PLANNER: MeDto = { id: 1, username: 'admin', role: 'PLANNING', displayName: 'Planung', teacherId: null }
+const PLANNER: MeDto = { id: 1, username: 'admin', role: 'PLANNING', displayName: 'Planung', teacherId: null, tourCompletedAt: null }
 
 describe('Sitzung im localStorage (F-5a)', () => {
   beforeEach(() => {

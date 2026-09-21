@@ -6,9 +6,11 @@ import de.wsp3_1.planning.domain.DraftSource;
 import de.wsp3_1.planning.domain.DraftStatus;
 import de.wsp3_1.planning.domain.ObjectKind;
 import de.wsp3_1.planning.domain.PlanViews.AcceptResultView;
+import de.wsp3_1.planning.domain.PlanViews.DraftSummaryView;
 import de.wsp3_1.planning.domain.PlanViews.DraftView;
 import de.wsp3_1.planning.domain.PlanViews.LessonView;
 import de.wsp3_1.planning.domain.PlanViews.OpenLessonView;
+import de.wsp3_1.planning.domain.PlanViews.PlanSummaryView;
 import de.wsp3_1.planning.domain.PlanViews.PlanView;
 import de.wsp3_1.planning.domain.PlanViews.SolveInfoView;
 import de.wsp3_1.planning.domain.RepairProposal;
@@ -21,7 +23,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * Die Datensaetze der Schnittstelle {@code /api/timetable} und {@code /api/draft} — Feldnamen,
+ * Die Datensaetze der Schnittstelle {@code /api/timetable}, {@code /api/draft} und {@code /api/drafts} — Feldnamen,
  * Reihenfolge und Typen 1:1 wie im Vertrag {@code api-contract/openapi.yaml} und in
  * {@code frontend/src/api/types.ts}.
  *
@@ -89,40 +91,71 @@ public final class PlanningDtos {
      *
      * <p>{@code validFrom}: ab welchem Kalendertag dieser Plan gilt (E-40), {@code null} wenn ohne
      * Stichtag angenommen. Additiv ergaenzt 05.09. (Befund PFLICHTENHEFT-6) — die Web-App zeigte
-     * „gilt ab" vorher aus {@code acceptedAt} geraten.</p>
+     * „gilt ab" vorher aus {@code acceptedAt} geraten. {@code validUntil}: letzter Tag einschliesslich
+     * (#115, Vertrag 1.4.0), {@code null} = unbegrenzt.</p>
      */
-    public record TimetableDto(Long id, Instant acceptedAt, LocalDate validFrom, List<LessonDto> lessons,
-                              List<ConflictDto> conflicts) {
+    public record TimetableDto(Long id, Instant acceptedAt, LocalDate validFrom, LocalDate validUntil,
+                              List<LessonDto> lessons, List<ConflictDto> conflicts) {
 
         public static TimetableDto of(PlanView view) {
-            return new TimetableDto(view.id(), view.acceptedAt(), view.validFrom(),
+            return new TimetableDto(view.id(), view.acceptedAt(), view.validFrom(), view.validUntil(),
                     view.lessons().stream().map(LessonDto::of).toList(),
                     view.conflicts().stream().map(ConflictDto::of).toList());
         }
     }
 
-    /** Wie {@link TimetableDto}, zusaetzlich deutsche Hinweise (z. B. verfallende Vertretungen). */
-    public record AcceptDraftResponse(Long id, Instant acceptedAt, LocalDate validFrom, List<LessonDto> lessons,
-                                      List<ConflictDto> conflicts, List<String> warnings) {
+    /**
+     * Eine Zeile von {@code GET /api/timetables} (#115, Vertrag 1.4.0): ein angenommener Plan mit
+     * seinem Zeitraum, ohne Stunden. {@code current} traegt der Plan, der <b>heute</b> gilt —
+     * hoechstens einer, in einer Luecke zwischen zwei Zeitraeumen keiner.
+     */
+    public record TimetableSummaryDto(Long id, Instant acceptedAt, LocalDate validFrom, LocalDate validUntil,
+                                      boolean current) {
 
-        public static AcceptDraftResponse of(AcceptResultView view) {
-            TimetableDto plan = TimetableDto.of(view.plan());
-            return new AcceptDraftResponse(plan.id(), plan.acceptedAt(), plan.validFrom(), plan.lessons(),
-                    plan.conflicts(), view.warnings());
+        public static TimetableSummaryDto of(PlanSummaryView view) {
+            return new TimetableSummaryDto(view.id(), view.acceptedAt(), view.validFrom(), view.validUntil(),
+                    view.current());
         }
     }
 
-    public record DraftDto(Long id, Instant createdAt, DraftStatus status, SolveInfoDto solve,
-                           List<LessonDto> lessons, List<ConflictDto> conflicts,
+    /** Wie {@link TimetableDto}, zusaetzlich deutsche Hinweise (z. B. verfallende Vertretungen). */
+    public record AcceptDraftResponse(Long id, Instant acceptedAt, LocalDate validFrom, LocalDate validUntil,
+                                      List<LessonDto> lessons, List<ConflictDto> conflicts,
+                                      List<String> warnings) {
+
+        public static AcceptDraftResponse of(AcceptResultView view) {
+            TimetableDto plan = TimetableDto.of(view.plan());
+            return new AcceptDraftResponse(plan.id(), plan.acceptedAt(), plan.validFrom(), plan.validUntil(),
+                    plan.lessons(), plan.conflicts(), view.warnings());
+        }
+    }
+
+    /**
+     * Ein Entwurf; {@code name} kam mit #103 (Vertrag 1.3.0) additiv dazu, {@code finished} mit #116
+     * (Vertrag 1.4.0): der Entwurf liegt in der Ablage und wird nicht mehr bearbeitet.
+     */
+    public record DraftDto(Long id, String name, boolean finished, Instant createdAt, DraftStatus status,
+                           SolveInfoDto solve, List<LessonDto> lessons, List<ConflictDto> conflicts,
                            List<OpenLessonDto> openLessons, List<String> warnings,
                            long expiringExceptions) {
 
         public static DraftDto of(DraftView view) {
-            return new DraftDto(view.id(), view.createdAt(), view.status(), SolveInfoDto.of(view.solve()),
+            return new DraftDto(view.id(), view.name(), view.finished(), view.createdAt(), view.status(),
+                    SolveInfoDto.of(view.solve()),
                     view.lessons().stream().map(LessonDto::of).toList(),
                     view.conflicts().stream().map(ConflictDto::of).toList(),
                     view.openLessons().stream().map(OpenLessonDto::of).toList(),
                     view.warnings(), view.expiringExceptions());
+        }
+    }
+
+    /** Eine Zeile von {@code GET /api/drafts} (#103): Kennzahlen ohne Stunden. */
+    public record DraftSummaryDto(Long id, String name, boolean finished, Instant createdAt, DraftSource source,
+                                  DraftStatus status, int hardConflicts) {
+
+        public static DraftSummaryDto of(DraftSummaryView view) {
+            return new DraftSummaryDto(view.id(), view.name(), view.finished(), view.createdAt(), view.source(),
+                    view.status(), view.hardConflicts());
         }
     }
 
@@ -154,7 +187,16 @@ public final class PlanningDtos {
 
     // ------------------------------------------------------------------ Eingaben
 
-    public record CreateDraft(@NotNull(message = "darf nicht leer sein") DraftSource source) {
+    /** {@code name} ist Kann (#103): fehlt er, heisst der Entwurf „Entwurf n". */
+    public record CreateDraft(String name, @NotNull(message = "darf nicht leer sein") DraftSource source) {
+    }
+
+    /**
+     * Rumpf von {@code PATCH /api/drafts/&#123;id&#125;} (#103 und #116, Vertrag 1.4.0): Name und/oder
+     * Ablage. Nur gesendete Felder wirken; ein leerer Rumpf ist 400 {@code validation}. Loest
+     * {@code DraftNameInput} aus 1.3.0 ab — 1.3.0 war unveroeffentlicht, gleicher Zug.
+     */
+    public record DraftPatchInput(String name, Boolean finished) {
     }
 
     /** Die Konfliktstunde, fuer die Vorschlaege gerechnet werden (#110). */
@@ -184,7 +226,11 @@ public final class PlanningDtos {
     public record StartSolveInput(Long classId, Boolean force) {
     }
 
-    /** Kann (E-40): {@code validFrom} laesst den neuen Plan erst ab diesem Tag gelten. */
-    public record AcceptDraftInput(LocalDate validFrom) {
+    /**
+     * Kann (E-40, #115): {@code validFrom} laesst den neuen Plan erst ab diesem Tag gelten,
+     * {@code validUntil} endet ihn nach diesem Tag (einschliesslich). Beide leer = ab heute,
+     * unbegrenzt. {@code validUntil} vor dem Beginn ist 400 {@code validation} (Feld {@code validUntil}).
+     */
+    public record AcceptDraftInput(LocalDate validFrom, LocalDate validUntil) {
     }
 }

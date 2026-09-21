@@ -42,7 +42,7 @@ RUN apk add --no-cache openssl \
  && openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
     -keyout /etc/nginx/ssl/selfsigned.key \
     -out /etc/nginx/ssl/selfsigned.crt \
-    -subj "/CN=$(SSLCN)"
+    -subj "/CN=${SSLCN}"
 
 # Statische Dateien aus der Build-Stufe.
 COPY --from=build /w/dist /usr/share/nginx/html

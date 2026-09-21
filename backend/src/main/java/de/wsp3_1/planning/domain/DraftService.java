@@ -9,6 +9,7 @@ import de.wsp3_1.masterdata.persistence.RoomRepository;
 import de.wsp3_1.masterdata.persistence.SchoolClassRepository;
 import de.wsp3_1.masterdata.persistence.Timeslot;
 import de.wsp3_1.masterdata.persistence.TimeslotRepository;
+import de.wsp3_1.planning.domain.PlanViews.DraftSummaryView;
 import de.wsp3_1.planning.domain.PlanViews.DraftView;
 import de.wsp3_1.planning.domain.PlanViews.LessonView;
 import de.wsp3_1.planning.domain.PlanViews.OpenLessonView;
@@ -19,6 +20,7 @@ import de.wsp3_1.planning.persistence.Timetable;
 import de.wsp3_1.planning.persistence.TimetableRepository;
 import de.wsp3_1.planning.persistence.TimetableStatus;
 import de.wsp3_1.shared.CurrentUser;
+import de.wsp3_1.shared.Severity;
 import de.wsp3_1.shared.domain.ExpiringExceptions;
 import de.wsp3_1.shared.domain.ConflictException;
 import de.wsp3_1.shared.domain.NotFoundException;
@@ -35,6 +37,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -46,8 +49,9 @@ import java.util.stream.Collectors;
 
 /**
  * Der Lebenslauf des Plans: Entwurf anlegen, Stunden von Hand bauen, festlegen, verwerfen, annehmen
- * (W-1, W-3, W-8, W-9). Es gibt hoechstens einen Entwurf — das sichert ein Teilindex in der Datenbank,
- * geprueft wird es hier nur, um die bessere Meldung zu liefern.
+ * (W-1, W-3, W-8, W-9). Seit #103 (V11, E-52) gibt es mehrere Entwuerfe nebeneinander, jeder mit Namen
+ * und eigener Kennung; jede Methode nennt deshalb den Entwurf, den sie meint. Die Singular-Pfade
+ * {@code /api/draft} zeigen auf den juengsten ({@link #currentDraftId()}).
  *
  * <p><b>Waehrend einer Berechnung wird nichts geaendert.</b> Jede schreibende Methode fragt vorher den
  * {@link SolverRunner}; laeuft ein Lauf, kommt 409 {@code solving}. Sonst schriebe der Solver-Thread
@@ -63,6 +67,9 @@ public class DraftService {
 
     /** So lang ist die Spalte {@code timetable.solve_error} (V5). */
     private static final int MAX_ERROR_LENGTH = 500;
+
+    /** So lang ist die Spalte {@code timetable.name} (V11). */
+    private static final int MAX_NAME_LENGTH = 80;
 
     private final TimetableRepository timetables;
     private final LessonRepository lessons;
@@ -97,35 +104,50 @@ public class DraftService {
     // ------------------------------------------------------------------ Lesen
 
     @Transactional(readOnly = true)
-    public DraftView get() {
-        return view(requireDraft());
+    public DraftView get(Long draftId) {
+        return view(requireDraft(draftId));
     }
 
-    /** Der Entwurf, wenn es einen gibt — {@code SolveService} braucht ihn ohne 404. */
+    /** Alle Entwuerfe, juengster zuerst — die Uebersicht ({@code GET /api/drafts}). */
     @Transactional(readOnly = true)
-    public Optional<Timetable> findDraft() {
-        return timetables.findByStatus(TimetableStatus.DRAFT);
+    public List<DraftSummaryView> list() {
+        return timetables.findAllByStatusOrderByIdDesc(TimetableStatus.DRAFT).stream()
+                .map(this::summary)
+                .toList();
+    }
+
+    /**
+     * Der juengste Entwurf (hoechste Kennung) — das Ziel der Singular-Pfade {@code /api/draft} (E-52);
+     * 404, wenn es keinen gibt. Fuer das Web ist „kein Entwurf" ein Zustand, kein Fehler.
+     */
+    @Transactional(readOnly = true)
+    public Long currentDraftId() {
+        return timetables.findFirstByStatusOrderByIdDesc(TimetableStatus.DRAFT)
+                .map(Timetable::getId)
+                .orElseThrow(() -> new NotFoundException("Kein Entwurf vorhanden."));
     }
 
     // ------------------------------------------------------------------ Anlegen und verwerfen
 
     /**
-     * Legt den einen Entwurf an. {@code COPY_ACTIVE} uebernimmt die Stunden des aktiven Plans und legt
+     * Legt einen Entwurf an. {@code COPY_ACTIVE} uebernimmt die Stunden des aktiven Plans und legt
      * dabei genau die fest, die <b>belegt</b> und konfliktfrei sind (W-1): was schon im aktiven Plan
      * kollidiert, soll der Solver neu anfassen duerfen.
+     *
+     * <p>Andere Entwuerfe bleiben unberuehrt — seit #103 gibt es beliebig viele nebeneinander, ein
+     * 409 {@code draft-exists} gibt es nicht mehr. Ohne {@code name} heisst der Entwurf „Entwurf n".</p>
      *
      * <p>Eine <b>offene</b> Stunde des aktiven Plans hat keinen Konflikt — festlegen hiesse aber „bleib
      * fuer immer offen", und Timefold lehnt eine festgelegte Stunde ohne Raum ohnehin ab. Sie kommt
      * deshalb unfestgelegt in den Entwurf, damit der naechste Lauf sie einplanen kann (Befund 05.09.).</p>
      */
     @Transactional
-    public DraftView create(DraftSource source) {
-        if (timetables.findByStatus(TimetableStatus.DRAFT).isPresent()) {
-            throw new ConflictException("draft-exists", "Es gibt bereits einen Entwurf. Erst annehmen oder verwerfen.");
-        }
-        Optional<Timetable> active = timetables.findByStatus(TimetableStatus.ACTIVE);
-        Timetable draft = timetables.save(new Timetable(TimetableStatus.DRAFT, Instant.now(),
-                source == DraftSource.COPY_ACTIVE ? active.orElse(null) : null));
+    public DraftView create(String name, DraftSource source) {
+        Optional<Timetable> active = planReader.currentOrNextActive();
+        Timetable draft = new Timetable(TimetableStatus.DRAFT, Instant.now(),
+                source == DraftSource.COPY_ACTIVE ? active.orElse(null) : null);
+        draft.setName(name == null || name.isBlank() ? defaultName() : validName(name));
+        draft = timetables.save(draft);
 
         if (source == DraftSource.COPY_ACTIVE && active.isPresent()) {
             List<Lesson> originals = lessons.findAllOfTimetable(active.get().getId());
@@ -143,10 +165,38 @@ public class DraftService {
         return view(draft);
     }
 
-    /** Verwirft den Entwurf mit allen Stunden; der aktive Plan bleibt unberuehrt. */
+    /**
+     * Aendert Name und/oder Ablage eines Entwurfs ({@code PATCH /api/drafts/{id}}). Nur gesendete
+     * Felder wirken; ein leerer Rumpf ist 400 {@code validation}. Leerer oder zu langer Name ist
+     * ebenfalls 400.
+     *
+     * <p>Beides ist auch waehrend einer Berechnung und in der Ablage erlaubt: der Name geht den Solver
+     * nichts an, und {@code finished: false} ist gerade der Weg aus der Ablage heraus (#116).</p>
+     */
     @Transactional
-    public void discard() {
-        Timetable draft = requireDraft();
+    public DraftView patch(Long draftId, String name, Boolean finished) {
+        // Mit Schreibsperre wie in `accept`: ohne sie liest ein gleichzeitiges Umbenennen die Zeile noch
+        // als Entwurf, waehrend die Annahme sie auf ACTIVE umstellt — und schreibt beim Zuruecklegen den
+        // Status samt Zeitraum wieder auf den alten Stand. Timetable traegt keine Fassungsnummer, also
+        // wartet die zweite Anfrage hier und findet den Entwurf danach nicht mehr als Entwurf (404).
+        Timetable draft = timetables.findByIdAndStatusForUpdate(draftId, TimetableStatus.DRAFT)
+                .orElseThrow(() -> new NotFoundException("Entwurf " + draftId + " nicht gefunden."));
+        if (name == null && finished == null) {
+            throw new ValidationException("name", "Name oder Ablage angeben");
+        }
+        if (name != null) {
+            draft.setName(validName(name));
+        }
+        if (finished != null) {
+            draft.setFinished(finished);
+        }
+        return view(draft);
+    }
+
+    /** Verwirft den Entwurf mit allen Stunden; aktiver Plan und andere Entwuerfe bleiben unberuehrt. */
+    @Transactional
+    public void discard(Long draftId) {
+        Timetable draft = requireDraft(draftId);
         requireNotSolving(draft);
         lessons.deleteAll(lessons.findAllOfTimetable(draft.getId()));
         timetables.delete(draft);
@@ -159,9 +209,10 @@ public class DraftService {
      * der Klasse (E-18). Konflikte blockieren nicht — sie stehen in der Antwort (T-W3.1).
      */
     @Transactional
-    public DraftView addLesson(Long classId, Long subjectId, Long timeslotId, Long roomId) {
-        Timetable draft = requireDraft();
+    public DraftView addLesson(Long draftId, Long classId, Long subjectId, Long timeslotId, Long roomId) {
+        Timetable draft = requireDraft(draftId);
         requireNotSolving(draft);
+        requireNotFinished(draft);
 
         List<FieldError> errors = new ArrayList<>();
         boolean classExists = classes.findById(classId).isPresent();
@@ -201,9 +252,10 @@ public class DraftService {
      * (Abweichung D-9: er raet keinen Raum).</p>
      */
     @Transactional
-    public DraftView patchLesson(Long lessonId, Long timeslotId, Long roomId, Boolean pinned) {
-        Timetable draft = requireDraft();
+    public DraftView patchLesson(Long draftId, Long lessonId, Long timeslotId, Long roomId, Boolean pinned) {
+        Timetable draft = requireDraft(draftId);
         requireNotSolving(draft);
+        requireNotFinished(draft);
         Lesson lesson = lessons.findInTimetable(lessonId, draft.getId())
                 .orElseThrow(() -> new NotFoundException("Stunde " + lessonId + " nicht im Entwurf"));
 
@@ -235,9 +287,10 @@ public class DraftService {
 
     /** Entfernt die Stunde aus dem Wochenmuster; das Zeitfenster ist danach wieder frei. */
     @Transactional
-    public DraftView removeLesson(Long lessonId) {
-        Timetable draft = requireDraft();
+    public DraftView removeLesson(Long draftId, Long lessonId) {
+        Timetable draft = requireDraft(draftId);
         requireNotSolving(draft);
+        requireNotFinished(draft);
         Lesson lesson = lessons.findInTimetable(lessonId, draft.getId())
                 .orElseThrow(() -> new NotFoundException("Stunde " + lessonId + " nicht im Entwurf"));
         lessons.delete(lesson);
@@ -330,38 +383,132 @@ public class DraftService {
     // ------------------------------------------------------------------ Annehmen (W-8)
 
     /**
-     * Nimmt den Entwurf an — eine Transaktion: bisheriger aktiver Plan wird archiviert, der Entwurf wird
-     * der aktive Plan, ein Verlaufseintrag {@code TIMETABLE_ACCEPTED} entsteht. Konflikte blockieren
-     * nicht; die Planung entscheidet.
+     * Nimmt den Entwurf an — eine Transaktion: die ueberlappenden Vorgaenger werden verkuerzt oder
+     * archiviert, der Entwurf wird ein aktiver Plan mit seinem Zeitraum, ein Verlaufseintrag
+     * {@code TIMETABLE_ACCEPTED} entsteht. Andere Entwuerfe bleiben stehen (#103) — die Planung kann
+     * sie spaeter annehmen oder verwerfen. Ein Entwurf aus der Ablage darf angenommen werden (#116).
+     *
+     * <p><b>Mehrere aktive Plaene</b> (#115, V12): {@code from} ist {@code validFrom}, sonst heute;
+     * {@code until} ist {@code validUntil}, sonst unbegrenzt. Beruehrt wird nur, was sich mit
+     * {@code [from, until]} ueberschneidet — drei Faelle, in dieser Reihenfolge:</p>
+     * <ol>
+     *   <li>Der Vorgaenger hat frueher begonnen: er endet am Tag vor {@code from}. Liegt er damit ganz
+     *       in der Vergangenheit, wird er archiviert; sonst bleibt er aktiv — „der alte Plan gilt bis
+     *       zu seinem Ende weiter".</li>
+     *   <li>Der Vorgaenger beginnt am selben Tag oder spaeter, hat aber schon begonnen (Beginn bis
+     *       heute — jemand hat ihn eben erst angenommen und ersetzt ihn sofort): er wird archiviert und
+     *       bekommt einen leeren Zeitraum.</li>
+     *   <li>Der Vorgaenger beginnt erst kuenftig: 409 {@code plan-overlap}, egal ab wann der neue Plan
+     *       gelten soll. Nichts wird geaendert — ein bewusst fuer spaeter angenommener Plan darf nicht
+     *       still verschwinden; die Planung waehlt ein Enddatum vor seinem Beginn oder aendert ihn.</li>
+     * </ol>
+     *
+     * <p><b>Der Beginn wird immer geschrieben</b> — auch bei „ab sofort": dann steht dort der heutige
+     * Tag. Ein leeres {@code valid_from} waere in der Datenbank kein „ab heute", sondern
+     * {@code daterange(NULL, …)} und damit eine <b>nach unten offene</b> Untergrenze; die
+     * Ausschlussbedingung {@code timetable_active_no_overlap} saehe eine Ueberschneidung mit jedem
+     * anderen aktiven Plan — auch mit einem laengst abgelaufenen, den die Pruefung oben zu Recht in Ruhe
+     * laesst. Das endete in einer Bedingungsverletzung statt in einer Antwort (Befund 16.09.).</p>
+     *
+     * <p><b>Ein Beginn in der Vergangenheit ist 400</b> {@code validation}: er schriebe die Zeitleiste
+     * rueckwirkend um — Tage, deren Vertretungsplan laengst veroeffentlicht ist, bekaemen nachtraeglich
+     * einen anderen Regelplan.</p>
+     *
+     * <p><b>Zwei Annahmen gleichzeitig</b> gehen nicht aneinander vorbei: der Entwurf und alle aktiven
+     * Plaene werden mit Schreibsperre gelesen ({@code SELECT … FOR UPDATE}). Die zweite Anfrage wartet
+     * und sieht danach den fertigen Stand — derselbe Entwurf ist dann kein Entwurf mehr (404), ein
+     * ueberschneidender Zeitraum ist 409 {@code plan-overlap}. Die Ausschlussbedingung der Datenbank
+     * bleibt als letzte Sicherung ({@code ApiExceptionHandler}, SQLState 23P01).</p>
+     *
+     * <p><b>Abgelaufene Plaene werden nebenbei archiviert</b>: jeder aktive Plan, dessen Ende vor heute
+     * liegt, wird beim naechsten Annehmen {@code ARCHIVED}. Sonst bliebe er auf {@code ACTIVE} stehen,
+     * spraeche in {@code GET /api/timetables} mit und sperrte ueber die Zaehlabfragen in
+     * {@code ClassSubjectRepository} das Loeschen von Grunddaten.</p>
+     *
+     * <p><b>Harte Konflikte blockieren</b> (409 {@code draft-has-conflicts}, seit #103): ein Plan mit
+     * Doppelbelegung oder Sperrzeitverstoss darf nicht der gueltige werden — vorher loeschte das Web
+     * nur die Warnung weg. Weiche Konflikte blockieren nicht; die Planung entscheidet.</p>
      *
      * <p><b>Offene Stunden wandern mit</b> (ohne Zeitfenster und Raum) und tauchen danach in keiner
      * Wochensicht auf — sie waeren sonst still verloren. Damit das niemand uebersieht, nennt
      * {@code warnings} ihre Anzahl; der Annehmen-Dialog zeigt dieselbe Zahl schon vorher aus
      * {@code openLessons} des Entwurfs (Befund 05.09.).</p>
      *
-     * @param validFrom Kann-Option (E-40): der neue Plan gilt erst ab diesem Tag. Leer = ab sofort.
+     * @param validFrom  Kann-Option (E-40): der neue Plan gilt erst ab diesem Tag. Leer = ab heute;
+     *                   gespeichert wird in beiden Faellen ein Datum. Vor heute ist 400.
+     * @param validUntil Kann-Option (#115): letzter Tag einschliesslich. Leer = unbegrenzt.
      */
     @Transactional
-    public PlanViews.AcceptResultView accept(LocalDate validFrom) {
-        Timetable draft = requireDraft();
+    public PlanViews.AcceptResultView accept(Long draftId, LocalDate validFrom, LocalDate validUntil) {
+        // Mit Schreibsperre, und die Vorgaenger unten ebenso: sonst laufen zwei gleichzeitige Annahmen
+        // beide durch die Pruefungen (Timetable traegt keine Fassungsnummer). Die zweite Anfrage wartet
+        // hier und findet den Entwurf danach nicht mehr als Entwurf — 404 statt eines zweiten Plans.
+        Timetable draft = timetables.findByIdAndStatusForUpdate(draftId, TimetableStatus.DRAFT)
+                .orElseThrow(() -> new NotFoundException("Entwurf " + draftId + " nicht gefunden."));
         requireNotSolving(draft);
+        List<Lesson> rows = lessons.findAllOfTimetable(draft.getId());
+        requireNoHardConflicts(rows);
 
-        Optional<Timetable> previous = timetables.findByStatus(TimetableStatus.ACTIVE);
-        previous.ifPresent(plan -> {
-            plan.setStatus(TimetableStatus.ARCHIVED);
-            // Erst schreiben, dann den Entwurf umstellen: der Teilindex timetable_one_active laesst
-            // keinen Augenblick mit zwei aktiven Plaenen zu.
+        LocalDate heute = LocalDate.now();
+        LocalDate from = validFrom == null ? heute : validFrom;
+        if (validFrom != null && validFrom.isBefore(heute)) {
+            throw new ValidationException("validFrom",
+                    "Der Beginn darf nicht in der Vergangenheit liegen");
+        }
+        if (validUntil != null && validUntil.isBefore(from)) {
+            throw new ValidationException("validUntil",
+                    "Das Ende darf nicht vor dem Beginn liegen");
+        }
+
+        // Erst pruefen, dann schreiben: bei 409 plan-overlap soll kein Vorgaenger halb verkuerzt sein.
+        // Die Transaktion raeumte das zwar ohnehin weg, aber die Absicht steht so in den Zeilen.
+        List<Timetable> aktive = activePlansForUpdate();
+        List<Timetable> betroffen = aktive.stream()
+                .filter(plan -> overlaps(PlanReader.startOf(plan), plan.getValidUntil(), from, validUntil))
+                .toList();
+        for (Timetable plan : betroffen) {
+            if (!PlanReader.startOf(plan).isBefore(from) && PlanReader.startOf(plan).isAfter(heute)) {
+                throw new ConflictException("plan-overlap", overlapMessage(plan));
+            }
+        }
+
+        archiveExpired(aktive, heute);
+
+        // „Der bisherige Plan" fuer Verlaufseintrag und Vertretungen: der, der am Tag des Beginns galt.
+        // Bei „jetzt aktivieren" ueber einen erst kuenftig beginnenden Plan hinweg gibt es den nicht —
+        // dann steht der frueheste beruehrte Plan dort, sonst „kein Plan".
+        Timetable previous = betroffen.stream()
+                .filter(plan -> !PlanReader.startOf(plan).isAfter(from))
+                .reduce((erster, zweiter) -> zweiter)
+                .or(() -> betroffen.stream().findFirst())
+                .orElse(null);
+        for (Timetable plan : betroffen) {
+            // Der Tag vor dem Beginn des neuen Plans: das Ende des alten. Hat der alte am selben Tag
+            // begonnen (heute angenommen, sofort ersetzt), liegt das Ende vor seinem Beginn — ein leerer
+            // Zeitraum, der an keinem Tag mehr aufloest (PlanReader).
+            plan.setValidUntil(from.minusDays(1));
+            if (PlanReader.startOf(plan).isBefore(from)) {
+                if (plan.getValidUntil().isBefore(heute)) {
+                    plan.setStatus(TimetableStatus.ARCHIVED);
+                }
+            } else {
+                plan.setStatus(TimetableStatus.ARCHIVED);
+            }
+            // Erst schreiben, dann den Entwurf umstellen: die Ausschlussbedingung
+            // timetable_active_no_overlap ist nicht aufschiebbar und laesst keinen Augenblick mit zwei
+            // ueberlappenden aktiven Plaenen zu.
             timetables.saveAndFlush(plan);
-        });
+        }
 
         draft.setStatus(TimetableStatus.ACTIVE);
         draft.setAcceptedAt(Instant.now());
-        draft.setValidFrom(validFrom);
+        draft.setValidFrom(from);
+        draft.setValidUntil(validUntil);
+        draft.setFinished(false);
         timetables.saveAndFlush(draft);
 
-        List<Lesson> rows = lessons.findAllOfTimetable(draft.getId());
         long placed = rows.stream().filter(lesson -> lesson.getTimeslot() != null).count();
-        writeChangelogEntry(previous.orElse(null), validFrom, placed);
+        writeChangelogEntry(previous, validFrom, placed);
 
         List<String> warnings = new ArrayList<>();
         long open = rows.size() - placed;
@@ -370,8 +517,60 @@ public class DraftService {
                     ? "Eine Stunde bleibt unverplant: sie steht im aktiven Plan, aber in keiner Woche."
                     : open + " Stunden bleiben unverplant: sie stehen im aktiven Plan, aber in keiner Woche.");
         }
-        warnings.addAll(expiringSubstitutions(validFrom, previous.orElse(null), draft, rows));
+        warnings.addAll(expiringSubstitutions(validFrom, previous, draft, rows));
         return new PlanViews.AcceptResultView(planReader.planOf(draft), warnings);
+    }
+
+    /**
+     * Die aktiven Plaene mit Schreibsperre, fruehester Beginn zuerst — dieselbe Reihenfolge wie
+     * {@link PlanReader#activePlansByStart()}, nur gesperrt. Gesperrt wird in der Datenbank nach
+     * Kennung, damit zwei gleichzeitige Annahmen dieselbe Folge nehmen und sich nicht verklemmen;
+     * sortiert wird danach in Java.
+     */
+    private List<Timetable> activePlansForUpdate() {
+        return timetables.findAllByStatusForUpdate(TimetableStatus.ACTIVE).stream()
+                .sorted(Comparator.comparing(PlanReader::startOf).thenComparing(Timetable::getId))
+                .toList();
+    }
+
+    /**
+     * Legt jeden aktiven Plan still, dessen Ende vor heute liegt — beilaeufig, beim Annehmen.
+     *
+     * <p>Es gibt keinen Zeitgeber, der einen Plan an seinem letzten Tag umstellt; ohne diese Zeilen
+     * bliebe ein abgelaufener Plan auf {@code ACTIVE} stehen. Er stuende dann weiter in
+     * {@code GET /api/timetables}, und die Zaehlabfragen in {@code ClassSubjectRepository}
+     * ({@code status <> 'ARCHIVED'}) verhinderten das Loeschen von Grunddaten, die niemand mehr
+     * braucht. Auf die Zeitleiste hat der Wechsel keine Wirkung: {@link PlanReader#acceptedTimeline()}
+     * liest aktive und archivierte Plaene gleichermassen.</p>
+     *
+     * <p>Beruehrte Vorgaenger sind hier nie dabei: die enden fruehestens am Tag vor {@code from}, und
+     * {@code from} liegt nie vor heute.</p>
+     */
+    private void archiveExpired(List<Timetable> aktive, LocalDate heute) {
+        for (Timetable plan : aktive) {
+            if (plan.getValidUntil() != null && plan.getValidUntil().isBefore(heute)) {
+                plan.setStatus(TimetableStatus.ARCHIVED);
+                timetables.saveAndFlush(plan);
+            }
+        }
+    }
+
+    /**
+     * Teilen sich zwei Zeitraeume mindestens einen Tag? Beide Grenzen einschliesslich, {@code null} am
+     * Ende heisst unbegrenzt. Dieselbe Frage stellt die Datenbank mit {@code daterange(…, '[]') &amp;&amp;}.
+     */
+    private static boolean overlaps(LocalDate vonA, LocalDate bisA, LocalDate vonB, LocalDate bisB) {
+        boolean aEndetVorB = bisA != null && bisA.isBefore(vonB);
+        boolean bEndetVorA = bisB != null && bisB.isBefore(vonA);
+        return !aEndetVorB && !bEndetVorA;
+    }
+
+    /** Der Text zu 409 {@code plan-overlap} — er nennt den Zeitraum, der im Weg steht. */
+    private static String overlapMessage(Timetable plan) {
+        LocalDate start = PlanReader.startOf(plan);
+        String bis = plan.getValidUntil() == null ? "" : " bis " + plan.getValidUntil();
+        return "Ein angenommener Plan gilt bereits ab " + start + bis
+                + ". Enddatum vor " + start + " wählen oder den Zeitraum ändern.";
     }
 
     /**
@@ -536,7 +735,7 @@ public class DraftService {
             }
         }
 
-        return new DraftView(draft.getId(), draft.getCreatedAt(), status,
+        return new DraftView(draft.getId(), draft.getName(), draft.isFinished(), draft.getCreatedAt(), status,
                 new SolveInfoView(draft.getSolveStartedAt(), draft.getSolveLimitSeconds(),
                         draft.getSolveLastScore(), draft.getSolveError()),
                 rows.stream().map(LessonView::of).toList(),
@@ -548,14 +747,19 @@ public class DraftService {
     /**
      * Vorschau auf den Verlust: wie viele Vertretungen das Annehmen dieses Entwurfs verfallen liesse.
      *
-     * <p>Gerechnet wird ab heute — den Gueltigkeitsbeginn waehlt die Planung erst im Dialog, und ein
-     * spaeterer Beginn kann die Zahl nur kleiner machen. Ohne aktiven Plan gibt es nichts zu verlieren.</p>
+     * <p>Gerechnet wird ab heute gegen den heute geltenden Plan (sonst den naechsten kuenftigen) — den
+     * Gueltigkeitsbeginn waehlt die Planung erst im Dialog. Ohne aktiven Plan gibt es nichts zu verlieren.</p>
      *
      * <p>Gefragt wird nach den Tagen des <b>aktiven</b> Plans: genau ihn ersetzt der Entwurf, und nur an
      * seinen Tagen haengen Ausnahmen, die der Wechsel betrifft.</p>
+     *
+     * <p><b>Grenze der Vorschau (18.09.):</b> Gelten mehrere Plaene nacheinander und ersetzt der Entwurf
+     * einen erst spaeter beginnenden, zaehlt diese Zahl trotzdem die Ausnahmen des heutigen Plans — sie
+     * kann dann zu hoch oder zu niedrig sein. Verbindlich ist die Zahl, die {@code accept} mit dem
+     * tatsaechlich gewaehlten Zeitraum rechnet und als Warnung zurueckgibt.</p>
      */
     private long expiringPreview(List<Lesson> draftLessons) {
-        Timetable active = timetables.findByStatus(TimetableStatus.ACTIVE).orElse(null);
+        Timetable active = planReader.currentOrNextActive().orElse(null);
         if (active == null) {
             return 0;
         }
@@ -576,10 +780,76 @@ public class DraftService {
 
     // ------------------------------------------------------------------ kleine Helfer
 
-    /** Der Entwurf oder 404 — fuer das Web ist „kein Entwurf" ein Zustand, kein Fehler. */
-    public Timetable requireDraft() {
-        return timetables.findByStatus(TimetableStatus.DRAFT)
-                .orElseThrow(() -> new NotFoundException("Kein Entwurf vorhanden."));
+    /** Der Entwurf mit dieser Kennung oder 404 — ein angenommener oder verworfener ist keiner mehr. */
+    public Timetable requireDraft(Long draftId) {
+        return timetables.findByIdAndStatus(draftId, TimetableStatus.DRAFT)
+                .orElseThrow(() -> new NotFoundException("Entwurf " + draftId + " nicht gefunden."));
+    }
+
+    /** Harte Konflikte sperren das Annehmen (409 {@code draft-has-conflicts}); die Liste steht in der Antwort. */
+    private void requireNoHardConflicts(List<Lesson> rows) {
+        List<ConflictView> hard = conflicts.check(rows.stream().map(Assignment::of).toList()).stream()
+                .filter(conflict -> conflict.severity() == Severity.HARD)
+                .toList();
+        if (!hard.isEmpty()) {
+            throw new ConflictException("draft-has-conflicts",
+                    hard.size() == 1
+                            ? "Der Entwurf hat einen harten Konflikt. Erst lösen, dann annehmen."
+                            : "Der Entwurf hat " + hard.size() + " harte Konflikte. Erst lösen, dann annehmen.",
+                    Map.of("conflicts", hard));
+        }
+    }
+
+    /** Eine Zeile der Entwurfsliste; die Konflikte werden wie ueberall beim Lesen gerechnet (E-31). */
+    private DraftSummaryView summary(Timetable draft) {
+        List<Assignment> assignments = lessons.findAllOfTimetable(draft.getId()).stream()
+                .map(Assignment::of)
+                .toList();
+        int hard = (int) conflicts.check(assignments).stream()
+                .filter(conflict -> conflict.severity() == Severity.HARD)
+                .count();
+        DraftSource source = draft.getBasedOn() == null ? DraftSource.EMPTY : DraftSource.COPY_ACTIVE;
+        return new DraftSummaryView(draft.getId(), draft.getName(), draft.isFinished(), draft.getCreatedAt(),
+                source, statusOf(draft), hard);
+    }
+
+    /** „Entwurf n" mit der ersten freien Nummer — zwei gleichnamige Entwuerfe waeren nicht zu unterscheiden. */
+    private String defaultName() {
+        Set<String> taken = timetables.findAllByStatusOrderByIdDesc(TimetableStatus.DRAFT).stream()
+                .map(Timetable::getName)
+                .collect(Collectors.toSet());
+        int n = 1;
+        while (taken.contains("Entwurf " + n)) {
+            n++;
+        }
+        return "Entwurf " + n;
+    }
+
+    /** Der Name, wie er gespeichert wird: ohne Rand, nicht leer, hoechstens 80 Zeichen (Spalte V11). */
+    private static String validName(String name) {
+        String trimmed = name == null ? "" : name.strip();
+        if (trimmed.isEmpty()) {
+            throw new ValidationException("name", "darf nicht leer sein");
+        }
+        if (trimmed.length() > MAX_NAME_LENGTH) {
+            throw new ValidationException("name", "hoechstens " + MAX_NAME_LENGTH + " Zeichen");
+        }
+        return trimmed;
+    }
+
+    /**
+     * Ein Entwurf in der Ablage wird nicht mehr bearbeitet (409 {@code draft-finished}, #116).
+     *
+     * <p>Gesperrt sind Stunden anlegen, aendern und loeschen, Berechnen und Reparieren. Erlaubt bleiben
+     * Annehmen, Umbenennen, Loeschen und das Wiederoeffnen selbst ({@code PATCH {finished: false}}) —
+     * sonst liesse sich ein abgelegter Entwurf nie mehr anfassen. Abbrechen einer Berechnung bleibt
+     * ebenfalls erlaubt: es raeumt nur auf.</p>
+     */
+    public void requireNotFinished(Timetable draft) {
+        if (draft.isFinished()) {
+            throw new ConflictException("draft-finished",
+                    "Der Entwurf liegt in der Ablage. Erst wieder öffnen.");
+        }
     }
 
     /** Waehrend eines Laufs wird am Entwurf nichts geaendert (409 {@code solving}). */

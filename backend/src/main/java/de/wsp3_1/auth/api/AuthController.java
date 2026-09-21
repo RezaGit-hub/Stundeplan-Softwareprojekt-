@@ -4,6 +4,7 @@ import de.wsp3_1.auth.api.AuthDtos.LoginRequest;
 import de.wsp3_1.auth.api.AuthDtos.LoginResponse;
 import de.wsp3_1.auth.api.AuthDtos.MeDto;
 import de.wsp3_1.auth.api.AuthDtos.PasswordChange;
+import de.wsp3_1.auth.api.AuthDtos.TourFlag;
 import de.wsp3_1.auth.domain.AuthService;
 import de.wsp3_1.auth.domain.LoginResult;
 import de.wsp3_1.auth.domain.UserService;
@@ -20,10 +21,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Anmelden, Abmelden, eigene Identitaet, eigenes Passwort (Vertrag: {@code /api/auth/*},
- * {@code GET /api/me}, {@code PUT /api/me/password}).
+ * Anmelden, Abmelden, eigene Identitaet, eigenes Passwort, eigener Rundgang (Vertrag: {@code /api/auth/*},
+ * {@code GET /api/me}, {@code PUT /api/me/password}, {@code PUT /api/me/tour}).
  *
- * <p>Alle vier Pfade gelten fuer beide Rollen. „Eigentum ist keine Rollenfrage": das Konto kommt
+ * <p>Alle fuenf Pfade gelten fuer beide Rollen. „Eigentum ist keine Rollenfrage": das Konto kommt
  * immer aus dem Principal, nie aus einem Parameter (api.md, Punkt 4).</p>
  */
 @RestController
@@ -52,13 +53,22 @@ public class AuthController {
 
     @GetMapping("/api/me")
     public MeDto me(@AuthenticationPrincipal CurrentUser user) {
-        return new MeDto(user.id(), user.username(), user.role(), authService.displayName(user), user.teacherId());
+        return new MeDto(user.id(), user.username(), user.role(), authService.displayName(user), user.teacherId(),
+                userService.tourCompletedAt(user));
     }
 
     @PutMapping("/api/me/password")
     public ResponseEntity<Void> changeMyPassword(@AuthenticationPrincipal CurrentUser user,
                                                  @Valid @RequestBody PasswordChange request) {
         userService.changeOwnPassword(user, request.oldPassword(), request.newPassword());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Rundgang beendet ({@code completed: true}) oder erneut zeigen ({@code false}) — #139, Vertrag 1.2.0. */
+    @PutMapping("/api/me/tour")
+    public ResponseEntity<Void> markMyTour(@AuthenticationPrincipal CurrentUser user,
+                                           @Valid @RequestBody TourFlag request) {
+        userService.markTour(user, request.completed());
         return ResponseEntity.noContent().build();
     }
 }

@@ -25,20 +25,29 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@code ChangelogService} direkt auf („Platzhalter fuer substitution"); seit es die Endpunkte gibt,
  * ist der Platzhalter eingeloest — die Erwartungen sind dieselben geblieben.</p>
  *
- * <p>Der Kalendertag ist der der Checkliste, Montag 21.09.2026. Der Plan wird ohne „Gueltig ab"
- * angenommen und gilt damit ab dem Tag der Annahme — also auch am 21.09.</p>
+ * <p>Der Kalendertag ist der Montag der kommenden Woche — der Tag der Checkliste, aber relativ
+ * gerechnet, damit kein Ergebnis daran haengt, wann jemand die Tests startet.</p>
  */
 class ChangelogIT extends PlanningITBase {
 
-    /** Montag 21.09.2026 — der Kalendertag des Leitszenarios (Checkliste V-1 bis V-6). */
-    private static final LocalDate MONTAG = LocalDate.parse("2026-09-21");
+    /**
+     * Der Kalendertag des Leitszenarios (Checkliste V-1 bis V-6): der Montag der kommenden Woche.
+     *
+     * <p>Bis zum 16.09. stand hier der 21.09.2026 fest. Ein fester Tag in der Vergangenheit traegt
+     * nicht mehr: seitdem muss der Plan an ihm gelten, und sein Beginn darf nicht vor heute liegen.
+     * Dieselbe Rechnung wie in {@code WeekIT}.</p>
+     */
+    private static final LocalDate MONTAG = LocalDate.now().with(java.time.DayOfWeek.MONDAY).plusWeeks(1);
 
     /**
-     * Beginn des Plans in den Tests mit Ausnahmen. Ohne „Gueltig ab" beginnt ein Plan am Tag der
-     * Annahme — dann gaebe es am 21.09.2026 keinen Plan mehr, sobald jemand die Tests nach diesem Tag
-     * startet, und {@code POST /api/exceptions} antwortete 404.
+     * Beginn des Plans in den Tests mit Ausnahmen: heute. Ohne „Gueltig ab" begaenne der Plan ebenfalls
+     * heute — der Stichtag steht hier trotzdem ausdruecklich, weil {@link #MONTAG} von ihm abhaengt.
+     *
+     * <p>Bis zum 16.09. stand hier der 01.09.2026, damit der Plan am 21.09. sicher galt. Seitdem ist ein
+     * Beginn in der Vergangenheit 400 {@code validation}; stattdessen liegt {@link #MONTAG} jetzt
+     * garantiert hinter dem Beginn.</p>
      */
-    private static final LocalDate PLANBEGINN = LocalDate.parse("2026-09-01");
+    private static final LocalDate PLANBEGINN = LocalDate.now();
 
     @Test
     @DisplayName("Das Annehmen eines Plans schreibt genau einen Eintrag mit dem Verursacher")
@@ -76,10 +85,10 @@ class ChangelogIT extends PlanningITBase {
         planMoDiInEntwurf(daten);
 
         call(post("/api/draft/accept").content("""
-                {"validFrom":"2026-09-21"}"""), 200);
+                {"validFrom":"%s"}""".formatted(MONTAG)), 200);
 
         JsonNode entry = getJson("/api/changelog").get("items").get(0);
-        assertThat(entry.get("date").asText()).isEqualTo("2026-09-21");
+        assertThat(entry.get("date").asText()).isEqualTo(MONTAG.toString());
     }
 
     @Test
@@ -88,11 +97,11 @@ class ChangelogIT extends PlanningITBase {
         Testdaten daten = pflichtenheftGrunddaten();
         planMoDiInEntwurf(daten);
         call(post("/api/draft/accept").content("""
-                {"validFrom":"2026-09-21"}"""), 200);
+                {"validFrom":"%s"}""".formatted(MONTAG)), 200);
 
-        assertThat(getJson("/api/changelog?from=2026-09-01").get("total").asInt()).isEqualTo(1);
-        assertThat(getJson("/api/changelog?from=2026-10-01").get("total").asInt()).isZero();
-        assertThat(getJson("/api/changelog?to=2026-09-01").get("total").asInt()).isZero();
+        assertThat(getJson("/api/changelog?from=" + MONTAG.minusDays(1)).get("total").asInt()).isEqualTo(1);
+        assertThat(getJson("/api/changelog?from=" + MONTAG.plusDays(1)).get("total").asInt()).isZero();
+        assertThat(getJson("/api/changelog?to=" + MONTAG.minusDays(1)).get("total").asInt()).isZero();
     }
 
     /**
@@ -157,7 +166,7 @@ class ChangelogIT extends PlanningITBase {
 
         JsonNode entry = page.get("items").get(0);
         assertThat(entry.get("action").asText()).isEqualTo("EXCEPTION_CREATED");
-        assertThat(entry.get("date").asText()).isEqualTo("2026-09-21");
+        assertThat(entry.get("date").asText()).isEqualTo(MONTAG.toString());
         assertThat(entry.get("position").asInt()).isEqualTo(1);
         assertThat(entry.get("classShort").asText()).isEqualTo("7a");
         assertThat(entry.get("oldAssignment").asText()).isEqualTo("Meyer / R101");

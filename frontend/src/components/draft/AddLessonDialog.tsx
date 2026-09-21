@@ -11,8 +11,9 @@ import { FieldError } from '@/components/forms/FieldError'
 import { useFieldErrors } from '@/lib/form-errors'
 import { slotById, slotLongLabel } from '@/lib/timegrid'
 
-export function AddLessonDialog({ open, classId, timeslotId, onOpenChange, suggestedSubjectId }: {
+export function AddLessonDialog({ open, draftId, classId, timeslotId, onOpenChange, suggestedSubjectId }: {
   open: boolean
+  draftId: number
   classId: number
   timeslotId: number
   onOpenChange(open: boolean): void
@@ -24,7 +25,7 @@ export function AddLessonDialog({ open, classId, timeslotId, onOpenChange, sugge
   const teachers = useTeachers()
   const rooms = useRooms()
   const timegrid = useTimegrid()
-  const add = useAddDraftLesson()
+  const add = useAddDraftLesson(draftId)
   const fields = useFieldErrors()
   const [subjectId, setSubjectId] = useState<number | null>(suggestedSubjectId ?? null)
   const [roomId, setRoomId] = useState<number | null>(null)

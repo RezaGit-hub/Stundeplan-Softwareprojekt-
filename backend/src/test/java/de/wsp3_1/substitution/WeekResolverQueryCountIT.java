@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  */
 class WeekResolverQueryCountIT extends PlanningITBase {
 
-    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY);
+    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY).plusWeeks(1);
 
     @Autowired
     private EntityManagerFactory emf;

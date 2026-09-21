@@ -1,6 +1,7 @@
 // Datensatz SMALL = Testdatenbestand des Pflichtenhefts (SPEZIFIKATION 7.5). Feste IDs: Klasse 7a = 1,
 // Lehrkraft Meyer = 1, Raum R101 = 1 — die Screenshot-Links verlassen sich darauf.
-import { nowIso } from '@/lib/today'
+import { nowIso, today } from '@/lib/today'
+import { addDaysIso } from '@/lib/dates'
 import { clearStore, defaultRules, defaultTimeslots, newTimetable, nextId, slotId, store, type MockLesson, type Store } from './store'
 
 export function loadSmall(s: Store = store): void {
@@ -45,8 +46,11 @@ export function loadSmall(s: Store = store): void {
   s.holidays = [{ id: 1, name: 'Herbstferien', dateFrom: '2026-10-19', dateTo: '2026-10-31', kind: 'VACATION' }]
 
   // Aktiver Plan: Mo 7a 1 Ma R101 · 7a 2 De R101 · 7a 4 Ph P1 · 8b 2 Ma R204 · 8b 4 De R204 · 8b 5 Ma R204 · Di 7a 1 Ma R101; offen: 9c Ma
-  const active = newTimetable('ACTIVE', nowIso())
-  active.acceptedAt = active.createdAt
+  const active = newTimetable('ACTIVE', nowIso(), { name: 'Erster Plan' })
+  // Angenommen vor zwei Monaten: ein Plan gilt ab dem Tag seiner Annahme (PlanReader.startOf), ein heute
+  // angenommener zeigt in der laufenden Woche also nichts. Der Beispielbestand soll in jeder Woche einen
+  // Plan haben, deshalb liegt die Annahme bewusst zurück.
+  active.acceptedAt = `${addDaysIso(today(), -60)}T08:00:00.000Z`
   const row = (classId: number, subjectId: number, teacherId: number, day: 'MO' | 'TU', position: number, roomId: number): MockLesson => ({
     id: nextId(), timetableId: active.id, classId, subjectId, teacherId, timeslotId: slotId(slots, day, position), roomId, pinned: true,
   })

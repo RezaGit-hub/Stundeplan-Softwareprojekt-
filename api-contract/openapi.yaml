@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Stundenplanung — REST-API
-  version: 1.2.0
+  version: 1.5.0
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -16,8 +16,14 @@ info:
     v1 ergänzt additiv: aktiver Plan, aufgelöste Kalenderwoche (vier Sichten, eigene Woche der
     Lehrkraft), Entwurf mit Handaufbau, Berechnung (asynchron) und Annehmen, Änderungsereignisse,
     vertretungsbedürftige Stunden, Vertretungsoptionen, datierte Ausnahmen, Änderungsverlauf,
-    unterrichtsfreie Zeiträume. Kann-Felder (`classId` beim Berechnen, `validFrom` beim Annehmen)
-    sind optional und mit E-40 markiert. Was sich gegenüber v0 geändert hat und wie ein Modul den
+    unterrichtsfreie Zeiträume. Kann-Felder (`classId` beim Berechnen, `validFrom`/`validUntil` beim
+    Annehmen) sind optional und mit E-40 markiert.
+
+    **Gültigkeitszeitraum (1.4.0, #115).** Ein angenommener Plan hat einen Zeitraum
+    `[validFrom, validUntil]`, beide Grenzen einschließlich; `validFrom: null` heißt „ab dem Tag der
+    Annahme", `validUntil: null` heißt „unbegrenzt". Es darf **mehrere aktive Pläne** geben, solange
+    sich ihre Zeiträume nicht überschneiden — `GET /api/timetables` listet sie, `GET /api/timetable`
+    liefert den, der **heute** gilt (sonst den mit dem nächsten künftigen Beginn, sonst `id: null`). Was sich gegenüber v0 geändert hat und wie ein Modul den
     Vertrag erweitern darf, steht in `docs/VERTRAG.md`.
 
     **Konventionen.**
@@ -42,7 +48,7 @@ info:
     Lehrkraft-Endpunkte, `STUDENT` = Klassenkonto. Serverseitig gilt: `GET /api/health` und
     `POST /api/auth/login` ohne Token; `DELETE /api/auth/token`, `GET /api/me`, `GET /api/timegrid`
     und `GET /api/me/class-week` für jedes angemeldete Konto; das übrige `/api/me/**`
-    (`PUT /api/me/password`, `GET /api/me/timetable/week`) für `PLANNING` und `TEACHER`; alles
+    (`PUT /api/me/password`, `PUT /api/me/tour`, `GET /api/me/timetable/week`) für `PLANNING` und `TEACHER`; alles
     Übrige unter `/api/**` verlangt die Rolle `PLANNING` (E-45) — eine Lehrkraft bekommt dort 403,
     auch bei direkter Anfrage.
 
@@ -183,7 +189,10 @@ paths:
       tags: [Anmeldung]
       operationId: me
       summary: Eigene Identität
-      description: Liefert das angemeldete Konto. `teacherId` ist gesetzt, wenn das Konto zu einer Lehrkraft gehört.
+      description: |
+        Liefert das angemeldete Konto. `teacherId` ist gesetzt, wenn das Konto zu einer Lehrkraft gehört.
+        `tourCompletedAt` (seit 1.2.0, #139): wann das Konto den Rundgang durch die Webanwendung beendet
+        oder übersprungen hat; `null` = noch nie — das Web zeigt den Rundgang dann beim nächsten Start.
       x-role: ANY
       responses:
         '200':
@@ -198,6 +207,7 @@ paths:
                 role: PLANNING
                 displayName: admin
                 teacherId: null
+                tourCompletedAt: null
         '401':
           $ref: '#/components/responses/Unauthenticated401'
 
@@ -219,6 +229,33 @@ paths:
       responses:
         '204':
           description: Passwort geändert
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+
+  /api/me/tour:
+    put:
+      tags: [Anmeldung]
+      operationId: markMyTour
+      summary: Rundgang durch die Webanwendung beendet oder erneut zeigen (#139, seit 1.2.0)
+      description: |
+        `completed: true` merkt den Rundgang als beendet (`MeDto.tourCompletedAt` = jetzt) — „Überspringen"
+        und „Fertig" im Rundgang. `completed: false` löscht den Zeitpunkt wieder („Rundgang erneut zeigen"
+        in den Einstellungen). Am Konto, nicht im Browser: ein zweiter Rechner zeigt den Rundgang nicht
+        noch einmal. Wie `PUT /api/me/password` für `PLANNING` und `TEACHER`; ein Klassenkonto bekommt 403.
+      x-role: ANY
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TourFlag'
+            example:
+              completed: true
+      responses:
+        '204':
+          description: gemerkt
         '400':
           $ref: '#/components/responses/Validation400'
         '401':
@@ -1420,6 +1457,11 @@ paths:
         Der aktive Plan aller Klassen (Wochenmuster) mit den **aktuell berechneten** Konflikten — der
         `ConflictChecker` läuft bei jedem Lesen, damit Grunddatenänderungen sofort sichtbar werden (W-1).
         Vor der ersten Annahme: `id: null`, leere Listen. Für die Rolle Lehrkraft 403 (Zugriffsschutz).
+
+        **Welcher Plan (seit 1.4.0, #115):** der, der **heute** gilt. Gibt es den nicht — weil der
+        laufende Zeitraum abgelaufen ist oder der nächste erst beginnt —, dann der aktive Plan mit dem
+        nächsten künftigen Beginn; gibt es auch den nicht, `id: null`. Alle aktiven Pläne mit ihren
+        Zeiträumen listet `GET /api/timetables`.
       x-role: PLANNING
       responses:
         '200':
@@ -1432,6 +1474,7 @@ paths:
                 id: 1
                 acceptedAt: '2026-09-14T15:00:00Z'
                 validFrom: null
+                validUntil: null
                 lessons:
                   - { id: 1, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
                   - { id: 2, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
@@ -1445,6 +1488,73 @@ paths:
           $ref: '#/components/responses/Unauthenticated401'
         '403':
           $ref: '#/components/responses/Forbidden403'
+
+  /api/timetables:
+    get:
+      tags: [Plan]
+      operationId: listTimetables
+      summary: Alle aktiven Pläne mit ihrem Zeitraum (seit 1.4.0, #115)
+      description: |
+        Die angenommenen Pläne, die noch gelten oder erst künftig gelten — frühester Beginn zuerst,
+        ohne Stunden. Seit 1.4.0 darf es mehrere geben; ihre Zeiträume überschneiden sich nie
+        (Ausschlussbedingung in der Datenbank). `current: true` trägt der Plan, der **heute** gilt —
+        höchstens einer, in einer Lücke zwischen zwei Zeiträumen keiner. Leere Liste = noch nichts
+        angenommen (ein Zustand, kein Fehler). Ersetzte Pläne stehen **nicht** in der Liste; einzeln
+        lesbar bleiben sie über `GET /api/timetables/{id}`. Ein Plan, dessen `validUntil` verstrichen
+        ist, wird erst beim nächsten Annehmen ins Archiv geräumt und steht bis dahin noch hier — dann
+        ohne `current`, weil er an keinem Tag mehr gilt.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: die aktiven Pläne, frühester Beginn zuerst
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimetableSummaryDto'
+              example:
+                - { id: 1, acceptedAt: '2026-09-14T15:00:00Z', validFrom: null, validUntil: '2027-01-31', current: true }
+                - { id: 2, acceptedAt: '2026-09-15T10:30:00Z', validFrom: '2027-02-01', validUntil: null, current: false }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/timetables/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    get:
+      tags: [Plan]
+      operationId: getTimetableById
+      summary: Einen angenommenen Plan lesen (seit 1.4.0, #115)
+      description: |
+        Wie `GET /api/timetable`, aber für den Plan mit dieser Kennung — aktiv **oder** archiviert. So
+        lässt sich nachsehen, was in einem vergangenen Zeitraum galt. Ein Entwurf ist hier 404
+        `not-found`; dafür gibt es `GET /api/drafts/{id}`.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: der Plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimetableDto'
+              example:
+                id: 1
+                acceptedAt: '2026-09-14T15:00:00Z'
+                validFrom: null
+                validUntil: '2027-01-31'
+                lessons:
+                  - { id: 1, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 2, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                conflicts: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
 
   /api/timetable/week:
     get:
@@ -1641,13 +1751,530 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
 
+  /api/drafts:
+    get:
+      tags: [Entwurf]
+      operationId: listDrafts
+      summary: Alle Entwürfe (seit 1.3.0, #103)
+      description: |
+        Die Entwurfsliste, jüngster zuerst — Kennzahlen ohne Stunden. `hardConflicts` wird beim Lesen
+        gerechnet (E-31), `status` wie in `DraftDto`, `source` ist `COPY_ACTIVE`, wenn der Entwurf aus dem
+        aktiven Plan kopiert wurde. Leere Liste = kein Entwurf (ein Zustand, kein Fehler). Mehrere Entwürfe
+        nebeneinander sind seit 1.3.0 erlaubt (E-52); die Singular-Pfade `/api/draft…` meinen den jüngsten.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: die Entwürfe, jüngster zuerst
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DraftSummaryDto'
+              example:
+                - { id: 3, name: Variante B, finished: false, createdAt: '2026-09-15T11:00:00Z', source: EMPTY, status: EDITING, hardConflicts: 0 }
+                - { id: 2, name: Entwurf 1, finished: true, createdAt: '2026-09-15T09:00:00Z', source: COPY_ACTIVE, status: EDITING, hardConflicts: 1 }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Entwurf]
+      operationId: createDraftNamed
+      summary: Entwurf anlegen (seit 1.3.0, #103)
+      description: |
+        Wie `POST /api/draft`: `EMPTY` leer, `COPY_ACTIVE` als Kopie des aktiven Plans (konfliktfreie
+        Stunden festgelegt, W-1). `name` ist Kann — fehlt er, heißt der Entwurf „Entwurf n" (erste freie
+        Nummer); leer oder länger als 80 Zeichen ist 400 `validation` (Feld `name`). Andere Entwürfe
+        bleiben unberührt; ein 409 `draft-exists` gibt es nicht mehr.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDraft'
+            example: { name: Variante B, source: EMPTY }
+      responses:
+        '201':
+          description: Entwurf angelegt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 3
+                name: Variante B
+                finished: false
+                createdAt: '2026-09-15T11:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 21, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 22, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                conflicts: []
+                openLessons:
+                  - { classId: 1, classShort: 7a, subjectShort: Ma, missing: 1 }
+                  - { classId: 1, classShort: 7a, subjectShort: Ph, missing: 1 }
+                  - { classId: 2, classShort: 8b, subjectShort: Ma, missing: 2 }
+                  - { classId: 2, classShort: 8b, subjectShort: De, missing: 1 }
+                  - { classId: 3, classShort: 9c, subjectShort: Ma, missing: 1 }
+                warnings: []
+                expiringExceptions: 0
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/drafts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    get:
+      tags: [Entwurf]
+      operationId: getDraftById
+      summary: Einen Entwurf lesen (seit 1.3.0, #103)
+      description: Wie `GET /api/draft`, aber für den Entwurf mit dieser Kennung. Ein angenommener oder verworfener Entwurf ist 404 `not-found`.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: der Entwurf
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 3
+                name: Variante B
+                finished: false
+                createdAt: '2026-09-15T11:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 21, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 22, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                conflicts: []
+                openLessons:
+                  - { classId: 1, classShort: 7a, subjectShort: Ma, missing: 1 }
+                  - { classId: 1, classShort: 7a, subjectShort: Ph, missing: 1 }
+                  - { classId: 2, classShort: 8b, subjectShort: Ma, missing: 2 }
+                  - { classId: 2, classShort: 8b, subjectShort: De, missing: 1 }
+                  - { classId: 3, classShort: 9c, subjectShort: Ma, missing: 1 }
+                warnings: []
+                expiringExceptions: 0
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    patch:
+      tags: [Entwurf]
+      operationId: patchDraft
+      summary: Entwurf umbenennen oder in die Ablage legen (seit 1.4.0, #103 und #116)
+      description: |
+        Setzt `name` und/oder `finished`. Nur gesendete Felder wirken; ein leerer Body ist 400
+        `validation` (Feld `name`). Beim Namen wird der Rand entfernt; leer oder länger als 80 Zeichen
+        ist 400 `validation` (Feld `name`). Antwort ist der ganze Entwurf.
+
+        **Ablage (seit 1.4.0, #116):** `finished: true` friert den Entwurf ein — Stunden anlegen,
+        ändern und löschen, Berechnen und Reparieren antworten danach 409 `draft-finished`. Annehmen,
+        Umbenennen und Löschen bleiben erlaubt; `finished: false` öffnet ihn wieder. Beides ist auch
+        während einer Berechnung erlaubt: der Name geht den Solver nichts an, und das Wiederöffnen
+        muss immer gehen.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftPatchInput'
+            example: { name: Variante B, finished: true }
+      responses:
+        '200':
+          description: geändert; Antwort ist der ganze Entwurf
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 3
+                name: Variante B
+                finished: false
+                createdAt: '2026-09-15T11:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 21, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 22, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                conflicts: []
+                openLessons:
+                  - { classId: 1, classShort: 7a, subjectShort: Ma, missing: 1 }
+                  - { classId: 1, classShort: 7a, subjectShort: Ph, missing: 1 }
+                  - { classId: 2, classShort: 8b, subjectShort: Ma, missing: 2 }
+                  - { classId: 2, classShort: 8b, subjectShort: De, missing: 1 }
+                  - { classId: 3, classShort: 9c, subjectShort: Ma, missing: 1 }
+                warnings: []
+                expiringExceptions: 0
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+    delete:
+      tags: [Entwurf]
+      operationId: deleteDraftById
+      summary: Entwurf verwerfen (seit 1.3.0, #103)
+      description: Löscht diesen Entwurf mit allen Stunden; aktiver Plan und andere Entwürfe bleiben unberührt. Während einer Berechnung 409 `solving` (erst abbrechen).
+      x-role: PLANNING
+      responses:
+        '204':
+          description: verworfen
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/Solving409'
+
+  /api/drafts/{id}/lessons:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    post:
+      tags: [Entwurf]
+      operationId: addDraftLessonById
+      summary: Stunde von Hand in diesen Entwurf einplanen (W-3, seit 1.3.0)
+      description: Wie `POST /api/draft/lessons`, für den Entwurf mit dieser Kennung. Antwort ist der ganze Entwurf mit `conflicts[]`. Hat die Klasse das Fach nicht 400 `validation`; während einer Berechnung 409 `solving`.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddLessonInput'
+            example: { classId: 1, subjectId: 2, timeslotId: 2, roomId: 1 }
+      responses:
+        '201':
+          description: Stunde eingeplant; Antwort ist der ganze Entwurf
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 3
+                name: Variante B
+                finished: false
+                createdAt: '2026-09-15T11:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 21, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 22, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                conflicts: []
+                openLessons:
+                  - { classId: 1, classShort: 7a, subjectShort: Ma, missing: 1 }
+                  - { classId: 1, classShort: 7a, subjectShort: Ph, missing: 1 }
+                  - { classId: 2, classShort: 8b, subjectShort: Ma, missing: 2 }
+                  - { classId: 2, classShort: 8b, subjectShort: De, missing: 1 }
+                  - { classId: 3, classShort: 9c, subjectShort: Ma, missing: 1 }
+                warnings: []
+                expiringExceptions: 0
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/DraftFinished409'
+
+  /api/drafts/{id}/lessons/{lessonId}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+      - $ref: '#/components/parameters/PathLessonId'
+    patch:
+      tags: [Entwurf]
+      operationId: patchDraftLessonById
+      summary: Stunde dieses Entwurfs verschieben, Raum ändern, Festlegung setzen oder aufheben (W-3, W-9, seit 1.3.0)
+      description: Wie `PATCH /api/draft/lessons/{id}`, für den Entwurf mit dieser Kennung; `lessonId` muss zu ihm gehören (sonst 404). Nur gesendete Felder ändern sich; eine offene Stunde braucht `timeslotId` und `roomId`. Antwort ist der ganze Entwurf. Während einer Berechnung 409 `solving`.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchLessonInput'
+            example: { timeslotId: 2 }
+      responses:
+        '200':
+          description: Stunde geändert; Antwort ist der ganze Entwurf
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 3
+                name: Variante B
+                finished: false
+                createdAt: '2026-09-15T11:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 21, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 22, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                conflicts: []
+                openLessons:
+                  - { classId: 1, classShort: 7a, subjectShort: Ma, missing: 1 }
+                  - { classId: 1, classShort: 7a, subjectShort: Ph, missing: 1 }
+                  - { classId: 2, classShort: 8b, subjectShort: Ma, missing: 2 }
+                  - { classId: 2, classShort: 8b, subjectShort: De, missing: 1 }
+                  - { classId: 3, classShort: 9c, subjectShort: Ma, missing: 1 }
+                warnings: []
+                expiringExceptions: 0
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/DraftFinished409'
+    delete:
+      tags: [Entwurf]
+      operationId: deleteDraftLessonById
+      summary: Stunde aus diesem Entwurf entfernen (W-3, seit 1.3.0)
+      description: Wie `DELETE /api/draft/lessons/{id}`, für den Entwurf mit dieser Kennung. Antwort ist der ganze Entwurf. Während einer Berechnung 409 `solving`.
+      x-role: PLANNING
+      responses:
+        '200':
+          description: Stunde entfernt; Antwort ist der ganze Entwurf
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDto'
+              example:
+                id: 3
+                name: Variante B
+                finished: false
+                createdAt: '2026-09-15T11:00:00Z'
+                status: EDITING
+                solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
+                lessons:
+                  - { id: 21, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 22, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                conflicts: []
+                openLessons:
+                  - { classId: 1, classShort: 7a, subjectShort: Ma, missing: 1 }
+                  - { classId: 1, classShort: 7a, subjectShort: Ph, missing: 1 }
+                  - { classId: 2, classShort: 8b, subjectShort: Ma, missing: 2 }
+                  - { classId: 2, classShort: 8b, subjectShort: De, missing: 1 }
+                  - { classId: 3, classShort: 9c, subjectShort: Ma, missing: 1 }
+                warnings: []
+                expiringExceptions: 0
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/DraftFinished409'
+
+  /api/drafts/{id}/solve:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    post:
+      tags: [Entwurf]
+      operationId: startSolveById
+      summary: Berechnung dieses Entwurfs starten (W-8, W-9, seit 1.3.0)
+      description: |
+        Wie `POST /api/draft/solve`, für den Entwurf mit dieser Kennung: Vorbedingungen prüfen, fehlende
+        Stunden ergänzen, Solver **asynchron** starten, 202 sofort; Stand über `GET /api/drafts/{id}`
+        (`status: SOLVING` → alle 2 s). Es läuft **ein** Lauf zugleich je Entwurf; andere Entwürfe bleiben
+        bearbeitbar. Fehler (409): `master-data-incomplete`, `pinned-contradiction`,
+        `solve-capacity-exceeded`, `solving`.
+        Kann (E-40): `classId` begrenzt den Lauf auf eine Klasse; `force: true` überspringt nach einem
+        409 `solve-capacity-exceeded` ausschließlich die Kapazitätsvorprüfung (seit 1.5.0).
+      x-role: PLANNING
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartSolveInput'
+            example: {}
+      responses:
+        '202':
+          description: Berechnung gestartet; Stand über GET /api/drafts/{id}
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          description: Vorbedingung verletzt, Berechnung läuft schon, Unterkapazität oder der Entwurf liegt in der Ablage (`master-data-incomplete`, `pinned-contradiction`, `solve-capacity-exceeded`, `solving`, `draft-finished` seit 1.4.0)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: urn:pushnpull:problem:master-data-incomplete
+                title: Grunddaten unvollständig
+                status: 409
+                detail: Vor der Berechnung fehlen Angaben.
+                missing:
+                  - Klasse 9c hat kein Fach
+    delete:
+      tags: [Entwurf]
+      operationId: cancelSolveById
+      summary: Berechnung dieses Entwurfs vorzeitig beenden (seit 1.3.0)
+      description: Wie `DELETE /api/draft/solve`; das bis dahin beste Ergebnis wird übernommen (T-W8.1). Läuft nichts, ändert sich nichts — trotzdem 202.
+      x-role: PLANNING
+      responses:
+        '202':
+          description: Abbruch angestoßen; Stand über GET /api/drafts/{id}
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
+  /api/drafts/{id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    post:
+      tags: [Entwurf]
+      operationId: acceptDraftById
+      summary: Diesen Entwurf annehmen — er wird der aktive Plan (W-8, seit 1.3.0)
+      description: |
+        Wie `POST /api/draft/accept`, für den Entwurf mit dieser Kennung: berührte Vorgänger werden
+        verkürzt oder archiviert, dieser Entwurf → `ACTIVE`, Verlaufseintrag `TIMETABLE_ACCEPTED`. **Andere Entwürfe
+        bleiben stehen** — die Planung nimmt sie später an oder verwirft sie. **Harte Konflikte
+        blockieren**: 409 `draft-has-conflicts` mit `conflicts[]` (die harten); erst lösen (z. B.
+        `POST …/repair`), dann annehmen. Weiche Konflikte blockieren nicht. Während einer Berechnung 409
+        `solving`. `warnings[]`, offene Stunden und verfallende Vertretungen wie beim Singular-Pfad.
+        Ein Entwurf **aus der Ablage** darf angenommen werden (#116); der angenommene Plan liegt nie
+        in ihr.
+
+        **Gültigkeitszeitraum (seit 1.4.0, #115).** `validFrom` ist der Beginn (fehlt: heute),
+        `validUntil` das Ende einschließlich (fehlt: unbegrenzt); `validUntil` vor dem Beginn ist 400
+        `validation` mit Feld `validUntil`, `validFrom` **vor heute** ist 400 `validation` mit Feld
+        `validFrom`. Die Antwort trägt `validFrom` immer als Datum — bei „ab sofort" den heutigen Tag.
+        Berührt wird nur, was sich mit dem gewünschten Zeitraum überschneidet:
+
+        - Ein Plan, der **früher begonnen** hat, endet am Tag vor `validFrom` und bleibt aktiv — „der
+          alte Plan gilt bis zu seinem Ende weiter". Liegt er damit ganz in der Vergangenheit, wird er
+          archiviert.
+        - Ein Plan, der **heute schon begonnen** hat und nicht früher als der neue beginnt (eben erst
+          angenommen, sofort ersetzt), wird archiviert.
+        - Ein Plan, der **erst künftig beginnt** und im Weg liegt: 409 `plan-overlap` — auch bei
+          „jetzt aktivieren". Nichts wird geändert; die Planung wählt ein Enddatum vor dessen Beginn
+          oder ändert den Zeitraum.
+
+        Ein aktiver Plan, dessen Ende vor heute liegt, wird bei dieser Gelegenheit archiviert — es gibt
+        keinen Zeitgeber, der das sonst täte. Zwei Annahmen gleichzeitig gehen nicht aneinander vorbei:
+        die zweite wartet und antwortet danach 404 (derselbe Entwurf) oder 409 `plan-overlap`.
+      x-role: PLANNING
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptDraftInput'
+            example: {}
+      responses:
+        '200':
+          description: der neue aktive Plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptDraftResponse'
+              example:
+                id: 3
+                acceptedAt: '2026-09-15T12:00:00Z'
+                validFrom: null
+                validUntil: null
+                lessons:
+                  - { id: 21, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
+                  - { id: 22, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
+                conflicts: []
+                warnings:
+                  - '6 Stunden bleiben unverplant: sie stehen im aktiven Plan, aber in keiner Woche.'
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/AcceptRejected409'
+
+  /api/drafts/{id}/repair:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    post:
+      tags: [Entwurf]
+      operationId: repairDraftById
+      summary: Konflikt in diesem Entwurf per Knopf lösen — Vorschläge rechnen, nichts speichern (#110, seit 1.3.0)
+      description: Wie `POST /api/draft/repair`, für den Entwurf mit dieser Kennung; `lessonId` muss zu ihm gehören (sonst 404). Synchron, bis zu 15 s; übernehmen je Zug mit `PATCH /api/drafts/{id}/lessons/{lessonId}` und `pinned:false`.
+      x-role: PLANNING
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepairInput'
+            example:
+              lessonId: 22
+      responses:
+        '200':
+          description: Vorschläge, nach Stufe aufsteigend; nichts davon ist gespeichert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairResponse'
+              example:
+                proposals:
+                  - level: 1
+                    label: Nur diese Stunde verschieben
+                    moves:
+                      - { lessonId: 22, timeslotId: 4, roomId: 1 }
+                    hardConflictsAfter: 0
+                    score: 0hard/0medium/0soft
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/DraftFinished409'
+
   /api/draft:
     get:
       tags: [Entwurf]
       operationId: getDraft
-      summary: Den einen Entwurf lesen
+      summary: Den jüngsten Entwurf lesen
       description: |
-        Es gibt höchstens einen Entwurf. Die Antwort trägt Stunden, berechnete Konflikte, offene Stunden
+        **Seit 1.3.0 (#103, E-52):** es gibt mehrere Entwürfe nebeneinander (`/api/drafts`). Die
+        Singular-Pfade `/api/draft…` bleiben für ältere Clients stehen und meinen den **jüngsten** Entwurf
+        (höchste `id`); jede Änderung hier wirkt auf ihn. Die Antwort trägt Stunden, berechnete Konflikte, offene Stunden
         (`openLessons[]` = fehlende Wochenstunden je Klasse und Fach, zugleich die Pflichtfächer-Prüfung)
         und Warnungen (überzählige Stunden). `status` ist `SOLVING`, solange eine Berechnung läuft
         (Web fragt dann alle 2 s), `FAILED`, wenn der letzte Lauf mit einem Fehler endete (`solve.error`),
@@ -1664,6 +2291,8 @@ paths:
                 $ref: '#/components/schemas/DraftDto'
               example:
                 id: 2
+                name: Entwurf 1
+                finished: false
                 createdAt: '2026-09-15T09:00:00Z'
                 status: EDITING
                 solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
@@ -1693,8 +2322,9 @@ paths:
       description: |
         `EMPTY` legt einen leeren Entwurf an, `COPY_ACTIVE` kopiert den aktiven Plan: konfliktfreie Stunden
         festgelegt (`pinned: true`), konfliktbehaftete nicht festgelegt (W-1, „konfliktfreie Stunden bleiben
-        festgelegt"). Gibt es schon einen Entwurf: 409 `draft-exists`. `EMPTY` + `accept` ist der Weg zum
-        leeren aktiven Plan, den der Testdurchlauf vor W-8 verlangt (E-46).
+        festgelegt"). `EMPTY` + `accept` ist der Weg zum leeren aktiven Plan, den der Testdurchlauf vor W-8
+        verlangt (E-46). **Seit 1.3.0** legt jeder Aufruf einen weiteren Entwurf an — 409 `draft-exists` gibt
+        es nicht mehr; `name` ist Kann (Standard „Entwurf n"). Gleicher Aufruf wie `POST /api/drafts`.
       x-role: PLANNING
       requestBody:
         required: true
@@ -1712,6 +2342,8 @@ paths:
                 $ref: '#/components/schemas/DraftDto'
               example:
                 id: 2
+                name: Entwurf 1
+                finished: false
                 createdAt: '2026-09-15T09:00:00Z'
                 status: EDITING
                 solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
@@ -1734,22 +2366,11 @@ paths:
           $ref: '#/components/responses/Unauthenticated401'
         '403':
           $ref: '#/components/responses/Forbidden403'
-        '409':
-          description: Es gibt bereits einen Entwurf
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
-              example:
-                type: urn:pushnpull:problem:draft-exists
-                title: Es gibt bereits einen Entwurf
-                status: 409
-                detail: Es gibt bereits einen Entwurf. Erst annehmen oder verwerfen.
     delete:
       tags: [Entwurf]
       operationId: deleteDraft
-      summary: Entwurf verwerfen
-      description: Löscht den Entwurf mit allen Stunden; der aktive Plan bleibt unberührt. Während einer Berechnung 409 `solving` (erst abbrechen).
+      summary: Jüngsten Entwurf verwerfen
+      description: Löscht den jüngsten Entwurf mit allen Stunden; der aktive Plan und andere Entwürfe bleiben unberührt. Während einer Berechnung 409 `solving` (erst abbrechen).
       x-role: PLANNING
       responses:
         '204':
@@ -1791,6 +2412,8 @@ paths:
                 $ref: '#/components/schemas/DraftDto'
               example:
                 id: 2
+                name: Entwurf 1
+                finished: false
                 createdAt: '2026-09-15T09:00:00Z'
                 status: EDITING
                 solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
@@ -1823,7 +2446,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
         '409':
-          $ref: '#/components/responses/Solving409'
+          $ref: '#/components/responses/DraftFinished409'
 
   /api/draft/lessons/{id}:
     parameters:
@@ -1857,6 +2480,8 @@ paths:
                 $ref: '#/components/schemas/DraftDto'
               example:
                 id: 2
+                name: Entwurf 1
+                finished: false
                 createdAt: '2026-09-15T09:00:00Z'
                 status: EDITING
                 solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
@@ -1882,7 +2507,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
         '409':
-          $ref: '#/components/responses/Solving409'
+          $ref: '#/components/responses/DraftFinished409'
     delete:
       tags: [Entwurf]
       operationId: deleteDraftLesson
@@ -1898,6 +2523,8 @@ paths:
                 $ref: '#/components/schemas/DraftDto'
               example:
                 id: 2
+                name: Entwurf 1
+                finished: false
                 createdAt: '2026-09-15T09:00:00Z'
                 status: EDITING
                 solve: { startedAt: null, limitSeconds: null, lastScore: null, error: null }
@@ -1921,7 +2548,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
         '409':
-          $ref: '#/components/responses/Solving409'
+          $ref: '#/components/responses/DraftFinished409'
 
   /api/draft/solve:
     post:
@@ -1963,7 +2590,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
         '409':
-          description: Vorbedingung verletzt oder Berechnung läuft schon (`master-data-incomplete`, `pinned-contradiction`, `solve-capacity-exceeded`, `solving`)
+          description: Vorbedingung verletzt, Berechnung läuft schon, Unterkapazität oder der Entwurf liegt in der Ablage (`master-data-incomplete`, `pinned-contradiction`, `solve-capacity-exceeded`, `solving`, `draft-finished` seit 1.4.0)
           content:
             application/problem+json:
               schema:
@@ -1995,11 +2622,12 @@ paths:
     post:
       tags: [Entwurf]
       operationId: acceptDraft
-      summary: Entwurf annehmen — er wird der aktive Plan (W-8)
+      summary: Jüngsten Entwurf annehmen — er wird der aktive Plan (W-8)
       description: |
-        Eine Transaktion: bisheriger aktiver Plan → `ARCHIVED`, Entwurf → `ACTIVE` mit `acceptedAt`,
-        Verlaufseintrag `TIMETABLE_ACCEPTED`. Danach gibt es keinen Entwurf mehr. Konflikte blockieren
-        nicht (die Planung entscheidet). Während einer Berechnung 409 `solving`. Ausnahmen (Vertretungen)
+        Eine Transaktion: berührte Vorgänger werden verkürzt oder archiviert, Entwurf → `ACTIVE` mit
+        `acceptedAt`, Verlaufseintrag `TIMETABLE_ACCEPTED`. Andere Entwürfe bleiben stehen (seit 1.3.0). **Harte
+        Konflikte blockieren seit 1.3.0** (409 `draft-has-conflicts` mit `conflicts[]`); weiche nicht (die
+        Planung entscheidet). Während einer Berechnung 409 `solving`. Ausnahmen (Vertretungen)
         mit Datum ab heute hängen am alten Plan und verfallen; die Antwort nennt das in `warnings[]`, die
         Web-App fragt **vor** dem Senden nach (`GET /api/exceptions?from=heute`).
 
@@ -2010,6 +2638,25 @@ paths:
 
         **Kann (E-40, nach Rückfrage R1):** `validFrom` — der neue Plan gilt erst ab diesem Datum; bis
         dahin lösen die Wochensichten den bisherigen Plan auf. Ohne Body oder mit `{}`: gilt sofort.
+
+        **Gültigkeitszeitraum (seit 1.4.0, #115).** `validFrom` ist der Beginn (fehlt: heute),
+        `validUntil` das Ende einschließlich (fehlt: unbegrenzt); `validUntil` vor dem Beginn ist 400
+        `validation` mit Feld `validUntil`, `validFrom` **vor heute** ist 400 `validation` mit Feld
+        `validFrom`. Die Antwort trägt `validFrom` immer als Datum — bei „ab sofort" den heutigen Tag.
+        Berührt wird nur, was sich mit dem gewünschten Zeitraum überschneidet:
+
+        - Ein Plan, der **früher begonnen** hat, endet am Tag vor `validFrom` und bleibt aktiv — „der
+          alte Plan gilt bis zu seinem Ende weiter". Liegt er damit ganz in der Vergangenheit, wird er
+          archiviert.
+        - Ein Plan, der **heute schon begonnen** hat und nicht früher als der neue beginnt (eben erst
+          angenommen, sofort ersetzt), wird archiviert.
+        - Ein Plan, der **erst künftig beginnt** und im Weg liegt: 409 `plan-overlap` — auch bei
+          „jetzt aktivieren". Nichts wird geändert; die Planung wählt ein Enddatum vor dessen Beginn
+          oder ändert den Zeitraum.
+
+        Ein aktiver Plan, dessen Ende vor heute liegt, wird bei dieser Gelegenheit archiviert — es gibt
+        keinen Zeitgeber, der das sonst täte. Zwei Annahmen gleichzeitig gehen nicht aneinander vorbei:
+        die zweite wartet und antwortet danach 404 (derselbe Entwurf) oder 409 `plan-overlap`.
       x-role: PLANNING
       requestBody:
         required: false
@@ -2029,6 +2676,7 @@ paths:
                 id: 2
                 acceptedAt: '2026-09-15T10:30:00Z'
                 validFrom: '2026-09-21'
+                validUntil: null
                 lessons:
                   - { id: 11, classId: 1, classShort: 7a, subjectId: 1, subjectShort: Ma, subjectColor: '#1976D2', teacherId: 1, teacherShort: MEY, roomId: 1, roomShort: R101, timeslotId: 1, day: MO, position: 1, pinned: true }
                   - { id: 12, classId: 1, classShort: 7a, subjectId: 2, subjectShort: De, subjectColor: '#388E3C', teacherId: 3, teacherShort: WEB, roomId: 1, roomShort: R101, timeslotId: 2, day: MO, position: 2, pinned: true }
@@ -2050,7 +2698,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
         '409':
-          $ref: '#/components/responses/Solving409'
+          $ref: '#/components/responses/AcceptRejected409'
 
   /api/draft/repair:
     post:
@@ -2117,7 +2765,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
         '409':
-          $ref: '#/components/responses/Solving409'
+          $ref: '#/components/responses/DraftFinished409'
 
   /api/events:
     get:
@@ -2912,6 +3560,16 @@ components:
         format: int64
         minimum: 1
       example: 1
+    PathLessonId:
+      name: lessonId
+      in: path
+      required: true
+      description: ID der Stunde im Entwurf (seit 1.3.0, `/api/drafts/{id}/lessons/{lessonId}`)
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      example: 22
 
   responses:
     Validation400:
@@ -3004,7 +3662,35 @@ components:
             title: Berechnung läuft
             status: 409
             detail: Der Entwurf wird gerade berechnet. Bitte warten oder die Berechnung abbrechen.
-
+    DraftFinished409:
+      description: |
+        Der Entwurf liegt in der Ablage (`draft-finished`, seit 1.4.0, #116) und wird nicht mehr
+        bearbeitet; erst `PATCH /api/drafts/{id} {finished: false}`. Derselbe Endpunkt antwortet
+        `solving`, wenn gerade gerechnet wird.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: urn:pushnpull:problem:draft-finished
+            title: Konflikt
+            status: 409
+            detail: Der Entwurf liegt in der Ablage. Erst wieder öffnen.
+    AcceptRejected409:
+      description: |
+        Annehmen abgelehnt — der Entwurf hat harte Konflikte (`draft-has-conflicts`, seit 1.3.0, mit
+        `conflicts[]`), ein bereits angenommener Plan mit künftigem Beginn liegt im gewünschten
+        Zeitraum (`plan-overlap`, seit 1.4.0), oder der Entwurf wird gerade berechnet (`solving`). In
+        allen drei Fällen wird nichts geändert.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: urn:pushnpull:problem:plan-overlap
+            title: Konflikt
+            status: 409
+            detail: Ein angenommener Plan gilt bereits ab 2027-02-01. Enddatum vor 2027-02-01 wählen oder den Zeitraum ändern.
   schemas:
 
     MasterDataSection:
@@ -3169,6 +3855,17 @@ components:
         teacherId:
           type: [integer, 'null']
           format: int64
+        tourCompletedAt:
+          type: [string, 'null']
+          format: date-time
+          description: seit 1.2.0 (#139) — wann der Rundgang beendet oder übersprungen wurde; `null` = noch nie
+
+    TourFlag:
+      type: object
+      description: Body von PUT /api/me/tour (#139) — true = Rundgang beendet, false = erneut zeigen.
+      required: [completed]
+      properties:
+        completed: { type: boolean }
 
     PasswordChange:
       type: object
@@ -3633,8 +4330,16 @@ components:
       description: |
         Fehlerkörper nach RFC 9457, ausgeliefert als `application/problem+json`.
         `type` ist immer `urn:pushnpull:problem:<slug>` mit den Slugs `validation`, `unauthenticated`,
-        `forbidden`, `not-found`, `in-use`, `draft-exists`, `solving`, `master-data-incomplete`,
-        `pinned-contradiction`, `solve-capacity-exceeded`, `data-exists`, `exception-exists`, `internal`.
+        `forbidden`, `not-found`, `in-use`, `solving`, `master-data-incomplete`,
+        `pinned-contradiction`, `solve-capacity-exceeded` (seit 1.5.0: sichere Unterkapazität vor dem
+        Solverlauf, `capacityViolations[]`), `data-exists`, `exception-exists`, `preset-missing`,
+        `draft-has-conflicts` (seit 1.3.0: Annehmen eines Entwurfs mit harten Konflikten, `conflicts[]`
+        wie bei `pinned-contradiction`), `plan-overlap` (seit 1.4.0: der gewünschte Zeitraum
+        überschneidet sich mit einem Plan, der erst künftig beginnt — auch bei „jetzt aktivieren"; und
+        bei zwei gleichzeitigen Annahmen mit überschneidenden Zeiträumen), `protected-account`
+        (`DELETE /api/users/{id}` auf das Konto „admin"), `draft-finished` (seit 1.4.0:
+        der Entwurf liegt in der Ablage und wird nicht mehr bearbeitet), `internal`. `draft-exists`
+        gab es bis 1.3.0 (ein Entwurf) und kommt seit 1.3.0 nicht mehr vor.
       required: [type, title, status]
       properties:
         type: { type: string, examples: ['urn:pushnpull:problem:in-use'] }
@@ -3653,7 +4358,7 @@ components:
           items: { type: string }
         conflicts:
           type: array
-          description: nur bei `pinned-contradiction`
+          description: nur bei `pinned-contradiction` und `draft-has-conflicts`
           items:
             $ref: '#/components/schemas/ConflictDto'
         capacityViolations:
@@ -3728,8 +4433,8 @@ components:
 
     TimetableDto:
       type: object
-      description: 'Der aktive Regelplan. Vor der ersten Annahme `id: null` und leere Listen.'
-      required: [id, acceptedAt, validFrom, lessons, conflicts]
+      description: 'Ein angenommener Regelplan mit seinem Gültigkeitszeitraum. Vor der ersten Annahme `id: null` und leere Listen.'
+      required: [id, acceptedAt, validFrom, validUntil, lessons, conflicts]
       properties:
         id: { type: [integer, 'null'], format: int64 }
         acceptedAt: { type: [string, 'null'], format: date-time }
@@ -3737,10 +4442,17 @@ components:
           type: [string, 'null']
           format: date
           description: |
-            Ab welchem Kalendertag dieser Plan gilt (E-40). `null`, wenn ohne Stichtag angenommen —
-            dann gilt er ab dem Tag der Annahme. Ergänzt am 05.09. (Befund PFLICHTENHEFT-6): vorher
-            musste die Web-App den Beginn aus `acceptedAt` raten und zeigte bei einem Plan mit Stichtag
-            das falsche Datum.
+            Ab welchem Kalendertag dieser Plan gilt (E-40), einschließlich. `null`, wenn ohne Stichtag
+            angenommen — dann gilt er ab dem Tag der Annahme. Ergänzt am 05.09. (Befund
+            PFLICHTENHEFT-6): vorher musste die Web-App den Beginn aus `acceptedAt` raten und zeigte
+            bei einem Plan mit Stichtag das falsche Datum.
+        validUntil:
+          type: [string, 'null']
+          format: date
+          description: |
+            Letzter Kalendertag, an dem dieser Plan gilt (einschließlich, seit 1.4.0, #115). `null` =
+            unbegrenzt. Nach diesem Tag löst keine Wochensicht mehr auf diesen Plan auf — steht kein
+            Nachfolger bereit, bleibt die Woche leer.
         lessons:
           type: array
           items:
@@ -3750,6 +4462,24 @@ components:
           description: bei jedem Lesen neu berechnet (E-31)
           items:
             $ref: '#/components/schemas/ConflictDto'
+
+    TimetableSummaryDto:
+      type: object
+      description: |
+        Eine Zeile von `GET /api/timetables` (seit 1.4.0, #115) — ein aktiver Plan mit seinem Zeitraum,
+        ohne Stunden.
+      required: [id, acceptedAt, validFrom, validUntil, current]
+      properties:
+        id: { type: integer, format: int64 }
+        acceptedAt: { type: [string, 'null'], format: date-time }
+        validFrom: { type: [string, 'null'], format: date, description: Beginn einschließlich; `null` = ab dem Tag der Annahme }
+        validUntil: { type: [string, 'null'], format: date, description: Ende einschließlich; `null` = unbegrenzt }
+        current:
+          type: boolean
+          description: |
+            Gilt dieser Plan **heute**? Trägt höchstens einer. In einer Lücke zwischen zwei Zeiträumen
+            trägt ihn keiner — das ist ein Zustand, kein Fehler; `GET /api/timetable` liefert dann den
+            Plan mit dem nächsten künftigen Beginn.
 
     AcceptDraftResponse:
       allOf:
@@ -3789,9 +4519,20 @@ components:
 
     DraftDto:
       type: object
-      required: [id, createdAt, status, solve, lessons, conflicts, openLessons, warnings, expiringExceptions]
+      required: [id, name, finished, createdAt, status, solve, lessons, conflicts, openLessons, warnings, expiringExceptions]
       properties:
         id: { type: integer, format: int64 }
+        name:
+          type: string
+          maxLength: 80
+          description: 'Name des Entwurfs (seit 1.3.0, #103): unterscheidet mehrere Entwürfe; Standard „Entwurf n"'
+        finished:
+          type: boolean
+          description: |
+            Liegt der Entwurf in der Ablage (seit 1.4.0, #116)? Dann ist er eingefroren: Stunden
+            anlegen, ändern und löschen, Berechnen und Reparieren antworten 409 `draft-finished`.
+            Annehmen, Umbenennen und Löschen bleiben erlaubt; `PATCH {finished: false}` öffnet ihn
+            wieder.
         createdAt: { type: string, format: date-time }
         status:
           $ref: '#/components/schemas/DraftStatus'
@@ -3827,8 +4568,40 @@ components:
       type: object
       required: [source]
       properties:
+        name:
+          type: string
+          maxLength: 80
+          description: 'Kann (seit 1.3.0, #103): Name des Entwurfs; fehlt er, „Entwurf n" mit der ersten freien Nummer'
         source:
           $ref: '#/components/schemas/DraftSource'
+
+    DraftPatchInput:
+      type: object
+      description: |
+        Body von PATCH /api/drafts/{id} (seit 1.4.0, #103 und #116) — Name und/oder Ablage. Nur
+        gesendete Felder wirken; ein leerer Body ist 400 `validation` (Feld `name`). Ersetzt
+        `DraftNameInput` aus 1.3.0 (unveröffentlicht, gleicher Zug).
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        finished: { type: boolean, description: '`true` legt den Entwurf in die Ablage, `false` öffnet ihn wieder' }
+
+    DraftSummaryDto:
+      type: object
+      description: Eine Zeile von GET /api/drafts (seit 1.3.0, #103) — Kennzahlen ohne Stunden
+      required: [id, name, finished, createdAt, source, status, hardConflicts]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string, maxLength: 80 }
+        finished: { type: boolean, description: 'liegt der Entwurf in der Ablage (seit 1.4.0, #116)?' }
+        createdAt: { type: string, format: date-time }
+        source:
+          $ref: '#/components/schemas/DraftSource'
+        status:
+          $ref: '#/components/schemas/DraftStatus'
+        hardConflicts:
+          type: integer
+          description: Zahl der harten Konflikte, beim Lesen gerechnet (E-31)
 
     AddLessonInput:
       type: object
@@ -3866,7 +4639,18 @@ components:
         validFrom:
           type: string
           format: date
-          description: 'Kann (E-40, nach R1): der neue Plan gilt erst ab diesem Datum; bis dahin bleibt der bisherige Plan in den Wochensichten. Fehlt: gilt sofort.'
+          description: |
+            Kann (E-40, nach R1): der neue Plan gilt erst ab diesem Datum; bis dahin bleibt der
+            bisherige Plan in den Wochensichten. Fehlt: gilt ab heute — die Antwort trägt dann den
+            heutigen Tag, seit 1.4.0 steht bei jedem angenommenen Plan ein Datum. Ein Datum **vor
+            heute** ist 400 `validation` mit Feld `validFrom`: ein Beginn in der Vergangenheit
+            schriebe die Zeitleiste rückwirkend um.
+        validUntil:
+          type: string
+          format: date
+          description: |
+            Kann (seit 1.4.0, #115): letzter Tag einschließlich, an dem der neue Plan gilt. Fehlt:
+            unbegrenzt. Liegt das Ende vor dem Beginn, ist das 400 `validation` mit Feld `validUntil`.
 
     RepairInput:
       type: object

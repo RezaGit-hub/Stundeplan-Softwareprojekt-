@@ -13,22 +13,21 @@ import {
 
 import {
   ApiError,
-  type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput,
-  type ConfigDto, type CreateUser,
-  type DraftDto, type DraftSource,
+  type AcceptDraftInput, type AddLessonInput, type ChangelogQuery, type ClassInput, type ClassSubjectInput,
+  type ConfigDto, type CreateDraft, type CreateUser,
+  type DraftDto, type DraftPatchInput,
   type EventInput, type EventQuery, type ExceptionInput,
   type HolidayInput, type HolidayPresetInput,
   type MasterDataExport, type MasterDataImport, type MasterDataImportResult, type MasterDataSection,
   type PasswordChange, type PatchLessonInput,
   type RepairInput,                              // ← nur wenn in types.ts vorhanden
   type RoomInput, type RuleInput, type SectionImportResult, type SubjectInput,
-  type TeacherInput, type TimegridInput, type TransferScope, type View,
+  type TeacherInput, type TimegridInput, type TourFlag, type TransferScope, type View,
 } from './types'
 
 import { api } from './api'
 import { qk } from './query-keys'
 import { toastProblem } from './errors'
-
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, staleTime: 10_000, refetchOnWindowFocus: false },
@@ -78,6 +77,14 @@ export function useConfig() {
 export function useTimetable() {
   return useQuery({ queryKey: qk.timetable, queryFn: api.getTimetable })
 }
+/** Alle angenommenen Pläne mit ihrem Zeitraum (seit 1.4.0, #115). Genau einer trägt `current: true`, wenn heute einer gilt. */
+export function useTimetables(opts: Opts = {}) {
+  return useQuery({ queryKey: qk.timetables, queryFn: api.listTimetables, enabled: opts.enabled ?? true })
+}
+/** Ein angenommener Plan (ACTIVE oder ARCHIVED) — für die Planwahl auf /plan. */
+export function usePlanById(id: number | null | undefined) {
+  return useQuery({ queryKey: qk.timetableById(id ?? 0), queryFn: () => api.getTimetableById(id!), enabled: id != null })
+}
 /** Aufgelöste Woche; bei CLASS/TEACHER/ROOM erst mit id. `enabled: false` wartet, bis die Woche feststeht. */
 export function useWeek(q: { monday: string; view: View; id?: number | null }, opts: Opts = {}) {
   return useQuery({
@@ -93,18 +100,28 @@ export function useMyWeek(monday: string) {
 export function useMyClassWeek(monday: string) {
   return useQuery({ queryKey: qk.classWeek(monday), queryFn: () => api.getMyClassWeek({ date: monday }) })
 }
-/** data === null heißt: kein Entwurf (404 ist ein Zustand, kein Fehler). Während SOLVING alle 2 s neu laden. */
-export function useDraft(opts: Opts = {}) {
+/** Die Entwurfsliste, jüngster zuerst (seit 1.3.0, #103). Leere Liste = kein Entwurf, kein Fehler. */
+export function useDrafts(opts: Opts = {}) {
   return useQuery({
-    queryKey: qk.draft,
+    queryKey: qk.drafts,
+    queryFn: api.listDrafts,
+    enabled: opts.enabled ?? true,
+    // Solange irgendein Entwurf rechnet, hält die Liste ihre Zahlen frisch — wie die Entwurfsseite selbst.
+    refetchInterval: (query) => (query.state.data?.some((d) => d.status === 'SOLVING') ? 2000 : false),
+  })
+}
+/** data === null heißt: diesen Entwurf gibt es nicht mehr (404 ist ein Zustand, kein Fehler). Während SOLVING alle 2 s neu laden. */
+export function useDraft(id: number | null | undefined) {
+  return useQuery({
+    queryKey: qk.draft(id ?? 0),
     queryFn: (): Promise<DraftDto | null> =>
-      api.getDraft().catch((err: unknown) => {
+      api.getDraftById(id!).catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 404) return null
         throw err
       }),
+    enabled: id != null,
     retry: false,
     refetchInterval: (query) => (query.state.data?.status === 'SOLVING' ? 2000 : false),
-    enabled: opts.enabled ?? true,
   })
 }
 export function useEvents(q: EventQuery, opts: Opts = {}) {
@@ -136,7 +153,7 @@ function invalidate(qc: QueryClient, ...keys: QueryKey[]) {
   for (const queryKey of keys) void qc.invalidateQueries({ queryKey })
 }
 /** Grunddaten ändern Konflikte und Warnungen: Liste + Plan + Entwurf + Wochen neu laden */
-const MASTER_DATA_KEYS: QueryKey[] = [qk.teachers, qk.classes, qk.subjects, qk.rooms, qk.timetable, qk.draft, qk.weeks, qk.optionsAll]
+const MASTER_DATA_KEYS: QueryKey[] = [qk.teachers, qk.classes, qk.subjects, qk.rooms, qk.timetable, qk.timetables, qk.draftAll, qk.drafts, qk.weeks, qk.optionsAll]
 
 /**
  * quiet(err) === true → kein Toast; die Seite zeigt den Fehler selbst (Dialog, Banner).
@@ -191,13 +208,13 @@ export const useReplaceClassSubjects = () =>
 // Stundenraster
 export const usePutTimegrid = (opts?: MutationOpts) => useApiMutation((body: TimegridInput) => api.putTimegrid(body), (qc, data) => {
   qc.setQueryData(qk.timegrid, data)
-  invalidate(qc, qk.timetable, qk.draft, qk.weeks, qk.myWeeks, qk.teachers)
+  invalidate(qc, qk.timetable, qk.timetables, qk.draftAll, qk.drafts, qk.weeks, qk.myWeeks, qk.teachers)
 }, opts)
 // Regelwerk
-export const useUpdateRule = () => useApiMutation((v: { id: number; body: RuleInput }) => api.updateRule(v.id, v.body), (qc) => invalidate(qc, qk.rules, qk.timetable, qk.draft))
-export const useResetRules = () => useApiMutation(() => api.resetRules(), (qc) => invalidate(qc, qk.rules, qk.timetable, qk.draft))
-export const useCreateRule = () => useApiMutation((body: RuleInput) => api.createRule(body), (qc) => invalidate(qc, qk.rules, qk.timetable, qk.draft))
-export const useDeleteRule = () => useApiMutation((id: number) => api.deleteRule(id), (qc) => invalidate(qc, qk.rules, qk.timetable, qk.draft))
+export const useUpdateRule = () => useApiMutation((v: { id: number; body: RuleInput }) => api.updateRule(v.id, v.body), (qc) => invalidate(qc, qk.rules, qk.timetable, qk.draftAll, qk.drafts))
+export const useResetRules = () => useApiMutation(() => api.resetRules(), (qc) => invalidate(qc, qk.rules, qk.timetable, qk.draftAll, qk.drafts))
+export const useCreateRule = () => useApiMutation((body: RuleInput) => api.createRule(body), (qc) => invalidate(qc, qk.rules, qk.timetable, qk.draftAll, qk.drafts))
+export const useDeleteRule = () => useApiMutation((id: number) => api.deleteRule(id), (qc) => invalidate(qc, qk.rules, qk.timetable, qk.draftAll, qk.drafts))
 // Konfiguration, Beispieldaten
 export const usePutConfig = () => useApiMutation((body: ConfigDto) => api.putConfig(body), (qc, data) => {
   qc.setQueryData(qk.config, data)
@@ -205,31 +222,46 @@ export const usePutConfig = () => useApiMutation((body: ConfigDto) => api.putCon
   invalidate(qc, qk.health, qk.holidayPresetYears)
 })
 export const useLoadSampleData = (opts?: MutationOpts) => useApiMutation((body?: { replace?: boolean }) => api.loadSampleData(body), (qc) => void qc.invalidateQueries(), opts)
-
-
 // Grunddaten komplett löschen (#160): eine Anfrage statt Schleife über die Einzel-Endpunkte (#148, alt).
 // Löscht serverseitig mit Kaskade, unabhängig davon, ob etwas noch verwendet wird — deshalb hier keine
 // gezielten Query-Keys, sondern volle Invalidierung (wie bei useLoadSampleData): fast alles kann betroffen sein.
 export const useClearAllMasterData = (opts?: MutationOpts) => useApiMutation(() => api.clearAllMasterData(), (qc) => void qc.invalidateQueries(), opts)
 
-// Entwurf — jede Mutation schreibt qk.draft selbst, deshalb vorher das laufende GET /draft abbrechen (cancel)
-// und alle Entwurfs-Mutationen nacheinander laufen lassen (scope), damit keine späte Antwort eine frischere überschreibt.
-const DRAFT: MutationOpts = { cancel: [qk.draft], scope: 'draft' }
-export const useCreateDraft = () => useApiMutation((body: { source: DraftSource }) => api.createDraft(body), (qc, data) => qc.setQueryData(qk.draft, data), DRAFT)
-export const useDeleteDraft = () => useApiMutation(() => api.deleteDraft(), (qc) => qc.setQueryData(qk.draft, null), DRAFT)
-export const useAddDraftLesson = () => useApiMutation((body: AddLessonInput) => api.addDraftLesson(body), (qc, data) => qc.setQueryData(qk.draft, data), DRAFT)
-export const usePatchDraftLesson = () => useApiMutation((v: { id: number; body: PatchLessonInput }) => api.patchDraftLesson(v.id, v.body), (qc, data) => qc.setQueryData(qk.draft, data), DRAFT)
-export const useDeleteDraftLesson = () => useApiMutation((id: number) => api.deleteDraftLesson(id), (qc, data) => qc.setQueryData(qk.draft, data), DRAFT)
-export const useStartSolve = () => useApiMutation((body?: { classId?: number; force?: boolean }) => api.startSolve(body), (qc) => invalidate(qc, qk.draft), DRAFT)
-export const useCancelSolve = () => useApiMutation(() => api.cancelSolve(), (qc) => invalidate(qc, qk.draft), DRAFT)
-export const useAcceptDraft = () => useApiMutation((body?: { validFrom?: string }) => api.acceptDraft(body), (qc) => {
-  qc.setQueryData(qk.draft, null)
-  invalidate(qc, qk.timetable, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.pendingAll, qk.optionsAll)
-}, DRAFT)
+// Entwurf — jede Mutation schreibt qk.draft(id) selbst, deshalb vorher das laufende GET /drafts/{id}
+// abbrechen (cancel) und alle Mutationen DIESES Entwurfs nacheinander laufen lassen (scope). Seit es
+// mehrere Entwürfe nebeneinander gibt (#103), trägt der Bereich die Kennung: ein zweiter Entwurf wartet
+// nicht mit, obwohl ihn die Änderung nichts angeht.
+const forDraft = (id: number): MutationOpts => ({ cancel: [qk.draft(id)], scope: `draft-${id}` })
+/** Nach jeder Entwurfsänderung: der Entwurf selbst kommt fertig aus der Antwort, die Liste zählt neu. */
+const draftChanged = (qc: QueryClient, data: DraftDto) => {
+  qc.setQueryData(qk.draft(data.id), data)
+  invalidate(qc, qk.drafts)
+}
+export const useCreateDraft = () => useApiMutation((body: CreateDraft) => api.createDraft(body), draftChanged)
+export const usePatchDraft = (id: number, opts?: MutationOpts) => useApiMutation((body: DraftPatchInput) => api.patchDraft(id, body), draftChanged, { ...forDraft(id), ...opts })
+export const useDeleteDraft = (id: number) => useApiMutation(() => api.deleteDraftById(id), (qc) => {
+  qc.setQueryData(qk.draft(id), null)
+  invalidate(qc, qk.drafts)
+}, forDraft(id))
+export const useAddDraftLesson = (id: number) => useApiMutation((body: AddLessonInput) => api.addDraftLesson(id, body), draftChanged, forDraft(id))
+export const usePatchDraftLesson = (id: number) => useApiMutation((v: { lessonId: number; body: PatchLessonInput }) => api.patchDraftLesson(id, v.lessonId, v.body), draftChanged, forDraft(id))
+export const useDeleteDraftLesson = (id: number) => useApiMutation((lessonId: number) => api.deleteDraftLesson(id, lessonId), draftChanged, forDraft(id))
+export const useStartSolve = (id: number) => useApiMutation((body?: { classId?: number; force?: boolean }) => api.startSolve(id, body), (qc) => invalidate(qc, qk.draft(id), qk.drafts), forDraft(id))
+export const useCancelSolve = (id: number) => useApiMutation(() => api.cancelSolve(id), (qc) => invalidate(qc, qk.draft(id), qk.drafts), forDraft(id))
+/**
+ * Annehmen (#115): der Entwurf wird zum angenommenen Plan mit Zeitraum. Danach kann es mehrere
+ * angenommene Pläne geben — deshalb wandern `qk.timetables` und jeder Plan-Eintrag mit in die
+ * Auffrischung. Andere Entwürfe bleiben stehen, nur dieser verschwindet aus der Liste.
+ */
+export const useAcceptDraft = (id: number, opts?: MutationOpts) => useApiMutation((body?: AcceptDraftInput) => api.acceptDraft(id, body), (qc) => {
+  qc.setQueryData(qk.draft(id), null)
+  // Auch die übrigen Entwürfe neu laden: ihre Vorschau der verfallenden Vertretungen bezog sich auf den alten Plan.
+  invalidate(qc, qk.drafts, qk.draftAll, qk.timetable, qk.timetables, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.pendingAll, qk.optionsAll)
+}, { ...forDraft(id), ...opts })
 // Konflikt lösen (#110): drei Solver-Läufe, bis zu 15 s, speichert nichts. Dieselben Entwurfs-Optionen wie die
 // übrigen Mutationen — während der Serie gilt der Entwurf serverseitig als SOLVING, weitere Entwurfs-Mutationen
 // warten (scope) statt mit 409 zu scheitern; danach den Entwurf neu laden, falls ein Poll SOLVING gesehen hat.
-export const useRepairDraft = () => useApiMutation((body: RepairInput) => api.repairDraft(body), (qc) => invalidate(qc, qk.draft), DRAFT)
+export const useRepairDraft = (id: number) => useApiMutation((body: RepairInput) => api.repairDraft(id, body), (qc) => invalidate(qc, qk.draft(id)), forDraft(id))
 // Ereignisse, Vertretung
 const SUBSTITUTION_KEYS: QueryKey[] = [qk.pendingAll, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.optionsAll, qk.eventsAll, qk.exceptionsAll]
 export const useCreateEvent = () => useApiMutation((body: EventInput) => api.createEvent(body), (qc) => invalidate(qc, ...SUBSTITUTION_KEYS))
@@ -279,3 +311,6 @@ export function useImportMasterDataSection(scope: TransferScope, opts?: Mutation
 }
 
 export const useDeleteUser = (opts?: MutationOpts) => useApiMutation((id: number) => api.deleteUser(id), (qc) => invalidate(qc, qk.users), opts)
+
+// Rundgang (#139): danach /me neu laden — daran hängt, ob das Overlay in der Shell erscheint.
+export const useSetTour = () => useApiMutation((body: TourFlag) => api.setTour(body), (qc) => invalidate(qc, qk.me))

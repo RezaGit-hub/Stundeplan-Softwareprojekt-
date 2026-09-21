@@ -3,9 +3,10 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, PencilRuler, Printer } from 'lucide-react'
-import { useTimegrid, useTimetable, useWeek } from '@/api/hooks'
+import { usePlanById, useTimegrid, useTimetable, useTimetables, useWeek } from '@/api/hooks'
 import type { EntryDto } from '@/api/types'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { EmptyState } from '@/components/states/EmptyState'
 import { ErrorState } from '@/components/states/ErrorState'
@@ -22,8 +23,8 @@ import { WeekPicker } from '@/components/plan/WeekPicker'
 import { useObjectOptions, VIEW_LABEL } from '@/components/plan/object-options'
 import { ValidFromBanner } from '@/components/plan/ValidFromBanner'
 import { parseId, parseMonday, parseView, todayDayIn, useUrlState } from '@/components/plan/plan-params'
-import { firstWeekMonday, formatDateTime, formatDayDate, planValidFrom, weekLabel } from '@/lib/dates'
-import { showsPreviousPlan } from '@/lib/plan-validity'
+import { firstWeekMonday, formatDateTime, weekLabel } from '@/lib/dates'
+import { planPeriodLabel, planStartOf, showsPreviousPlan, validityText } from '@/lib/plan-validity'
 import { conflictsByLesson } from '@/lib/conflicts'
 import { weekMeta } from '@/lib/week-meta'
 import { useJumpToLesson } from '@/hooks/use-jump-to-lesson'
@@ -37,18 +38,38 @@ export function PlanPage() {
 
   const timegrid = useTimegrid()
   const timetable = useTimetable()
+  // Seit #115 darf es mehrere angenommene Pläne mit anschließenden Zeiträumen geben. `GET /api/timetable`
+  // liefert den, der heute gilt (sonst den nächsten künftigen) — er ist die Voreinstellung. Über die
+  // Planwahl lässt sich ein anderer ansehen; seine Kennung steht als `plan` in der URL, damit ein Link
+  // dieselbe Ansicht wieder öffnet.
+  const timetables = useTimetables()
+  const plans = timetables.data ?? []
+  const currentId = timetable.data?.id ?? null
+  // `GET /api/timetable` schweigt, wenn heute keiner gilt und auch keiner mehr kommt — etwa wenn der
+  // letzte Plan ein Ende hatte, das vorbei ist. Die Liste kennt ihn trotzdem. Dann tritt der jüngste aus
+  // der Liste an seine Stelle (sie kommt nach Beginn aufsteigend), statt „Noch kein Plan angenommen" zu
+  // behaupten und die Planwahl mit dem leeren Zustand wegzunehmen.
+  const newestId = plans.length > 0 ? plans[plans.length - 1].id : null
+  const defaultPlanId = currentId ?? newestId
+  const pickedId = parseId(params.get('plan'))
+  const shownId = pickedId != null && plans.some((p) => p.id === pickedId) ? pickedId : defaultPlanId
+  // Alles außer dem Plan aus `GET /api/timetable` wird einzeln nachgeladen.
+  const otherId = shownId != null && shownId !== currentId ? shownId : null
+  const otherPlan = usePlanById(otherId)
+  const plan = otherId != null ? (otherPlan.data ?? null) : (timetable.data ?? null)
   // Ab wann der Plan gilt: sein Stichtag „Gültig ab" (E-40), sonst der Tag seiner Annahme. Ohne `woche`
   // deshalb nicht stur die Woche von heute zeigen: wer am Samstag annimmt, säße sonst vor der Woche davor —
   // dort gilt noch der vorherige, oft leere Plan. Bis 05.09. stand hier nur die Näherung aus `acceptedAt`;
   // bei einem Plan mit Stichtag war das Datum falsch (Befund PFLICHTENHEFT-6).
-  const validFrom = timetable.data?.validFrom ?? (timetable.data?.acceptedAt ? planValidFrom(timetable.data.acceptedAt) : null)
+  const validFrom = plan ? planStartOf(plan) : null
+  const validUntil = plan?.validUntil ?? null
   const monday = parseMonday(params.get('woche'), validFrom)
   const week = useWeek({ monday, view, id }, { enabled: !timetable.isPending })
   const [detail, setDetail] = useState<{ entry: EntryDto; anchor: HTMLElement } | null>(null)
 
   const conflictsByLessonId = useMemo(
-    () => conflictsByLesson(timetable.data?.conflicts ?? []),
-    [timetable.data],
+    () => conflictsByLesson(plan?.conflicts ?? []),
+    [plan],
   )
 
   const { entries, dateByDay, closedDays } = useMemo(
@@ -61,11 +82,16 @@ export function PlanPage() {
     () => set({ sicht: 'SCHOOL', id: null }),
   )
 
-  if (timegrid.isPending || timetable.isPending) return <PageSkeleton />
+  // `otherPlan` ist abgeschaltet, solange niemand einen anderen Plan gewählt hat — eine abgeschaltete
+  // Abfrage steht dauerhaft auf `isPending`, deshalb hier zusätzlich `otherId` prüfen. Kennt
+  // `GET /api/timetable` keinen Plan, muss außerdem die Liste da sein, bevor der leere Zustand steht:
+  // sonst blitzt „Noch kein Plan angenommen" auf, obwohl gleich der jüngste aus der Liste einspringt.
+  if (timegrid.isPending || timetable.isPending || (currentId == null && timetables.isPending) || (otherId != null && otherPlan.isPending)) return <PageSkeleton />
   if (timegrid.isError) return <ErrorState problem={timegrid.error} retry={() => void timegrid.refetch()} />
   if (timetable.isError) return <ErrorState problem={timetable.error} retry={() => void timetable.refetch()} />
+  if (otherPlan.isError) return <ErrorState problem={otherPlan.error} retry={() => void otherPlan.refetch()} />
 
-  if (timetable.data.id == null) {
+  if (plan == null || plan.id == null) {
     return (
       <>
         <PageHeader title="Aktiver Plan" />
@@ -79,19 +105,20 @@ export function PlanPage() {
     )
   }
 
-  const acceptedAt = timetable.data.acceptedAt
+  const acceptedAt = plan.acceptedAt
   const objectLabel = objects.options?.find((o) => o.id === id)?.label ?? null
+  const gueltig = validityText(validFrom, validUntil)
   const previousStand = showsPreviousPlan({
     monday,
     validFrom,
     weekEntryCount: week.data ? entries.length : 1, // solange die Woche lädt oder fehlt: kein Hinweis
-    planLessonCount: timetable.data.lessons.length,
+    planLessonCount: plan.lessons.length,
   })
   return (
     <>
       <PageHeader
         title={objectLabel ? `Aktiver Plan - ${objectLabel}` : 'Aktiver Plan'}
-        description={acceptedAt ? `Angenommen am ${formatDateTime(acceptedAt)} · ${timetable.data.lessons.length} Stunden${validFrom ? ` · gilt ab ${formatDayDate(validFrom)}` : ''}` : undefined}
+        description={acceptedAt ? `Angenommen am ${formatDateTime(acceptedAt)} · ${plan.lessons.length} Stunden${gueltig ? ` · ${gueltig}` : ''}` : undefined}
         actions={<Button variant="outline" size="sm" className="print-hide" onClick={() => window.print()}><Printer data-icon="inline-start" /> Drucken</Button>}
       />
       {/* Nur im Druck: Sicht, Objekt und Woche stehen sonst allein in den Bedienelementen, die der Druck ausblendet */}
@@ -101,6 +128,28 @@ export function PlanPage() {
       <div className="print-hide mb-4 flex flex-wrap items-center gap-2.5">
         <ViewSwitch value={view} onChange={(v) => set({ sicht: v, id: null })} />
         <ObjectSelect view={view} value={id} onChange={(next) => set({ id: String(next) })} />
+        {/* Erst ab zwei angenommenen Plänen: bei einem einzigen wäre die Auswahl eine Frage ohne Alternative. */}
+        {plans.length > 1 && (
+          <Select
+            value={String(plan.id)}
+            onValueChange={(v) => {
+              const naechster = plans.find((p) => String(p.id) === v)
+              const start = naechster ? planStartOf(naechster) : null
+              // Mit dem Plan auch in seine erste Woche springen — sonst zeigt die Woche weiter den Plan,
+              // der dort tatsächlich gilt, und die Wahl sähe wirkungslos aus.
+              set({ plan: v, woche: start ? firstWeekMonday(start) : null })
+            }}
+          >
+            <SelectTrigger size="sm" className="w-56" aria-label="Plan"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {plans.map((p) => (
+                <SelectItem key={p.id} value={String(p.id)}>
+                  {planPeriodLabel(planStartOf(p), p.validUntil)}{p.current ? ' · gilt heute' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <WeekPicker monday={monday} onChange={(m) => set({ woche: m })} className="ml-auto" />
       </div>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
@@ -135,7 +184,7 @@ export function PlanPage() {
           <Legend className="print-hide" />
         </div>
         <aside className="print-hide w-full shrink-0 xl:w-80">
-          <ConflictList conflicts={timetable.data.conflicts} onJump={jump} title="Konflikte im aktiven Plan" />
+          <ConflictList conflicts={plan.conflicts} onJump={jump} title="Konflikte im aktiven Plan" />
         </aside>
       </div>
       <EntryDetailPopover entry={detail?.entry ?? null} anchor={detail?.anchor ?? null} onClose={() => setDetail(null)} slots={timegrid.data.slots} />

@@ -24,7 +24,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 class MyWeekIT extends PlanningITBase {
 
-    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY);
+    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY).plusWeeks(1);
+
+    /** Der Montag der <b>laufenden</b> Woche — den meint der Aufruf ohne {@code date}. */
+    private static final LocalDate DIESE_WOCHE = LocalDate.now().with(DayOfWeek.MONDAY);
 
     @Test
     @DisplayName("T-A1.1 (A-2/A-3): Meyer sieht ihre eigene Woche — Montag vier Stunden, Dienstag eine, sonst nichts")
@@ -87,7 +90,7 @@ class MyWeekIT extends PlanningITBase {
         String meyerToken = lehrkraftkonto("meyer", daten.meyer);
 
         assertThat(alsLehrkraft(meyerToken, "/api/me/timetable/week").get("monday").asText())
-                .isEqualTo(MONTAG.toString());
+                .isEqualTo(DIESE_WOCHE.toString());
     }
 
     // ------------------------------------------------------------------ Helfer

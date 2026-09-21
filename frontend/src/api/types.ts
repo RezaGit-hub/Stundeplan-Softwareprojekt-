@@ -39,8 +39,11 @@ export type WarningCode = 'SUBJECT_NOT_TAUGHT' | 'QUOTA_EXCEEDED'
 export interface HealthDto { status: string; schoolName: string }
 export interface LoginRequest { username: string; password: string }
 export interface LoginResponse { token: string; role: Role; displayName: string; teacherId: number | null }
-export interface MeDto { id: number; username: string; role: Role; displayName: string; teacherId: number | null }
+/** tourCompletedAt (seit 1.2.0, #139): wann der Rundgang beendet/übersprungen wurde; null = noch nie → Web zeigt ihn */
+export interface MeDto { id: number; username: string; role: Role; displayName: string; teacherId: number | null; tourCompletedAt: string | null }
 export interface PasswordChange { oldPassword: string; newPassword: string }
+/** Body von PUT /api/me/tour (#139): true = Rundgang beendet, false = erneut zeigen */
+export interface TourFlag { completed: boolean }
 export interface UserDto { id: number; username: string; role: Role; teacherId: number | null; classId: number | null; classShort: string | null }
 export interface CreateUser { username: string; password: string; role: Role; teacherId?: number | null; classId?: number | null }
 /** Antwortzeile von POST /users/class-accounts — das Passwort kommt genau einmal im Klartext (E-50) */
@@ -193,8 +196,23 @@ export interface TimetableDto {
    * Beginn aus `acceptedAt` und zeigte bei einem Plan mit Stichtag das falsche Datum.
    */
   validFrom: string | null
+  /**
+   * Bis zu welchem Kalendertag der Plan gilt (seit 1.4.0, #115); null = unbegrenzt. Mehrere angenommene
+   * Pläne dürfen nebeneinander ACTIVE sein, solange ihre Zeiträume sich nicht überschneiden.
+   */
+  validUntil: string | null
   lessons: LessonDto[]
   conflicts: ConflictDto[]
+}
+
+/** Eine Zeile von GET /api/timetables (seit 1.4.0, #115): alle angenommenen Pläne, Beginn aufsteigend. */
+export interface TimetableSummaryDto {
+  id: number
+  acceptedAt: string | null
+  validFrom: string | null
+  validUntil: string | null
+  /** gilt heute */
+  current: boolean
 }
 
 /**
@@ -209,6 +227,8 @@ export interface SolveInfo { startedAt: string | null; limitSeconds: number | nu
 export interface OpenLessonDto { classId: number; classShort: string; subjectShort: string; missing: number }
 export interface DraftDto {
   id: number
+  /** Name des Entwurfs (seit 1.3.0, #103); ohne Angabe vergibt der Server „Entwurf n" */
+  name: string
   createdAt: string
   status: DraftStatus
   solve: SolveInfo
@@ -222,7 +242,30 @@ export interface DraftDto {
    * wandern beim Annehmen mit (Befund PFLICHTENHEFT-9). `0` heißt: es geht nichts verloren.
    */
   expiringExceptions: number
+  /**
+   * In der Ablage (seit 1.4.0, #116): der Entwurf ist eingefroren. Stunden ändern, Berechnen und
+   * Reparieren antworten dann 409 `draft-finished`; Annehmen, Umbenennen und Löschen bleiben erlaubt.
+   */
+  finished: boolean
 }
+
+/** Eine Zeile von GET /api/drafts (seit 1.3.0, #103) — Kennzahlen ohne Stunden. */
+export interface DraftSummaryDto {
+  id: number
+  name: string
+  createdAt: string
+  source: DraftSource
+  status: DraftStatus
+  hardConflicts: number
+  finished: boolean
+}
+
+/** POST /api/drafts — `name` ist Kann (seit 1.3.0, #103) */
+export interface CreateDraft { name?: string; source: DraftSource }
+/** PATCH /api/drafts/{id} — nur gesendete Felder wirken; leerer Rumpf ist 400 `validation` (seit 1.4.0) */
+export interface DraftPatchInput { name?: string; finished?: boolean }
+/** POST /api/drafts/{id}/accept — beides Kann (E-40, #115) */
+export interface AcceptDraftInput { validFrom?: string; validUntil?: string }
 export interface AddLessonInput { classId: number; subjectId: number; timeslotId: number; roomId: number }
 export interface PatchLessonInput { timeslotId?: number; roomId?: number; pinned?: boolean }
 
@@ -404,6 +447,18 @@ export interface MasterDataImportResult {
 }
 
 // ------------------------------------------------------------------ Fehler (RFC 9457)
+/** Präfix jedes `type` im Vertrag — der Rest ist der Slug, an dem die Oberfläche einen Fehler erkennt. */
+export const PROBLEM_PREFIX = 'urn:pushnpull:problem:'
+/**
+ * Die Slugs, auf die diese Anwendung eigens reagiert (statt nur den Toast zu zeigen):
+ * - `validation` 400 mit `errors[]`
+ * - `draft-has-conflicts` 409 beim Annehmen, `conflicts[]` trägt die harten Konflikte
+ * - `plan-overlap` 409 beim Annehmen: ein angenommener Plan belegt den Zeitraum schon (seit 1.4.0, #115)
+ * - `draft-finished` 409: der Entwurf liegt in der Ablage (seit 1.4.0, #116)
+ * - `solving` 409: für diesen Entwurf läuft eine Berechnung
+ */
+export type ProblemSlug = 'validation' | 'draft-has-conflicts' | 'plan-overlap' | 'draft-finished' | 'solving'
+
 export interface FieldErrorDto { field: string; message: string }
 export type CapacityViolationType = 'CLASS_CAPACITY' | 'TEACHER_CAPACITY' | 'SPECIAL_ROOM_CAPACITY' | 'ROOM_CAPACITY'
 /** Eine fehlende notwendige Kapazitaet vor dem Start des Stundenplan-Solvers. */
@@ -454,6 +509,8 @@ export interface Api {
   logout(): Promise<void>
   me(): Promise<MeDto>
   changeMyPassword(body: PasswordChange): Promise<void>
+  /** Rundgang beendet (true) oder erneut zeigen (false) — PUT /api/me/tour (#139) */
+  setTour(body: TourFlag): Promise<void>
 
   listUsers(): Promise<UserDto[]>
   createUser(body: CreateUser): Promise<UserDto>
@@ -506,22 +563,31 @@ export interface Api {
   clearAllMasterData(): Promise<void>
 
   getTimetable(): Promise<TimetableDto>
+  /** Alle angenommenen Pläne, Beginn aufsteigend (seit 1.4.0, #115) */
+  listTimetables(): Promise<TimetableSummaryDto[]>
+  getTimetableById(id: number): Promise<TimetableDto>
   getWeek(q: WeekQuery): Promise<WeekDto>
   getMyWeek(q: { date: string }): Promise<WeekDto>
   /** Woche der eigenen Klasse (Rolle STUDENT); serverseitig gefiltert: reasons immer leer (E-50) */
   getMyClassWeek(q: { date: string }): Promise<WeekDto>
 
-  getDraft(): Promise<DraftDto>
-  createDraft(body: { source: DraftSource }): Promise<DraftDto>
-  deleteDraft(): Promise<void>
-  addDraftLesson(body: AddLessonInput): Promise<DraftDto>
-  patchDraftLesson(id: number, body: PatchLessonInput): Promise<DraftDto>
-  deleteDraftLesson(id: number): Promise<DraftDto>
-  startSolve(body?: { classId?: number; force?: boolean }): Promise<void>
-  cancelSolve(): Promise<void>
-  acceptDraft(body?: { validFrom?: string }): Promise<AcceptDraftResponse>
+  // Entwürfe (seit 1.3.0 mehrere nebeneinander, #103): die Web-App spricht nur die Plural-Pfade
+  // `/api/drafts…` an. Die Singular-Pfade `/api/draft…` bleiben im Vertrag für ältere Clients stehen.
+  listDrafts(): Promise<DraftSummaryDto[]>
+  createDraft(body: CreateDraft): Promise<DraftDto>
+  getDraftById(id: number): Promise<DraftDto>
+  /** Umbenennen und Ablage (seit 1.4.0, #116); nur gesendete Felder wirken */
+  patchDraft(id: number, body: DraftPatchInput): Promise<DraftDto>
+  deleteDraftById(id: number): Promise<void>
+  addDraftLesson(draftId: number, body: AddLessonInput): Promise<DraftDto>
+  patchDraftLesson(draftId: number, lessonId: number, body: PatchLessonInput): Promise<DraftDto>
+  deleteDraftLesson(draftId: number, lessonId: number): Promise<DraftDto>
+  /** `force` uebergeht die Kapazitaetspruefung (409 `solve-capacity-exceeded`, Vertrag 1.5.0) */
+  startSolve(draftId: number, body?: { classId?: number; force?: boolean }): Promise<void>
+  cancelSolve(draftId: number): Promise<void>
+  acceptDraft(draftId: number, body?: AcceptDraftInput): Promise<AcceptDraftResponse>
   /** Vorschläge zum Auflösen eines Konflikts (#110); synchron bis zu 15 s, speichert nichts */
-  repairDraft(body: RepairInput): Promise<RepairResponse>
+  repairDraft(draftId: number, body: RepairInput): Promise<RepairResponse>
 
   listEvents(q?: EventQuery): Promise<EventDto[]>
   createEvent(body: EventInput): Promise<EventDto>

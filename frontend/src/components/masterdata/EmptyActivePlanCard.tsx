@@ -1,10 +1,18 @@
 // Karte „Aktiven Plan leeren": leerer Entwurf + sofort annehmen (W-8 Schritt 1). Grunddaten bleiben erhalten.
-// Ablauf: vorhandener Entwurf → DELETE /draft; POST /draft {EMPTY}; POST /draft/accept. Die Hooks invalidieren
-// ['timetable'], ['week'], ['draft'] selbst.
+// Ablauf: POST /api/drafts {EMPTY}; POST /api/drafts/{id}/accept {}. Die Hooks invalidieren ['timetable'],
+// ['timetables'], ['week'] und die Entwurfsliste selbst.
+//
+// Seit #103 stehen Entwürfe nebeneinander: der Ablauf legt einen zusätzlichen an und rührt die vorhandenen
+// nicht mehr an. „Jetzt annehmen" beendet jeden Plan, der heute gilt, am Vortag (#115) — der leere Plan
+// übernimmt ab heute.
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { CalendarX2, Eraser } from 'lucide-react'
-import { useAcceptDraft, useCreateDraft, useDeleteDraft, useDraft, useTimetable } from '@/api/hooks'
+import { api } from '@/api/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { qk } from '@/api/query-keys'
+import { toastProblem } from '@/api/errors'
+import { useTimetable } from '@/api/hooks'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { formatDateTime } from '@/lib/dates'
@@ -12,21 +20,36 @@ import { SectionCard } from './shared'
 
 export function EmptyActivePlanCard() {
   const timetable = useTimetable()
-  const draft = useDraft()
-  const createDraft = useCreateDraft()
-  const deleteDraft = useDeleteDraft()
-  const accept = useAcceptDraft()
+  const qc = useQueryClient()
   const [confirm, setConfirm] = useState(false)
-  const pending = createDraft.isPending || deleteDraft.isPending || accept.isPending
+  const [pending, setPending] = useState(false)
 
+  // Zwei Aufrufe auf einem Entwurf, dessen Kennung erst der erste liefert — dafür gibt es keinen
+  // Mutations-Hook je Kennung. Deshalb hier direkt über `api`, mit derselben Auffrischung wie die Hooks.
+  //
+  // Scheitert der zweite Aufruf (z. B. 409 `plan-overlap`, weil ein künftiger Plan den Zeitraum belegt),
+  // steht der leere Entwurf schon in der Datenbank — sichtbar wäre er nur in der Entwurfsliste, und jeder
+  // weitere Klick legte „Entwurf 2", „Entwurf 3" … nach. Deshalb wird er wieder gelöscht. Die Auffrischung
+  // gehört ins `finally`: auch der Fehlerweg hat den Bestand verändert.
   const run = async () => {
+    setPending(true)
+    let angelegt: number | null = null
     try {
-      if (draft.data) await deleteDraft.mutateAsync(undefined)
-      await createDraft.mutateAsync({ source: 'EMPTY' })
-      await accept.mutateAsync(undefined)
+      const draft = await api.createDraft({ source: 'EMPTY' })
+      angelegt = draft.id
+      await api.acceptDraft(draft.id, {})
+      angelegt = null
       toast.success('Aktiver Plan geleert')
-    } catch {
-      // Fehler-Toast kommt aus dem Standard-onError der Hooks
+    } catch (err) {
+      // Zuerst melden, was wirklich schiefging — das Aufräumen ist Nebensache und darf die Meldung nicht
+      // überschreiben. Scheitert auch das Löschen, bleibt der Entwurf stehen, ist aber nach der
+      // Auffrischung wenigstens in der Liste sichtbar.
+      toastProblem(err)
+      if (angelegt != null) await api.deleteDraftById(angelegt).catch(() => undefined)
+    } finally {
+      await Promise.all([qk.drafts, qk.draftAll, qk.timetable, qk.timetables, qk.weeks, qk.myWeeks, qk.classWeeks, qk.changelogAll, qk.pendingAll, qk.optionsAll]
+        .map((queryKey) => qc.invalidateQueries({ queryKey })))
+      setPending(false)
     }
   }
 
@@ -45,8 +68,7 @@ export function EmptyActivePlanCard() {
           <div>
             <div className="font-medium">Aktiven Plan leeren</div>
             <p className="mt-0.5 text-xs text-foreground-subtle">
-              Die Grunddaten bleiben erhalten, der aktive Plan wird durch einen leeren Plan ersetzt. {status}
-              {draft.data && ' Der vorhandene Entwurf wird dabei verworfen.'}
+              Die Grunddaten bleiben erhalten, der aktive Plan wird durch einen leeren Plan ersetzt. {status} Vorhandene Entwürfe bleiben stehen.
             </p>
           </div>
         </div>
@@ -56,7 +78,7 @@ export function EmptyActivePlanCard() {
         open={confirm}
         onOpenChange={setConfirm}
         title="Aktiven Plan leeren?"
-        description={<>Die Grunddaten bleiben erhalten, der aktive Plan wird durch einen leeren Plan ersetzt.{draft.data ? ' Der vorhandene Entwurf wird verworfen.' : ''} Lehrkräfte sehen danach keine Stunden mehr, bis ein neuer Plan angenommen ist.</>}
+        description={<>Die Grunddaten bleiben erhalten, der aktive Plan wird durch einen leeren Plan ersetzt. Vorhandene Entwürfe bleiben stehen. Lehrkräfte sehen danach keine Stunden mehr, bis ein neuer Plan angenommen ist.</>}
         confirmLabel="Plan leeren"
         destructive
         onConfirm={run}

@@ -73,21 +73,24 @@ public class RepairService {
     }
 
     /**
-     * Die Vorschlaege fuer die Konfliktstunde {@code lessonId}. 404, wenn die Stunde nicht im Entwurf
-     * steht; 400 {@code validation}, wenn sie in keinem Konflikt steht; 409 {@code solving}, wenn der
-     * Entwurf gerade berechnet wird. Nur Vorschlaege mit mindestens einer bewegten Stunde kommen zurueck,
-     * gleiche Vorschlaege zweier Stufen nur einmal.
+     * Die Vorschlaege fuer die Konfliktstunde {@code lessonId} im Entwurf {@code draftId}. 404, wenn es
+     * den Entwurf nicht gibt oder die Stunde nicht in ihm steht; 400 {@code validation}, wenn sie in
+     * keinem Konflikt steht; 409 {@code solving}, wenn der Entwurf gerade berechnet wird. Nur Vorschlaege
+     * mit mindestens einer bewegten Stunde kommen zurueck, gleiche Vorschlaege zweier Stufen nur einmal.
      */
-    public List<RepairProposal> propose(Long lessonId) {
+    public List<RepairProposal> propose(Long draftId, Long lessonId) {
         // Erst vormerken, dann laden. Umgekehrt koennte zwischen Laden und Vormerken noch ein PATCH
         // committen, und die Serie rechnete auf einem veralteten Stand (Zweitpruefung 11.09.).
-        Long draftId = readOnly.execute(status -> draftService.requireDraft().getId());
+        readOnly.execute(status -> {
+            draftService.requireNotFinished(draftService.requireDraft(draftId));
+            return null;
+        });
         if (!runner.reserve(draftId)) {
             throw new ConflictException("solving",
                     "Der Entwurf wird gerade berechnet. Bitte warten oder die Berechnung abbrechen.");
         }
         try {
-            Loaded loaded = readOnly.execute(status -> load(lessonId));
+            Loaded loaded = readOnly.execute(status -> load(draftId, lessonId));
             return proposeLevels(loaded);
         } finally {
             runner.release(draftId);
@@ -101,8 +104,8 @@ public class RepairService {
                           CheckContext context) {
     }
 
-    private Loaded load(Long lessonId) {
-        Timetable draft = draftService.requireDraft();
+    private Loaded load(Long draftId, Long lessonId) {
+        Timetable draft = draftService.requireDraft(draftId);
         Lesson lesson = lessons.findInTimetable(lessonId, draft.getId())
                 .orElseThrow(() -> new NotFoundException("Stunde " + lessonId + " nicht im Entwurf"));
 

@@ -18,7 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Datenbank: geprueft wird, welchen Status und welchen Slug der Handler aus dem Fehlerschluessel macht.
  *
  * <p>Die Schluessel sind die von PostgreSQL: {@code 23505} doppelter Schluessel, {@code 23503}
- * verletzter Fremdschluessel. Vor diesem Handler wurden beide zu 500.</p>
+ * verletzter Fremdschluessel, {@code 23P01} verletzte Ausschlussbedingung. Vor diesem Handler wurden
+ * alle drei zu 500 beziehungsweise zu einem irrefuehrenden {@code in-use}.</p>
  */
 class ApiExceptionHandlerTest {
 
@@ -41,27 +42,11 @@ class ApiExceptionHandlerTest {
     }
 
     /**
-     * Der eine Entwurf hat einen eigenen Slug. Zwei gleichzeitige {@code POST /api/draft} bestehen beide
-     * die Pruefung im Dienst; der zweite laeuft in den Teilindex {@code timetable_one_draft}. Ohne diesen
-     * Fall bekaeme das Web „data-exists" und zeigte die falsche Meldung.
-     */
-    @Test
-    @DisplayName("Der Teilindex des Entwurfs ergibt 409 draft-exists, nicht data-exists")
-    void duplicateDraftIsConflictDraftExists() {
-        SQLException datenbank = new SQLException(
-                "ERROR: duplicate key value violates unique constraint \"timetable_one_draft\"", "23505");
-        ProblemDetail problem = handler.onDataIntegrity(new DataIntegrityViolationException(
-                "could not execute statement", new RuntimeException("Hibernate-Huelle", datenbank)));
-
-        assertThat(problem.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
-        assertThat(problem.getType()).hasToString("urn:pushnpull:problem:draft-exists");
-        assertThat(problem.getDetail()).isEqualTo("Es gibt bereits einen Entwurf. Erst annehmen oder verwerfen.");
-    }
-
-    /**
-     * Dasselbe fuer die Ausnahme eines Kalendertags: zwei gleichzeitige {@code POST /api/exceptions}
+     * Die Ausnahme eines Kalendertags hat einen eigenen Slug: zwei gleichzeitige {@code POST /api/exceptions}
      * auf dieselbe Stunde und denselben Tag laufen in {@code lesson_exception_unique}. Der Vertrag nennt
-     * dafuer {@code exception-exists}; ohne diesen Fall bekaeme das Web {@code data-exists}.
+     * dafuer {@code exception-exists}; ohne diesen Fall bekaeme das Web {@code data-exists}. (Den
+     * gleichen Fall fuer den einen Entwurf, {@code timetable_one_draft} → {@code draft-exists}, gab es
+     * bis V10; seit #103 duerfen mehrere Entwuerfe nebeneinander stehen.)
      */
     @Test
     @DisplayName("Die Bedingung der Ausnahme ergibt 409 exception-exists, nicht data-exists")
@@ -74,6 +59,25 @@ class ApiExceptionHandlerTest {
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
         assertThat(problem.getType()).hasToString("urn:pushnpull:problem:exception-exists");
         assertThat(problem.getDetail()).contains("Erst aufheben, dann neu anlegen.");
+    }
+
+    /**
+     * Die Ausschlussbedingung aus V12 meldet sich mit {@code 23P01}, nicht mit {@code 23505} — der Zweig
+     * fuer doppelte Schluessel greift also nicht. Ohne einen eigenen Fall fiel sie in den Auffangzweig
+     * und ergab 409 {@code in-use} („wird noch verwendet"), was den Zeitraum gar nicht erwaehnt.
+     */
+    @Test
+    @DisplayName("Die Ausschlussbedingung der Zeitraeume (23P01) ergibt 409 plan-overlap, nicht in-use")
+    void overlappingActivePlansIsConflictPlanOverlap() {
+        SQLException datenbank = new SQLException(
+                "ERROR: conflicting key value violates exclusion constraint"
+                        + " \"timetable_active_no_overlap\"", "23P01");
+        ProblemDetail problem = handler.onDataIntegrity(new DataIntegrityViolationException(
+                "could not execute statement", new RuntimeException("Hibernate-Huelle", datenbank)));
+
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.CONFLICT.value());
+        assertThat(problem.getType()).hasToString("urn:pushnpull:problem:plan-overlap");
+        assertThat(problem.getDetail()).contains("überschneidet sich");
     }
 
     @Test

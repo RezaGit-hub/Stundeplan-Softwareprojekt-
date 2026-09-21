@@ -14,7 +14,11 @@ export const qk = {
   timegrid: ['timegrid'] as const,
   rules: ['rules'] as const,
   config: ['config'] as const,
+  /** Der aktive Plan — zugleich Präfix von `timetableById` */
   timetable: ['timetable'] as const,
+  /** Alle angenommenen Pläne (seit 1.4.0, #115) */
+  timetables: ['timetables'] as const,
+  timetableById: (id: number) => ['timetable', id] as const,
   /** Präfix für alle Wochen (Invalidierung) */
   weeks: ['week'] as const,
   week: (view: View, id: number | null | undefined, monday: string) => ['week', view, id ?? null, monday] as const,
@@ -23,7 +27,14 @@ export const qk = {
   /** Präfix aller Klassenwochen der Schülersicht (E-50) */
   classWeeks: ['class-week'] as const,
   classWeek: (monday: string) => ['class-week', monday] as const,
-  draft: ['draft'] as const,
+  /**
+   * Entwürfe (seit 1.3.0 mehrere nebeneinander, #103): die Liste und je Entwurf ein eigener Eintrag.
+   * `draftAll` ist bewusst das Präfix von `draft(id)` — wer Grunddaten oder Regeln ändert, wirft damit
+   * jeden Entwurf auf einmal weg, ohne die Kennungen zu kennen.
+   */
+  drafts: ['drafts'] as const,
+  draftAll: ['draft'] as const,
+  draft: (id: number) => ['draft', id] as const,
   events: (q: EventQuery) => ['events', q] as const,
   eventsAll: ['events'] as const,
   pending: (from: string, to: string) => ['pending', from, to] as const,

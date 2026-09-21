@@ -1,11 +1,22 @@
 // Fehler → ProblemDetail → Toast. Regeln aus SPEZIFIKATION 3.8:
 // 409/404/500/Netz → toast.error(title, detail); 400 validation → kein Toast (Feldfehler); 401 → Toast kommt vom Client.
 import { toast } from 'sonner'
-import { ApiError, type ProblemDetail } from './types'
+import { ApiError, PROBLEM_PREFIX, type ProblemDetail, type ProblemSlug } from './types'
 
 export function problemOf(err: unknown): ProblemDetail {
   if (err instanceof ApiError) return err.problem
   return { type: 'urn:pushnpull:problem:unknown', title: 'Unbekannter Fehler', status: 0, detail: err instanceof Error ? err.message : undefined }
+}
+
+/** Der Slug eines Fehlers (`urn:pushnpull:problem:plan-overlap` → `plan-overlap`); '' wenn keiner. */
+export function slugOf(err: unknown): string {
+  const type = problemOf(err).type
+  return type.startsWith(PROBLEM_PREFIX) ? type.slice(PROBLEM_PREFIX.length) : ''
+}
+
+/** Trägt dieser Fehler genau diesen Slug? Für die Fälle, die eine Seite selbst darstellt. */
+export function isProblem(err: unknown, slug: ProblemSlug): boolean {
+  return slugOf(err) === slug
 }
 
 export function isValidation(err: unknown): boolean {

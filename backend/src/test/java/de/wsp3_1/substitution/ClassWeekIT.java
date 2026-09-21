@@ -32,7 +32,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 class ClassWeekIT extends PlanningITBase {
 
-    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY);
+    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY).plusWeeks(1);
+
+    /** Der Montag der <b>laufenden</b> Woche — den meint der Aufruf ohne {@code date}. */
+    private static final LocalDate DIESE_WOCHE = LocalDate.now().with(DayOfWeek.MONDAY);
 
     /** Der Plan des Pflichtenhefts, angenommen mit Gueltigkeit ab dem Montag dieser Woche. */
     private Testdaten planDerWoche() throws Exception {
@@ -99,7 +102,7 @@ class ClassWeekIT extends PlanningITBase {
         String token = klassenkonto("7a", daten.klasse7a);
 
         assertThat(alsKlasse(token, "/api/me/class-week").get("monday").asText())
-                .isEqualTo(MONTAG.toString());
+                .isEqualTo(DIESE_WOCHE.toString());
     }
 
     @Test

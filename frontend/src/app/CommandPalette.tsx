@@ -1,8 +1,8 @@
 // ⌘K: Springe zu · Klassen · Lehrkräfte · Räume · Aktionen (SPEZIFIKATION 3.3). Listen aus den Query-Hooks.
 import { useNavigate } from 'react-router-dom'
-import { Calculator, CheckCheck, Copy, LogOut, Replace, SunMoon } from 'lucide-react'
+import { Calculator, CheckCheck, LogOut, PencilRuler, Plus, Replace, SunMoon } from 'lucide-react'
 import { IS_MOCK } from '@/api/api'
-import { useClasses, useRooms, useTeachers } from '@/api/hooks'
+import { useClasses, useDrafts, useRooms, useTeachers } from '@/api/hooks'
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from '@/components/ui/command'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTheme } from '@/components/theme/theme-provider'
@@ -18,6 +18,11 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const classes = useClasses({ enabled: planning })
   const teachers = useTeachers({ enabled: planning })
   const rooms = useRooms({ enabled: planning })
+  const drafts = useDrafts({ enabled: planning })
+  // Seit #103 gibt es mehrere Entwürfe: die Aktionen meinen den jüngsten, der nicht in der Ablage liegt —
+  // dieselbe Wahl wie die Singular-Pfade des Vertrags. Gibt es keinen, führen sie in die Liste.
+  const zuletzt = (drafts.data ?? []).filter((d) => !d.finished)[0] ?? null
+  const draftAction = (aktion: string) => (zuletzt ? `/entwurf/${zuletzt.id}?aktion=${aktion}` : '/entwurf')
 
   const go = (to: string) => {
     onOpenChange(false)
@@ -64,11 +69,22 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   <CommandItem key={r.id} value={`raum ${r.name}`} onSelect={() => go(`/plan?sicht=ROOM&id=${r.id}`)}>{r.name}</CommandItem>
                 ))}
               </CommandGroup>
+              {(drafts.data?.length ?? 0) > 0 && (
+                <CommandGroup heading="Entwürfe">
+                  {drafts.data?.map((d) => (
+                    <CommandItem key={d.id} value={`entwurf ${d.name}`} onSelect={() => go(`/entwurf/${d.id}`)}>
+                      <PencilRuler /> {d.name}{d.finished && <span className="text-foreground-subtle">(Ablage)</span>}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
               <CommandSeparator />
               <CommandGroup heading="Aktionen">
-                <CommandItem value="aktion entwurf berechnen" onSelect={() => go('/entwurf?aktion=berechnen')}><Calculator /> Entwurf berechnen</CommandItem>
-                <CommandItem value="aktion entwurf annehmen" onSelect={() => go('/entwurf?aktion=annehmen')}><CheckCheck /> Entwurf annehmen</CommandItem>
-                <CommandItem value="aktion neuen entwurf anlegen kopie" onSelect={() => go('/entwurf?aktion=anlegen')}><Copy /> Neuen Entwurf anlegen (Kopie des aktiven Plans)</CommandItem>
+                <CommandItem value="aktion entwurf berechnen" onSelect={() => go(draftAction('berechnen'))}><Calculator /> Entwurf berechnen</CommandItem>
+                <CommandItem value="aktion entwurf annehmen" onSelect={() => go(draftAction('annehmen'))}><CheckCheck /> Entwurf annehmen</CommandItem>
+                {/* Wie die beiden Aktionen darüber: der Weg nennt die Aktion, die Liste öffnet den Dialog.
+                    Ohne `aktion` landete man nur auf der Liste und müsste dort noch einmal klicken. */}
+                <CommandItem value="aktion neuen entwurf anlegen" onSelect={() => go('/entwurf?aktion=anlegen')}><Plus /> Neuen Entwurf anlegen</CommandItem>
                 <CommandItem value="aktion neue vertretung" onSelect={() => go(`/vertretung?datum=${today()}`)}><Replace /> Neue Vertretung</CommandItem>
                 {themeItem}
               </CommandGroup>

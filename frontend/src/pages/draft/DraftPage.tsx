@@ -1,11 +1,17 @@
-// Der eine Entwurf (W-3, W-8, W-9): Banner mit Berechnen/Annehmen/Verwerfen, Sichten wie /plan (Standard Klasse),
-// Raster interaktiv nur in der Klassensicht (Drag-and-Drop + Klick-Klick, leere Zelle → Handaufbau, Pin), Panel
-// offene Stunden und Konfliktliste rechts. Kein optimistisches Update: das Raster ändert sich mit der Serverantwort.
+// Ein Entwurf (W-3, W-8, W-9) unter /entwurf/:id. Seit #103 gibt es mehrere Entwürfe nebeneinander; die
+// Liste steht unter /entwurf, hier steht genau einer: Banner mit Berechnen/Annehmen/Verwerfen, Sichten wie
+// /plan (Standard Klasse), Raster interaktiv nur in der Klassensicht (Drag-and-Drop + Klick-Klick, leere
+// Zelle → Handaufbau, Pin), Panel offene Stunden und Konfliktliste rechts. Kein optimistisches Update:
+// das Raster ändert sich mit der Serverantwort.
+//
+// Liegt der Entwurf in der Ablage (#116), ist die Bearbeitung gesperrt — der Server antwortet dann 409
+// `draft-finished`. Damit niemand erst gegen die Sperre läuft, steht der Zustand als Leiste über dem
+// Raster, und die Bedienelemente sind aus.
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Copy, FilePlus, MousePointerClick, PencilRuler } from 'lucide-react'
-import { useCancelSolve, useClasses, useCreateDraft, useDeleteDraft, useDraft, usePatchDraftLesson, useRepairDraft, useRooms, useTimegrid } from '@/api/hooks'
+import { Archive, ArchiveRestore, ArrowLeft, MousePointerClick, Pencil, PencilRuler } from 'lucide-react'
+import { useCancelSolve, useClasses, useDeleteDraft, useDraft, usePatchDraft, usePatchDraftLesson, useRepairDraft, useRooms, useTimegrid } from '@/api/hooks'
 import type { ConflictDto, LessonDto } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -27,13 +33,19 @@ import { AddLessonDialog } from '@/components/draft/AddLessonDialog'
 import { DraftBanner } from '@/components/draft/DraftBanner'
 import { LessonDetailPopover } from '@/components/draft/LessonDetailPopover'
 import { OpenLessonsPanel } from '@/components/draft/OpenLessonsPanel'
+import { RenameDraftDialog } from '@/components/draft/RenameDraftDialog'
 import { RepairDialog } from '@/components/draft/RepairDialog'
 import { SolveDialog } from '@/components/draft/SolveDialog'
 import { firstWeekMonday, formatDateTime } from '@/lib/dates'
 import { conflictsByLesson } from '@/lib/conflicts'
 import { useJumpToLesson } from '@/hooks/use-jump-to-lesson'
 
+/** Anker der Konfliktliste — der Annehmen-Dialog springt hierher, wenn harte Konflikte blockieren. */
+const CONFLICTS_ANCHOR = 'entwurf-konflikte'
+
 export function DraftPage() {
+  const params_ = useParams()
+  const draftId = Number(params_.id)
   const { params, set } = useUrlState()
   const view = parseView(params.get('sicht'), 'CLASS')
   const urlId = parseId(params.get('id'))
@@ -42,19 +54,24 @@ export function DraftPage() {
   const id = view === 'SCHOOL' ? null : (urlId ?? objects.options?.[0]?.id ?? null)
   const navigate = useNavigate()
 
-  const draft = useDraft()
+  const draft = useDraft(Number.isFinite(draftId) ? draftId : null)
   const timegrid = useTimegrid()
   const classes = useClasses()
   const rooms = useRooms()
-  const create = useCreateDraft()
-  const discard = useDeleteDraft()
-  const patch = usePatchDraftLesson()
-  const cancel = useCancelSolve()
-  const repair = useRepairDraft()
+  const discard = useDeleteDraft(draftId)
+  const patchDraft = usePatchDraft(draftId)
+  const patch = usePatchDraftLesson(draftId)
+  const cancel = useCancelSolve(draftId)
+  const repair = useRepairDraft(draftId)
 
-  const [solveOpen, setSolveOpen] = useState(aktion === 'berechnen')
-  const [acceptOpen, setAcceptOpen] = useState(aktion === 'annehmen')
+  // Aus der Befehlspalette („Entwurf berechnen", „Entwurf annehmen") kommt die Aktion als `aktion` in der
+  // Adresse. Der Dialog steht deshalb offen, solange der Parameter da ist — abgeleitet statt in einem
+  // Effekt gesetzt, damit auch eine Navigation auf die schon offene Seite wirkt. `closeAction` streicht
+  // den Parameter beim Schließen, der Dialog geht also nicht von selbst wieder auf.
+  const [solveOpen, setSolveOpen] = useState(false)
+  const [acceptOpen, setAcceptOpen] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
+  const [renameKey, setRenameKey] = useState(0)
   const [addTarget, setAddTarget] = useState<{ classId: number; timeslotId: number } | null>(null)
   const [detail, setDetail] = useState<{ lesson: LessonDto; anchor: HTMLElement } | null>(null)
   const [moving, setMoving] = useState<number | null>(null)
@@ -101,12 +118,12 @@ export function DraftPage() {
   const move = async (lessonId: number, timeslotId: number) => {
     setMoving(null)
     try {
-      await patch.mutateAsync({ id: lessonId, body: { timeslotId } })
+      await patch.mutateAsync({ lessonId, body: { timeslotId } })
     } catch { /* Toast kam aus dem Standard-onError */ }
   }
   const togglePin = async (lessonId: number, pinned: boolean) => {
     try {
-      await patch.mutateAsync({ id: lessonId, body: { pinned } })
+      await patch.mutateAsync({ lessonId, body: { pinned } })
       toast.success(pinned ? 'Stunde festgelegt' : 'Festlegung aufgehoben')
     } catch { /* Toast kam */ }
   }
@@ -119,37 +136,22 @@ export function DraftPage() {
     setRepairTarget(lessonId)
     repair.mutate({ lessonId })
   }
-  const createDraft = async (source: 'EMPTY' | 'COPY_ACTIVE') => {
+  const reopen = async () => {
     try {
-      await create.mutateAsync({ source })
-      toast.success(source === 'EMPTY' ? 'Leerer Entwurf angelegt' : 'Entwurf aus dem aktiven Plan angelegt')
+      await patchDraft.mutateAsync({ finished: false })
+      toast.success('Entwurf wieder geöffnet')
     } catch { /* Toast kam */ }
   }
 
+  if (!Number.isFinite(draftId)) return <NotFound />
   if (draft.isPending || timegrid.isPending) return <PageSkeleton />
   if (draft.isError) return <ErrorState problem={draft.error} retry={() => void draft.refetch()} />
   if (timegrid.isError) return <ErrorState problem={timegrid.error} retry={() => void timegrid.refetch()} />
+  if (!d) return <NotFound />
 
-  if (!d) {
-    return (
-      <>
-        <PageHeader title="Entwurf" description={'Eine Arbeitskopie neben dem aktiven Plan. Erst „Annehmen" macht sie gültig.'} />
-        <EmptyState
-          icon={PencilRuler}
-          title="Kein Entwurf vorhanden"
-          description="Leer beginnen und berechnen lassen, oder den aktiven Plan kopieren und anpassen. Es gibt immer höchstens einen Entwurf."
-          action={
-            <div className="flex flex-wrap justify-center gap-2">
-              <Button variant="outline" onClick={() => void createDraft('EMPTY')} disabled={create.isPending}><FilePlus data-icon="inline-start" /> Leer beginnen</Button>
-              <Button onClick={() => void createDraft('COPY_ACTIVE')} disabled={create.isPending}><Copy data-icon="inline-start" /> Aktiven Plan kopieren</Button>
-            </div>
-          }
-        />
-      </>
-    )
-  }
-
-  const editing = d.status === 'EDITING'
+  // Bearbeitbar heißt: keine Berechnung läuft UND der Entwurf liegt nicht in der Ablage (#116).
+  const editing = d.status === 'EDITING' && !d.finished
+  const hardConflicts = d.conflicts.filter((c) => c.severity === 'HARD').length
   const interactive = editing && view === 'CLASS' && id != null
     ? {
         onMove: (lessonId: number, timeslotId: number) => void move(lessonId, timeslotId),
@@ -161,10 +163,29 @@ export function DraftPage() {
   const detailConflicts = detail ? (conflictsByLessonId.get(detail.lesson.id) ?? []) : []
   const suggestedSubject = addTarget ? (d.openLessons.find((o) => o.classId === addTarget.classId) ?? null) : null
   const suggestedSubjectId = suggestedSubject ? (classes.data?.find((c) => c.id === addTarget!.classId)?.subjects.find((s) => s.subjectShort === suggestedSubject.subjectShort)?.subjectId ?? null) : null
+  const showConflicts = () => document.getElementById(CONFLICTS_ANCHOR)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 
   return (
     <>
-      <PageHeader title="Entwurf" description={`Angelegt am ${formatDateTime(d.createdAt)}`} />
+      <PageHeader
+        title={d.name}
+        description={`Entwurf · angelegt am ${formatDateTime(d.createdAt)}`}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" asChild><Link to="/entwurf"><ArrowLeft data-icon="inline-start" /> Alle Entwürfe</Link></Button>
+            <Button variant="outline" size="sm" onClick={() => setRenameKey((k) => k + 1)}><Pencil data-icon="inline-start" /> Umbenennen</Button>
+          </>
+        }
+      />
+      {d.finished && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border bg-surface-sunken px-4 py-3 text-sm" role="status">
+          <Archive className="size-4 text-foreground-subtle" aria-hidden />
+          <span><b>In der Ablage.</b> Der Entwurf ist eingefroren: Stunden ändern und Berechnen sind gesperrt. Annehmen, Umbenennen und Verwerfen gehen weiter.</span>
+          <Button size="sm" variant="outline" className="ml-auto" onClick={() => void reopen()} disabled={patchDraft.isPending}>
+            <ArchiveRestore data-icon="inline-start" /> Wieder öffnen
+          </Button>
+        </div>
+      )}
       <DraftBanner
         draft={d}
         className="mb-4"
@@ -178,7 +199,11 @@ export function DraftPage() {
         <ViewSwitch value={view} onChange={(v) => { setMoving(null); set({ sicht: v, id: null }) }} layoutId="draft-view-switch" />
         <ObjectSelect view={view} value={id} onChange={(next) => { setMoving(null); set({ id: String(next) }) }} />
         <span className="text-xs text-foreground-subtle">
-          {view === 'CLASS' ? (editing ? 'Kachel ziehen oder anklicken · leere Zelle anklicken = Stunde eintragen' : 'Während der Berechnung nur ansehen') : 'Handaufbau nur in der Klassensicht'}
+          {d.finished
+            ? 'In der Ablage — nur ansehen'
+            : view === 'CLASS'
+              ? (editing ? 'Kachel ziehen oder anklicken · leere Zelle anklicken = Stunde eintragen' : 'Während der Berechnung nur ansehen')
+              : 'Handaufbau nur in der Klassensicht'}
         </span>
       </div>
       {movingLesson && (
@@ -215,6 +240,7 @@ export function DraftPage() {
           <Legend />
         </div>
         <aside
+          id={CONFLICTS_ANCHOR}
           className="flex min-h-0 w-full shrink-0 flex-col gap-4 xl:w-80 max-xl:h-auto!"
           style={leftHeight ? { height: leftHeight } : undefined}
         >
@@ -231,6 +257,7 @@ export function DraftPage() {
         <RepairDialog
           open
           onOpenChange={(o) => { if (!o) { setRepairTarget(null); repair.reset() } }}
+          draftId={draftId}
           pending={repair.isPending}
           failed={repair.isError}
           proposals={repair.data?.proposals ?? null}
@@ -239,8 +266,9 @@ export function DraftPage() {
           rooms={rooms.data ?? []}
         />
       )}
-      {addTarget && <AddLessonDialog open classId={addTarget.classId} timeslotId={addTarget.timeslotId} suggestedSubjectId={suggestedSubjectId} onOpenChange={(o) => !o && setAddTarget(null)} />}
+      {addTarget && <AddLessonDialog open draftId={draftId} classId={addTarget.classId} timeslotId={addTarget.timeslotId} suggestedSubjectId={suggestedSubjectId} onOpenChange={(o) => !o && setAddTarget(null)} />}
       <LessonDetailPopover
+        draftId={draftId}
         lesson={detail?.lesson ?? null}
         conflicts={detailConflicts}
         anchor={detail?.anchor ?? null}
@@ -248,23 +276,52 @@ export function DraftPage() {
         onStartMove={view === 'CLASS' && editing ? (lessonId) => { setMoving(lessonId); setDetail(null) } : undefined}
         readOnly={!editing}
       />
-      <SolveDialog open={solveOpen} onOpenChange={closeAction(setSolveOpen)} classes={classes.data ?? []} defaultClassId={view === 'CLASS' ? id : null} />
+      <SolveDialog open={solveOpen || aktion === 'berechnen'} onOpenChange={closeAction(setSolveOpen)} draftId={draftId} classes={classes.data ?? []} defaultClassId={view === 'CLASS' ? id : null} />
       {/* Nach dem Annehmen in die erste Woche, in der der Plan gilt — nicht in die Woche von heute, die noch
-          den vorherigen Stand zeigt (Befund 05.09.). */}
-      <AcceptDialog open={acceptOpen} onOpenChange={closeAction(setAcceptOpen)} warnings={d.warnings} openLessons={d.openLessons} expiringExceptions={d.expiringExceptions} onAccepted={(validFrom) => navigate(`/plan?woche=${firstWeekMonday(validFrom)}`)} />
+          den vorherigen Stand zeigt (Befund 05.09.). Der angenommene Entwurf behält seine Kennung, darum
+          `plan=`: ohne das zeigt die Planseite bei einem erst künftig geltenden Plan zwar dessen Woche,
+          Kopfzeile und Konflikte aber den heute gültigen. */}
+      <AcceptDialog
+        open={acceptOpen || aktion === 'annehmen'}
+        onOpenChange={closeAction(setAcceptOpen)}
+        draftId={draftId}
+        warnings={d.warnings}
+        openLessons={d.openLessons}
+        expiringExceptions={d.expiringExceptions}
+        hardConflicts={hardConflicts}
+        onAccepted={(validFrom) => navigate(`/plan?plan=${draftId}&woche=${firstWeekMonday(validFrom)}`)}
+        onShowConflicts={showConflicts}
+      />
+      {renameKey > 0 && <RenameDraftDialog key={renameKey} open onOpenChange={(o) => { if (!o) setRenameKey(0) }} draftId={draftId} currentName={d.name} />}
       <ConfirmDialog
         open={discardOpen}
         onOpenChange={setDiscardOpen}
-        title="Entwurf verwerfen?"
-        description="Alle Änderungen im Entwurf gehen verloren. Der aktive Plan bleibt unverändert."
+        title={`Entwurf „${d.name}" verwerfen?`}
+        description="Alle Änderungen in diesem Entwurf gehen verloren. Der aktive Plan und die übrigen Entwürfe bleiben unverändert."
         confirmLabel="Verwerfen"
         destructive
         onConfirm={async () => {
           try {
             await discard.mutateAsync()
             toast.success('Entwurf verworfen')
+            navigate('/entwurf')
           } catch { /* Toast kam */ }
         }}
+      />
+    </>
+  )
+}
+
+/** Der Entwurf ist weg (angenommen, verworfen — oder die Adresse stimmt nicht). Ein Zustand, kein Fehler. */
+function NotFound() {
+  return (
+    <>
+      <PageHeader title="Entwurf" />
+      <EmptyState
+        icon={PencilRuler}
+        title="Diesen Entwurf gibt es nicht mehr"
+        description="Er wurde angenommen oder verworfen. Die Liste zeigt, welche Entwürfe es noch gibt."
+        action={<Button asChild><Link to="/entwurf"><ArrowLeft data-icon="inline-start" /> Zu den Entwürfen</Link></Button>}
       />
     </>
   )

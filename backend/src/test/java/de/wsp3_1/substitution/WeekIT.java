@@ -19,17 +19,18 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * Testfall T-W4.1). Grundlage ist der Regelplan Montag/Dienstag aus dem Pflichtenheft — dieselben
  * sieben Stunden, die auch die Abnahme von Hand einplant.
  *
- * <p>Die Woche ist immer die <b>laufende</b>, und der Plan wird mit {@code validFrom} auf ihren Montag
+ * <p>Die Woche ist immer die <b>kommende</b>, und der Plan wird mit {@code validFrom} auf ihren Montag
  * angenommen. So haengt kein Testergebnis daran, an welchem Tag jemand die Tests startet — ein Plan
  * gilt erst ab seinem Beginn, und „heute" waere an einem Samstag schon zu spaet fuer den Montag
- * derselben Woche.</p>
+ * derselben Woche. Die laufende Woche geht seit dem 16.09. nicht mehr: {@code validFrom} vor heute ist
+ * 400 {@code validation}, und an jedem Tag ausser Montag laege ihr Montag in der Vergangenheit.</p>
  *
  * <p><b>Stand backend2 Teil 1:</b> jeder Eintrag ist {@code REGULAR}. Ereignisse und datierte Ausnahmen
  * (W-5, W-6) kommen in Teil 2; erst dann gibt es andere Arten.</p>
  */
 class WeekIT extends PlanningITBase {
 
-    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY);
+    private static final LocalDate MONTAG = LocalDate.now().with(DayOfWeek.MONDAY).plusWeeks(1);
 
     /** Der Plan des Pflichtenhefts, angenommen mit Gueltigkeit ab dem Montag dieser Woche. */
     private Testdaten planDerWoche() throws Exception {
@@ -188,6 +189,31 @@ class WeekIT extends PlanningITBase {
         assertThat(entriesOf(week, 2)).as("Mittwoch gilt Plan B, dessen Stunde montags liegt").isEmpty();
         assertThat(entriesOf(week, 3)).as("Donnerstag gilt Plan B").isEmpty();
         assertThat(entriesOf(week, 4)).as("Freitag gilt Plan C mit seiner Freitagsstunde").hasSize(1);
+    }
+
+    /**
+     * Das Gegenstueck zum Beginn (#115): ein Plan mit Enddatum gilt am letzten Tag noch und danach
+     * nicht mehr. Steht kein Nachfolger bereit, bleibt die Woche leer — dass die Wochensicht dann den
+     * zuletzt archivierten Plan nimmt, war genau der Fehler, den {@code timetableIdAt} nicht machen
+     * darf.
+     */
+    @Test
+    @DisplayName("Ein Enddatum gilt einschliesslich; danach bleibt die Woche leer")
+    void aPlanWithAnEndDateStopsResolvingAfterIt() throws Exception {
+        Testdaten daten = pflichtenheftGrunddaten();
+        planMoDiInEntwurf(daten);
+        // Der Plan gilt Montag und Dienstag dieser Woche und endet am Dienstag.
+        call(post("/api/draft/accept").content("""
+                {"validFrom":"%s","validUntil":"%s"}""".formatted(MONTAG, MONTAG.plusDays(1))), 200);
+
+        JsonNode week = getJson("/api/timetable/week?date=" + MONTAG + "&view=SCHOOL");
+
+        assertThat(entriesOf(week, 0)).as("Montag liegt im Zeitraum").hasSize(6);
+        assertThat(entriesOf(week, 1)).as("Dienstag ist der letzte Tag — einschliesslich").hasSize(1);
+        assertThat(entriesOf(week, 2)).as("Mittwoch liegt hinter dem Ende: kein Plan").isEmpty();
+
+        assertThat(getJson("/api/timetables").get(0).get("validUntil").asText())
+                .isEqualTo(MONTAG.plusDays(1).toString());
     }
 
     // ------------------------------------------------------------------ Helfer

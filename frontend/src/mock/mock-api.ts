@@ -1,9 +1,10 @@
 // Die Attrappe: implementiert Api vollständig gegen den In-Memory-Store, mit Kunstlatenz und Rollenprüfung
 // wie die Pfadregeln in api.md. Fachlogik in ./logic/*. Wo Mock und Backend abweichen, gewinnt das Backend.
 import type {
-  Api, ClassAccountDto, TeacherAccountDto, ClassDto, ClassSubjectInput, ConfigDto, CreateUser, DayDto, DraftDto, EntryDto, EventDto,
+  Api, ClassAccountDto, TeacherAccountDto, ClassDto, ClassSubjectInput, ConfigDto, CreateUser, DayDto, DraftDto,
+  DraftSummaryDto, EntryDto, EventDto,
   EventInput, ExceptionDto, FieldErrorDto, LessonDto, PendingRow, RoomInput, RuleInput, SubjectInput, TeacherDto,
-  TeacherInput, TimegridInput, TimetableDto, UserDto, WeekDto, ClassInput, HolidayInput, HolidayPresetInput,
+  TeacherInput, TimegridInput, TimetableDto, TimetableSummaryDto, UserDto, WeekDto, ClassInput, HolidayInput, HolidayPresetInput,
   MasterDataExport, MasterDataImport, MasterDataImportResult,
   MasterDataSection, SectionImportResult, TransferScope,
   CapacityViolation, Weekday,
@@ -14,7 +15,8 @@ import { nowIso, today } from '@/lib/today'
 import { latency } from './latency'
 import { conflict409, forbidden, notFound, unauthenticated, validation } from './problems'
 import {
-  activeTimetable, draftTimetable, newTimetable, nextId, rulesFromPreset, store,
+  activePlans, activeTimetable, draftTimetables, newTimetable, nextDraftName, nextId, planCovers, planStart,
+  rulesFromPreset, store,
   type MockClass, type MockEvent, type MockException, type MockLesson, type MockTeacher, type MockTimetable, type MockUser, type Store,
 } from './store'
 import { loadSmall } from './data-small'
@@ -65,8 +67,18 @@ function lessonDto(l: MockLesson, s: Store): LessonDto {
   }
 }
 function timetableDto(t: MockTimetable | undefined, s: Store): TimetableDto {
-  if (!t) return { id: null, acceptedAt: null, validFrom: null, lessons: [], conflicts: [] }
-  return { id: t.id, acceptedAt: t.acceptedAt, validFrom: t.validFrom, lessons: t.lessons.map((l) => lessonDto(l, s)), conflicts: checkConflicts(t.lessons, s) }
+  if (!t) return { id: null, acceptedAt: null, validFrom: null, validUntil: null, lessons: [], conflicts: [] }
+  return { id: t.id, acceptedAt: t.acceptedAt, validFrom: t.validFrom, validUntil: t.validUntil, lessons: t.lessons.map((l) => lessonDto(l, s)), conflicts: checkConflicts(t.lessons, s) }
+}
+function timetableSummary(t: MockTimetable, heute: string): TimetableSummaryDto {
+  return { id: t.id, acceptedAt: t.acceptedAt, validFrom: t.validFrom, validUntil: t.validUntil, current: planCovers(t, heute) }
+}
+function draftSummary(d: MockTimetable, s: Store): DraftSummaryDto {
+  return {
+    id: d.id, name: d.name, createdAt: d.createdAt, source: d.source, status: d.draftStatus,
+    hardConflicts: checkConflicts(d.lessons, s).filter((c) => c.severity === 'HARD').length,
+    finished: d.finished,
+  }
 }
 function draftDto(d: MockTimetable, s: Store): DraftDto {
   const openLessons: DraftDto['openLessons'] = []
@@ -81,7 +93,7 @@ function draftDto(d: MockTimetable, s: Store): DraftDto {
       if (all.length > row.weeklyHours) warnings.push(`${c.name} ${subjectShort}: ${all.length} Stunden geplant, ${row.weeklyHours} vorgesehen`)
     }
   }
-  return { id: d.id, createdAt: d.createdAt, status: d.draftStatus, solve: { ...d.solve }, lessons: d.lessons.map((l) => lessonDto(l, s)), conflicts: checkConflicts(d.lessons, s), openLessons, warnings, expiringExceptions: expiringCount(d, s, today()) }
+  return { id: d.id, name: d.name, createdAt: d.createdAt, status: d.draftStatus, solve: { ...d.solve }, lessons: d.lessons.map((l) => lessonDto(l, s)), conflicts: checkConflicts(d.lessons, s), openLessons, warnings, expiringExceptions: expiringCount(d, s, today()), finished: d.finished }
 }
 
 /**
@@ -288,7 +300,7 @@ function finishSolve(draft: MockTimetable, s: Store, classId?: number) {
   const soft = checkConflicts(draft.lessons, s).filter((c) => c.severity === 'SOFT').length
   draft.draftStatus = 'EDITING'
   draft.solve = { ...draft.solve, lastScore: `0hard/0medium/-${soft}soft`, error: null }
-  s.solveTimer = null
+  s.solveTimers.delete(draft.id)
 }
 function lessonsInUse(pred: (l: MockLesson) => boolean, s: Store): number {
   return s.timetables.filter((t) => t.status !== 'ARCHIVED').flatMap((t) => t.lessons).filter(pred).length
@@ -310,13 +322,23 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
     if (u.role !== 'PLANNING') throw forbidden()
     return u
   }
-  const draftOr404 = () => {
-    const d = draftTimetable(s)
-    if (!d) throw notFound('Kein Entwurf vorhanden')
+  const draftOr404 = (id: number) => {
+    const d = s.timetables.find((t) => t.id === id && t.status === 'DRAFT')
+    if (!d) throw notFound(`Entwurf ${id} nicht gefunden`)
     return d
   }
   const notSolving = (d: MockTimetable) => {
     if (d.draftStatus === 'SOLVING') throw conflict409('solving', 'Berechnung läuft', 'Der Entwurf wird gerade berechnet. Bitte warten oder die Berechnung abbrechen.')
+  }
+  /** Ablage (#116): ein abgelegter Entwurf ist eingefroren — nur Annehmen, Umbenennen und Löschen gehen noch. */
+  const notFinished = (d: MockTimetable) => {
+    if (d.finished) throw conflict409('draft-finished', 'Entwurf liegt in der Ablage', 'Der Entwurf liegt in der Ablage. Erst wieder öffnen.')
+  }
+  /** Name prüfen wie der Server: Rand weg, nicht leer, höchstens 80 Zeichen (#103). */
+  const cleanName = (name: string): string => {
+    const value = name.trim()
+    if (!value || value.length > 80) throw validation([{ field: 'name', message: value ? 'höchstens 80 Zeichen' : 'darf nicht leer sein' }])
+    return value
   }
 
   return {
@@ -337,7 +359,7 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
     },
     async me() {
       const u = await authenticated()
-      return { id: u.id, username: u.username, role: u.role, displayName: displayNameOf(u, s), teacherId: u.teacherId }
+      return { id: u.id, username: u.username, role: u.role, displayName: displayNameOf(u, s), teacherId: u.teacherId, tourCompletedAt: u.tourCompletedAt ?? null }
     },
     async changeMyPassword(body) {
       const u = await authenticated()
@@ -348,6 +370,12 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       if (!body.newPassword || body.newPassword.length < 8) errors.push({ field: 'newPassword', message: 'mindestens 8 Zeichen' })
       throwIfErrors(errors)
       u.password = body.newPassword
+    },
+    async setTour(body) {
+      const u = await authenticated()
+      // Wie PUT /api/me/password: ein Klassenkonto kommt hier nicht vorbei (SecurityConfig, E-50).
+      if (u.role === 'STUDENT') throw forbidden()
+      u.tourCompletedAt = body.completed ? new Date().toISOString() : null
     },
 
     // ---------------- Konten
@@ -700,7 +728,11 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       // Zeile) selbst bleibt bestehen, nur leer — laut Anthony bleibt er im Hintergrund erhalten und
       // könnte später wieder befüllt werden, statt neu angelegt zu werden.
       for (const t of s.timetables) t.lessons = []
-      if (s.solveTimer) { clearTimeout(s.solveTimer); s.solveTimer = null }
+      // Seit #103 rechnet der Solver je Entwurf, die Fristen stehen deshalb in einer Map statt in
+      // einem einzelnen Feld: hier alle abbrechen, sonst schriebe ein laufender Lauf die eben
+      // geleerten Stunden wieder hin.
+      for (const timer of s.solveTimers.values()) clearTimeout(timer)
+      s.solveTimers.clear()
       s.events = []
       s.exceptions = []
       s.users = s.users.filter((u) => u.role === 'PLANNING')
@@ -712,6 +744,17 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
 
     // ---------------- Aktiver Plan, Wochen
     async getTimetable() { await planning(); return timetableDto(activeTimetable(s), s) },
+    async listTimetables() {
+      await planning()
+      const heute = today()
+      return activePlans(s).map((t) => timetableSummary(t, heute))
+    },
+    async getTimetableById(id) {
+      await planning()
+      const t = s.timetables.find((x) => x.id === id && (x.status === 'ACTIVE' || x.status === 'ARCHIVED'))
+      if (!t) throw notFound(`Plan ${id} nicht gefunden`)
+      return timetableDto(t, s)
+    },
     async getWeek(q) {
       await planning()
       if (!q.date) throw validation([{ field: 'date', message: 'darf nicht leer sein' }])
@@ -729,12 +772,17 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       return studentWeek(resolveWeek(startOfIsoWeek(q.date ?? today()), 'CLASS', u.classId, s))
     },
 
-    // ---------------- Entwurf
-    async getDraft() { await planning(); return draftDto(draftOr404(), s) },
+    // ---------------- Entwürfe (#103: mehrere nebeneinander)
+    async listDrafts() {
+      await planning()
+      return draftTimetables(s).map((d) => draftSummary(d, s))
+    },
     async createDraft(body) {
       await planning()
-      if (draftTimetable(s)) throw conflict409('draft-exists', 'Es gibt bereits einen Entwurf', 'Es gibt bereits einen Entwurf. Erst annehmen oder verwerfen.')
-      const d = newTimetable('DRAFT', nowIso())
+      // Seit 1.3.0 gibt es kein 409 `draft-exists` mehr: Entwürfe stehen nebeneinander.
+      const name = body.name === undefined ? nextDraftName(s) : cleanName(body.name)
+      if (s.timetables.some((t) => t.status === 'DRAFT' && t.name === name)) throw validation([{ field: 'name', message: 'Name ist bereits vergeben' }])
+      const d = newTimetable('DRAFT', nowIso(), { name, source: body.source })
       if (body.source === 'COPY_ACTIVE') {
         const active = activeTimetable(s)
         if (active) {
@@ -745,16 +793,34 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       s.timetables.push(d)
       return draftDto(d, s)
     },
-    async deleteDraft() {
+    async getDraftById(id) { await planning(); return draftDto(draftOr404(id), s) },
+    async patchDraft(id, body) {
       await planning()
-      const d = draftOr404()
-      if (s.solveTimer) { clearTimeout(s.solveTimer); s.solveTimer = null }
+      const d = draftOr404(id)
+      // Leerer Rumpf ist kein Aufruf: der Server antwortet 400 statt still nichts zu tun (#116).
+      if (body.name === undefined && body.finished === undefined) throw validation([{ field: 'name', message: 'Es wurde nichts zum Ändern gesendet' }])
+      if (body.name !== undefined) {
+        const name = cleanName(body.name)
+        if (s.timetables.some((t) => t.id !== d.id && t.status === 'DRAFT' && t.name === name)) throw validation([{ field: 'name', message: 'Name ist bereits vergeben' }])
+        d.name = name
+      }
+      // Ablegen bricht eine laufende Berechnung nicht ab — es gibt sie dann einfach nicht mehr zu starten.
+      if (body.finished !== undefined) d.finished = body.finished
+      return draftDto(d, s)
+    },
+    async deleteDraftById(id) {
+      await planning()
+      const d = draftOr404(id)
+      notSolving(d)
+      const timer = s.solveTimers.get(d.id)
+      if (timer) { clearTimeout(timer); s.solveTimers.delete(d.id) }
       s.timetables = s.timetables.filter((t) => t.id !== d.id)
     },
-    async addDraftLesson(body) {
+    async addDraftLesson(draftId, body) {
       await planning()
-      const d = draftOr404()
+      const d = draftOr404(draftId)
       notSolving(d)
+      notFinished(d)
       const errors: FieldErrorDto[] = []
       const cls = s.classes.find((c) => c.id === body.classId)
       if (!cls) errors.push({ field: 'classId', message: 'Klasse fehlt' })
@@ -766,12 +832,13 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       d.lessons.push({ id: nextId(), timetableId: d.id, classId: cls!.id, subjectId: row!.subjectId, teacherId: row!.teacherId, timeslotId: body.timeslotId, roomId: body.roomId, pinned: true })
       return draftDto(d, s)
     },
-    async patchDraftLesson(id, body) {
+    async patchDraftLesson(draftId, lessonId, body) {
       await planning()
-      const d = draftOr404()
+      const d = draftOr404(draftId)
       notSolving(d)
-      const l = d.lessons.find((x) => x.id === id)
-      if (!l) throw notFound(`Stunde ${id} nicht im Entwurf`)
+      notFinished(d)
+      const l = d.lessons.find((x) => x.id === lessonId)
+      if (!l) throw notFound(`Stunde ${lessonId} nicht im Entwurf`)
       if (body.timeslotId !== undefined && !s.timeslots.some((t) => t.id === body.timeslotId)) throw validation([{ field: 'timeslotId', message: 'Zeitfenster fehlt' }])
       if (body.roomId !== undefined && !s.rooms.some((r) => r.id === body.roomId)) throw validation([{ field: 'roomId', message: 'Raum fehlt' }])
       // Wie der Server (VERTRAG PL-4): eine offene Stunde braucht Zeitfenster UND Raum — der Server rät keinen Raum
@@ -789,18 +856,20 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       if (body.pinned !== undefined) l.pinned = body.pinned
       return draftDto(d, s)
     },
-    async deleteDraftLesson(id) {
+    async deleteDraftLesson(draftId, lessonId) {
       await planning()
-      const d = draftOr404()
+      const d = draftOr404(draftId)
       notSolving(d)
-      if (!d.lessons.some((x) => x.id === id)) throw notFound(`Stunde ${id} nicht im Entwurf`)
-      d.lessons = d.lessons.filter((x) => x.id !== id)
+      notFinished(d)
+      if (!d.lessons.some((x) => x.id === lessonId)) throw notFound(`Stunde ${lessonId} nicht im Entwurf`)
+      d.lessons = d.lessons.filter((x) => x.id !== lessonId)
       return draftDto(d, s)
     },
-    async startSolve(body) {
+    async startSolve(draftId, body) {
       await planning()
-      const d = draftOr404()
+      const d = draftOr404(draftId)
       notSolving(d)
+      notFinished(d)
       const missing = s.classes.filter((c) => c.active && c.subjects.length === 0).map((c) => `Klasse ${c.name} hat kein Fach`)
       if (missing.length) throw conflict409('master-data-incomplete', 'Grunddaten unvollständig', 'Vor der Berechnung fehlen Angaben.', { missing })
       const lessonsBeforeSync = d.lessons.map((lesson) => ({ ...lesson }))
@@ -819,19 +888,21 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       d.draftStatus = 'SOLVING'
       d.solve = { startedAt: nowIso(), limitSeconds: s.config.maxSolveSeconds, lastScore: null, error: null }
       const classId = body?.classId
-      s.solveTimer = setTimeout(() => finishSolve(d, s, classId), SOLVE_MS)
+      s.solveTimers.set(d.id, setTimeout(() => finishSolve(d, s, classId), SOLVE_MS))
     },
-    async cancelSolve() {
+    async cancelSolve(draftId) {
       await planning()
-      const d = draftOr404()
+      const d = draftOr404(draftId)
       if (d.draftStatus !== 'SOLVING') return
-      if (s.solveTimer) clearTimeout(s.solveTimer)
+      const timer = s.solveTimers.get(d.id)
+      if (timer) clearTimeout(timer)
       finishSolve(d, s)
     },
-    async repairDraft(body) {
+    async repairDraft(draftId, body) {
       await planning()
-      const d = draftOr404()
+      const d = draftOr404(draftId)
       notSolving(d)
+      notFinished(d)
       const l = d.lessons.find((x) => x.id === body.lessonId)
       if (!l) throw notFound(`Stunde ${body.lessonId} nicht im Entwurf`)
       if (!checkConflicts(d.lessons, s).some((c) => c.lessonIds.includes(l.id))) throw validation([{ field: 'lessonId', message: 'Die Stunde steht in keinem Konflikt' }])
@@ -839,26 +910,58 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       // Der Server rechnet drei Stufen mit dem Solver; die Attrappe zeigt den Weg, nicht die Güte.
       const hardCount = (lessons: MockLesson[]) => checkConflicts(lessons, s).filter((c) => c.severity === 'HARD').length
       let best: { timeslotId: number; roomId: number; hard: number } | null = null
-      for (const t of s.timeslots.filter((x) => !x.isBreak)) {
+      for (const slot of s.timeslots.filter((x) => !x.isBreak)) {
         for (const r of s.rooms.filter((x) => x.active)) {
-          if (t.id === l.timeslotId && r.id === l.roomId) continue
-          const hard = hardCount(d.lessons.map((x) => (x.id === l.id ? { ...x, timeslotId: t.id, roomId: r.id } : x)))
-          if (!best || hard < best.hard) best = { timeslotId: t.id, roomId: r.id, hard }
+          if (slot.id === l.timeslotId && r.id === l.roomId) continue
+          const hard = hardCount(d.lessons.map((x) => (x.id === l.id ? { ...x, timeslotId: slot.id, roomId: r.id } : x)))
+          if (!best || hard < best.hard) best = { timeslotId: slot.id, roomId: r.id, hard }
         }
       }
       if (!best) return { proposals: [] }
       return { proposals: [{ level: 1, label: 'Nur diese Stunde verschieben', moves: [{ lessonId: l.id, timeslotId: best.timeslotId, roomId: best.roomId }], hardConflictsAfter: best.hard, score: null }] }
     },
-    async acceptDraft(body) {
+    /**
+     * Annehmen mit Gültigkeitszeitraum (#115). Es darf mehrere angenommene Pläne geben, solange ihre
+     * Zeiträume sich nicht überschneiden. Jeder überlappende Vorgänger wird gekürzt; ein Vorgänger, der
+     * erst in der Zukunft beginnt, lässt sich nicht kürzen — dann 409 `plan-overlap` (auch bei „jetzt
+     * aktivieren"), und nichts ändert sich. Deshalb erst alle Änderungen sammeln, dann anwenden.
+     */
+    async acceptDraft(draftId, body) {
       await planning()
-      const d = draftOr404()
+      const d = draftOr404(draftId)
       notSolving(d)
-      const active = activeTimetable(s)
-      d.validFrom = body?.validFrom ?? null
+      const heute = today()
+      const hart = checkConflicts(d.lessons, s).filter((c) => c.severity === 'HARD')
+      if (hart.length) throw conflict409('draft-has-conflicts', 'Harte Konflikte im Entwurf', 'Der Entwurf hat harte Konflikte. Bitte erst lösen, dann annehmen.', { conflicts: hart })
+      const from = body?.validFrom ?? heute
+      const until = body?.validUntil ?? null
+      // Wie im Server: ein Beginn in der Vergangenheit ist 400. Ohne Angabe gilt heute.
+      if (body?.validFrom && body.validFrom < heute) throw validation([{ field: 'validFrom', message: 'Der Beginn darf nicht in der Vergangenheit liegen' }])
+      if (until && until < from) throw validation([{ field: 'validUntil', message: 'Das Ende darf nicht vor dem Beginn liegen' }])
+
+      const kuerzungen: { plan: MockTimetable; validUntil: string; archivieren: boolean }[] = []
+      for (const p of activePlans(s)) {
+        const pStart = planStart(p)
+        const ueberlappt = (p.validUntil == null || p.validUntil >= from) && (until == null || pStart <= until)
+        if (!ueberlappt) continue
+        const vortag = addDaysIso(from, -1)
+        if (pStart < from) {
+          // Der alte Plan bleibt bis zum Vortag gültig; ist er damit ganz Vergangenheit, wandert er ins Archiv.
+          kuerzungen.push({ plan: p, validUntil: vortag, archivieren: vortag < heute })
+        } else if (pStart <= heute) {
+          // Ein Plan, der heute schon begonnen hat (eben erst angenommen, sofort ersetzt): ins Archiv, leerer Zeitraum.
+          kuerzungen.push({ plan: p, validUntil: vortag, archivieren: true })
+        } else {
+          const bis = p.validUntil ? ` bis ${p.validUntil}` : ''
+          throw conflict409('plan-overlap', 'Zeitraum ist belegt', `Ein angenommener Plan gilt bereits ab ${pStart}${bis}. Enddatum vor ${pStart} wählen oder den Zeitraum ändern.`)
+        }
+      }
+
       // Untergrenze wie im Server: der Gueltigkeitsbeginn, fruehestens heute; Zusatzstunden (lessonId null)
       // haengen an keinem Plan und verfallen nicht (Befunde PFLICHTENHEFT-6 und BACKEND-6).
-      const ab = d.validFrom && d.validFrom > today() ? d.validFrom : today()
-      // Erst umhaengen, dann tauschen — solange `active` noch aktiv ist, kennt sameLessons beide Plaene.
+      const ab = from > heute ? from : heute
+      const vorher = activeTimetable(s)
+      // Erst umhaengen, dann tauschen — solange der Vorgaenger noch aktiv ist, kennt sameLessons beide Plaene.
       // Was der Entwurf unveraendert weiterfuehrt, behaelt seine Vertretungen (Befund PFLICHTENHEFT-9);
       // nur der Rest verfaellt, und nur der steht in der Warnung.
       const gleich = sameLessons(d, s)
@@ -869,12 +972,17 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
         if (neu == null) expiring += 1
         else x.lessonId = neu
       }
-      if (active) active.status = 'ARCHIVED'
+      for (const k of kuerzungen) {
+        k.plan.validUntil = k.validUntil
+        if (k.archivieren) k.plan.status = 'ARCHIVED'
+      }
       d.status = 'ACTIVE'
       d.acceptedAt = nowIso()
+      d.validFrom = body?.validFrom ?? null
+      d.validUntil = until
       s.changelog.push({
         id: nextId(), timestamp: nowIso(), action: 'TIMETABLE_ACCEPTED', date: d.validFrom, position: null, classShort: null,
-        oldAssignment: active ? `Plan vom ${active.acceptedAt?.slice(0, 10) ?? '?'}` : 'kein Plan', newAssignment: `Plan angenommen (${d.lessons.filter((l) => l.timeslotId != null).length} Stunden)`,
+        oldAssignment: vorher ? `Plan vom ${vorher.acceptedAt?.slice(0, 10) ?? '?'}` : 'kein Plan', newAssignment: `Plan angenommen (${d.lessons.filter((l) => l.timeslotId != null).length} Stunden)`,
         reasons: '', username: username(), lessonId: null, classId: null, teacherId: null,
       })
       // Reihenfolge wie im Server (DraftService.accept): erst die offenen Stunden, dann die Vertretungen.
@@ -882,7 +990,7 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
       const warnings: string[] = []
       if (open === 1) warnings.push('Eine Stunde bleibt unverplant: sie steht im aktiven Plan, aber in keiner Woche.')
       else if (open > 1) warnings.push(`${open} Stunden bleiben unverplant: sie stehen im aktiven Plan, aber in keiner Woche.`)
-      const wann = ab === today() ? 'ab heute' : `ab dem ${ab}`
+      const wann = ab === heute ? 'ab heute' : `ab dem ${ab}`
       if (expiring === 1) warnings.push(`Eine Vertretung ${wann} verfaellt: ihre Stunde gibt es im neuen Plan nicht mehr.`)
       else if (expiring > 1) warnings.push(`${expiring} Vertretungen ${wann} verfallen: ihre Stunden gibt es im neuen Plan nicht mehr.`)
       return { ...timetableDto(d, s), warnings }
