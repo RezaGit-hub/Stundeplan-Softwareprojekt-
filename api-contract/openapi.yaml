@@ -114,6 +114,8 @@ tags:
     description: Wochenplan der eigenen Klasse für ein Klassenkonto — datensparsam (E-50).
   - name: Sicherung
     description: Grunddaten als Dokument aus- und wieder einspielen (Format-Version 1).
+  - name: Abwesenheit
+    description: Abwesenheitsmeldungen der Lehrkräfte per Mobile-App
 
 paths:
   /api/health:
@@ -3537,6 +3539,192 @@ paths:
                 title: Es sind bereits Daten vorhanden
                 status: 409
                 detail: Die Datenbank enthält bereits Grunddaten. Zum Ersetzen „replace“ setzen.
+  /api/absences:
+    get:
+      tags: [Abwesenheit]
+      operationId: getAbsences
+      summary: Zeige alle Abwesenheitsmeldungen an
+      x-role: PLANNING
+      responses:
+        '200':
+          description: alle Abwesenheitsmeldungen
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AbsencesDto'
+              example:
+                - id: 1
+                  teacherId: 3
+                  dateFrom: 2026-09-12
+                  dateTo: 2026-09-12
+                  reason: Krankmeldung
+                  active: true
+                  seen: false
+                  eventId: 1
+                - id: 2
+                  teacherId: 1
+                  dateFrom: 2026-09-13
+                  dateTo: 2026-09-15
+                  reason: krank
+                  active: true
+                  seen: false
+                  eventId: null
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/absences/{id}/convert:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    post:
+      tags: [Abwesenheit]
+      operationId: convertAbsences
+      summary: Akzeptiere Abwesenheitsmeldung und mache zu Ereignis
+      x-role: PLANNING
+      responses:
+        '200':
+          description: Meldung angenommen, Ereignis angelegt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [absence, event]
+                properties:
+                  absence:
+                    $ref: '#/components/schemas/AbsencesDto'
+                  event:
+                    $ref: '#/components/schemas/EventDto'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          description: Meldung wurde bereits umgewandelt
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: urn:pushnpull:problem:already-converted
+                title: Konflikt
+                status: 409
+                detail: Diese Meldung wurde bereits umgewandelt.
+
+  /api/absences/me:
+    get:
+      tags: [Abwesenheit]
+      operationId: getAbsencesForTeacher
+      summary: Zeige alle Abwesenheitsmeldungen von der eingeloggten Lehrkraft an
+      x-role: TEACHER
+      responses:
+        '200':
+          description: alle Abwesenheitsmeldungen
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AbsencesDto'
+              example:
+                - id: 1
+                  teacherId: 3
+                  dateFrom: 2026-09-12
+                  dateTo: 2026-09-12
+                  reason: Krankmeldung
+                  active: true
+                  seen: false
+                  eventId: null
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+    post:
+      tags: [Abwesenheit]
+      operationId: addAbsencesForTeacher
+      summary: Fügt eine neue Abwesenheit der Lehrkraft ein.
+      x-role: TEACHER
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAbsenceDto'
+            example:
+              dateFrom: 2026-09-12
+              dateTo: 2026-09-12
+              reason: Krankmeldung
+              active: true
+      responses:
+        '201':
+          description: Abwesenheit eingefügt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AbsencesDto'
+              example:
+                id: 1
+                teacherId: 3
+                dateFrom: 2026-09-12
+                dateTo: 2026-09-12
+                reason: Krankmeldung
+                active: true
+                seen: false
+                eventId: null
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+
+  /api/absences/me/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    put:
+      tags: [Abwesenheit]
+      operationId: modifyAbsencesForTeacher
+      summary: Lässt Krankmeldung bearbeiten
+      x-role: TEACHER
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAbsenceDto'
+            example:
+              dateFrom: 2026-09-12
+              dateTo: 2026-09-12
+              reason: Krankmeldung
+              active: true
+      responses:
+        '200':
+          description: Abwesenheit geändert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AbsencesDto'
+              example:
+                id: 1
+                teacherId: 3
+                dateFrom: 2026-09-12
+                dateTo: 2026-09-12
+                reason: Krankmeldung
+                active: true
+                seen: false
+                eventId: null
+        '400':
+          $ref: '#/components/responses/Validation400'
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
 
 components:
 
@@ -5063,3 +5251,28 @@ components:
           type: array
           description: deutsche Hinweise — aktuell leer, für spätere Formatänderungen vorgesehen.
           items: { type: string }
+
+    AbsencesDto:
+      type: object
+      required: [id, teacherId, dateFrom, dateTo, reason, active, seen]
+      properties:
+        id: { type: integer, format: int64 }
+        teacherId: { type: integer, format: int64 }
+        dateFrom: { type: string, format: date }
+        dateTo: { type: string, format: date }
+        reason: { type: string, examples: [Krankmeldung] }
+        active: { type: boolean, description: 'false = deaktiviert; Wurde von einer Lehrkraft zurückgenommen' }
+        seen: { type: boolean, description: 'false = ungelesen; Die Meldung wurde von einer Lehrkraft erstellt oder bearbeitet und noch nicht als gelesen markiert' }
+        eventId:
+          type: [integer, 'null']
+          format: int64
+          description: gesetzt, sobald die Planung die Meldung in ein Ereignis umgewandelt hat
+
+    CreateAbsenceDto:
+      type: object
+      required: [dateFrom, dateTo, reason]
+      properties:
+        dateFrom: { type: string, format: date }
+        dateTo: { type: string, format: date }
+        reason: { type: string, minLength: 1, maxLength: 255, examples: [Krankmeldung] }
+        active: { type: boolean, description: 'false = deaktiviert; Wurde von einer Lehrkraft zurückgenommen' }

@@ -253,4 +253,40 @@ class SecurityConfigTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.type").value("urn:pushnpull:problem:unauthenticated"));
     }
+
+    @Test
+    @DisplayName("Negativ 401: Abwesenheiten verlangen eine Anmeldung")
+    void absences_withoutToken_isUnauthenticated() throws Exception {
+        mvc.perform(get("/api/absences"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.type").value("urn:pushnpull:problem:unauthenticated"));
+    }
+
+    @Test
+    @DisplayName("Negativ 403: eine Lehrkraft darf die Gesamtliste der Abwesenheiten nicht lesen")
+    void absences_withTeacherToken_isForbidden() throws Exception {
+        angemeldetAls(MEYER);
+        mvc.perform(get("/api/absences").header(HttpHeaders.AUTHORIZATION, "Bearer " + TEACHER_TOKEN))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("urn:pushnpull:problem:forbidden"));
+    }
+
+    @Test
+    @DisplayName("Negativ 403 (ST-2): ein Klassenkonto kommt an /api/absences/me nicht vorbei")
+    void absencesMe_withStudentToken_isForbidden() throws Exception {
+        angemeldetAls(KLASSE_7A);
+        mvc.perform(get("/api/absences/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + STUDENT_TOKEN))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("urn:pushnpull:problem:forbidden"));
+    }
+
+    @Test
+    @DisplayName("Eine Lehrkraft passiert die Pfadregel von /api/absences/me")
+    void absencesMe_withTeacherToken_passesTheRule() throws Exception {
+        angemeldetAls(MEYER);
+        // Controller ist hier nicht geladen -> 404 heisst "Regel passiert", nicht "gesperrt".
+        mvc.perform(get("/api/absences/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + TEACHER_TOKEN))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("urn:pushnpull:problem:not-found"));
+    }
 }
