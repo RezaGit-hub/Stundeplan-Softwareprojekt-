@@ -104,4 +104,15 @@ public final class SubstitutionViews {
      */
     public record HolidayPresetResultView(int added, int skipped, String state, String schoolYear) {
     }
+
+    // ------------------------------------------------------------------ Vertretungsanfragen (V14)
+
+    /**
+     * Eine Vertretungsanfrage an eine Lehrkraft. {@code status} laeuft
+     * {@code UNKNOWN -> ACCEPTED/DECLINED}; eine Anfrage bleibt bestehen, damit die Planung sieht,
+     * wen sie schon gefragt hat und wer nicht geantwortet hat.
+     */
+    public record SubstitutionRequestView(Long id, Long teacherId, Long eventId,
+                                          SubstitutionRequestStatus status) {
+    }
 }

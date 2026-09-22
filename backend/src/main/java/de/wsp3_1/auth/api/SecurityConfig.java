@@ -84,6 +84,7 @@ public class SecurityConfig {
                         // Muss NACH der Zeile darueber stehen: sonst faenge dieses Muster die
                         // Klassensicht ab und ein Klassenkonto bekaeme dort 403.
                         .requestMatchers("/api/absences/me", "/api/absences/me/**").hasRole("TEACHER")
+                        .requestMatchers("/api/substitution-requests/me", "/api/substitution-requests/me/**").hasRole("TEACHER")
                         .requestMatchers("/api/me", "/api/me/**").hasAnyRole("PLANNING", "TEACHER")
                         .requestMatchers("/api/**").hasRole("PLANNING")
                         .anyRequest().denyAll())
