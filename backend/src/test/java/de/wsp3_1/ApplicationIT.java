@@ -38,7 +38,7 @@ class ApplicationIT extends IntegrationTestBase {
 
         // V10 = Rundgang (#139), V11 = mehrere Entwuerfe (#103), V12 = Gueltigkeitszeitraum und
         // Ablage (#115, #116). Die drei kamen aus verschiedenen Zweigen und stehen erst hier zusammen.
-        assertThat(versionen).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
+        assertThat(versionen).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14");
     }
 
     /**

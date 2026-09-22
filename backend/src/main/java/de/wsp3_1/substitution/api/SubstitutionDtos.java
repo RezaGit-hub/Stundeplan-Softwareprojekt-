@@ -24,6 +24,8 @@ import de.wsp3_1.substitution.domain.WeekViews.DayView;
 import de.wsp3_1.substitution.domain.WeekViews.EntryView;
 import de.wsp3_1.substitution.domain.WeekViews.OriginalView;
 import de.wsp3_1.substitution.domain.WeekViews.WeekView;
+import de.wsp3_1.substitution.domain.SubstitutionRequestStatus;
+import de.wsp3_1.substitution.domain.SubstitutionViews.SubstitutionRequestView;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -248,5 +250,34 @@ public final class SubstitutionDtos {
     public record HolidayPresetInput(@NotBlank(message = "darf nicht leer sein")
                                      @Pattern(regexp = "\\d{4}/\\d{2}", message = "Schreibweise 2026/27")
                                      String schoolYear) {
+    }
+
+    // ------------------------------------------------------------------ Vertretungsanfragen (V14)
+
+    /** Antwort auf eine Vertretungsanfrage. */
+    public record SubstitutionRequestDto(Long id, Long teacherId, Long eventId,
+                                         SubstitutionRequestStatus status) {
+
+        public static SubstitutionRequestDto of(SubstitutionRequestView view) {
+            return new SubstitutionRequestDto(view.id(), view.teacherId(), view.eventId(), view.status());
+        }
+    }
+
+    /**
+     * Eingabe von {@code POST /api/substitution-requests}: welche Lehrkraft zu welchem Ereignis
+     * gefragt wird. Kein {@code status} — der beginnt als {@code UNKNOWN}.
+     */
+    public record CreateSubstitutionRequestDto(
+            @NotNull(message = "Bitte die Lehrkraft angeben.") Long teacherId,
+            @NotNull(message = "Bitte das Ereignis angeben.") Long eventId) {
+    }
+
+    /**
+     * Eingabe der Lehrkraft-Antwort: nur {@code status} ({@code ACCEPTED} oder {@code DECLINED});
+     * {@code UNKNOWN} weist der Dienst als 400 zurueck. {@code teacherId}/{@code eventId} stehen
+     * bewusst nicht im Body — die Lehrkraft aendert ihre eigene Antwort, nicht die Anfrage.
+     */
+    public record AnswerSubstitutionRequestDto(
+            @NotNull(message = "Bitte die Antwort angeben.") SubstitutionRequestStatus status) {
     }
 }
