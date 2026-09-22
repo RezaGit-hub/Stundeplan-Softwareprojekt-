@@ -65,6 +65,10 @@ class ArchitectureTest {
             // auf. config wird nicht gebraucht (die Systemkonfiguration ist bewusst nicht Teil des
             // Dokuments); auth, planning, changelog, solver und sampledata benutzt es nicht.
             Map.entry("transfer", Set.of("masterdata", "rules", "substitution", "shared")),
+            // Neu: das Modul absences liest und wandelt Abwesenheitsmeldungen. Es ruft dafuer den
+            // ChangeEventService der substitution (Anlegen eines TEACHER_ABSENCE-Ereignisses) und
+            // benutzt CurrentUser und die Fehlerklassen aus shared (Regel 4b waere sonst nicht greifbar).
+            Map.entry("absences", Set.of("substitution", "shared")),
             Map.entry("shared", Set.of())));
 
     private final JavaClasses classes = new ClassFileImporter()

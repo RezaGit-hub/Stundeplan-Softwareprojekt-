@@ -1,7 +1,9 @@
 package de.wsp3_1.absences.api;
 
 import de.wsp3_1.absences.api.AbsenceDtos.AbsenceDto;
+import de.wsp3_1.absences.api.AbsenceDtos.ConvertedAbsenceDto;
 import de.wsp3_1.absences.api.AbsenceDtos.CreateAbsenceDto;
+import de.wsp3_1.absences.domain.AbsenceInput;
 import de.wsp3_1.absences.domain.AbsencesService;
 import de.wsp3_1.shared.CurrentUser;
 import jakarta.validation.Valid;
@@ -11,14 +13,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-/**
- * Vertrag {@code /api/absences}: Sicht der Planung (alle Meldungen, Wandlung in ein Ereignis)
- * und Sicht der Lehrkraft (nur eigene). Rollen macht die Pfadregel in {@code SecurityConfig} —
- * hier bewusst kein {@code @PreAuthorize}, damit es bei einem Mechanismus bleibt.
- *
- * <p>Eigentum: die {@code teacherId} kommt immer aus dem Principal, nie aus dem Body oder Pfad
- * (dieselbe Regel wie in {@code AuthController}).</p>
- */
 @RestController
 @RequestMapping("/api/absences")
 public class AbsencesController {
@@ -29,37 +23,36 @@ public class AbsencesController {
         this.service = service;
     }
 
-    /** Planung: alle Meldungen. */
     @GetMapping
     public List<AbsenceDto> list() {
-        return service.listAll();
+        return service.listAll().stream().map(AbsenceDto::of).toList();
     }
 
-    /** Planung: Meldung annehmen und zu einem Ereignis machen (#116 — Ereignis folgt). */
     @PostMapping("/{id}/convert")
-    public AbsenceDtos.ConvertedAbsenceDto convert(@PathVariable Long id) {
-        return service.convert(id);
+    public ConvertedAbsenceDto convert(@PathVariable Long id) {
+        return ConvertedAbsenceDto.of(service.convert(id));
     }
 
-    /** Lehrkraft: nur die eigenen Meldungen. */
     @GetMapping("/me")
     public List<AbsenceDto> listMe(@AuthenticationPrincipal CurrentUser user) {
-        return service.listForTeacher(user.teacherId());
+        return service.listForTeacher(user.teacherId()).stream().map(AbsenceDto::of).toList();
     }
 
-    /** Lehrkraft: neue eigene Meldung. */
     @PostMapping("/me")
     @ResponseStatus(HttpStatus.CREATED)
     public AbsenceDto create(@AuthenticationPrincipal CurrentUser user,
                              @Valid @RequestBody CreateAbsenceDto input) {
-        return service.create(user.teacherId(), input);
+        AbsenceInput domainInput = new AbsenceInput(input.dateFrom(), input.dateTo(),
+                input.reason(), input.active());
+        return AbsenceDto.of(service.create(user.teacherId(), domainInput));
     }
 
-    /** Lehrkraft: eigene Meldung bearbeiten. */
     @PutMapping("/me/{id}")
     public AbsenceDto update(@AuthenticationPrincipal CurrentUser user,
                              @PathVariable Long id,
                              @Valid @RequestBody CreateAbsenceDto input) {
-        return service.update(user.teacherId(), id, input);
+        AbsenceInput domainInput = new AbsenceInput(input.dateFrom(), input.dateTo(),
+                input.reason(), input.active());
+        return AbsenceDto.of(service.update(user.teacherId(), id, domainInput));
     }
 }

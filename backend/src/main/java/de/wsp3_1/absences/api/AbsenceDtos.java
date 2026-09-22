@@ -1,6 +1,7 @@
 package de.wsp3_1.absences.api;
 
-import de.wsp3_1.absences.persistence.Absence;
+import de.wsp3_1.absences.domain.AbsenceView;
+import de.wsp3_1.absences.domain.ConvertedAbsenceView;
 import de.wsp3_1.substitution.domain.SubstitutionViews.EventView;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -17,18 +18,22 @@ public final class AbsenceDtos {
             Long id, Long teacherId, LocalDate dateFrom, LocalDate dateTo,
             String reason, boolean active, boolean seen, Long eventId) {
 
-        public static AbsenceDto of(Absence a) {
-            return new AbsenceDto(a.getId(), a.getTeacherId(), a.getDateFrom(), a.getDateTo(),
-                    a.getReason(), a.isActive(), a.isSeen(), a.getEventId());
+        public static AbsenceDto of(AbsenceView v) {
+            return new AbsenceDto(v.id(), v.teacherId(), v.dateFrom(), v.dateTo(),
+                    v.reason(), v.active(), v.seen(), v.eventId());
         }
     }
 
     /**
-     * Antwort von {@code POST /api/absences/&#123;id&#125;/convert}: die aktualisierte Meldung
-     * ({@code seen=true}, {@code eventId} gesetzt) <b>und</b> das neu angelegte Ereignis. Der Client
-     * soll beides sehen, ohne zwei Anfragen schicken zu muessen.
+     * Antwort von POST /api/absences/{id}/convert: aktualisierte Meldung und neues Ereignis.
+     * Enthaelt {@code EventView} direkt — falls ihr ein {@code SubstitutionDtos.EventDto} habt,
+     * koennt ihr das hier stattdessen nehmen (dann in {@code ConvertedAbsenceDto.of} umbauen).
      */
     public record ConvertedAbsenceDto(AbsenceDto absence, EventView event) {
+
+        public static ConvertedAbsenceDto of(ConvertedAbsenceView v) {
+            return new ConvertedAbsenceDto(AbsenceDto.of(v.absence()), v.event());
+        }
     }
 
     public record CreateAbsenceDto(

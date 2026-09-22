@@ -1,8 +1,5 @@
 package de.wsp3_1.absences.domain;
 
-import de.wsp3_1.absences.api.AbsenceDtos.AbsenceDto;
-import de.wsp3_1.absences.api.AbsenceDtos.ConvertedAbsenceDto;
-import de.wsp3_1.absences.api.AbsenceDtos.CreateAbsenceDto;
 import de.wsp3_1.absences.persistence.Absence;
 import de.wsp3_1.absences.persistence.AbsenceRepository;
 import de.wsp3_1.shared.domain.ConflictException;
@@ -31,25 +28,26 @@ public class AbsencesService {
     }
 
     @Transactional(readOnly = true)
-    public List<AbsenceDto> listAll() {
-        return absences.findAllByOrderByDateFromDesc().stream().map(AbsenceDto::of).toList();
+    public List<AbsenceView> listAll() {
+        return absences.findAllByOrderByDateFromDesc().stream().map(AbsencesService::toView).toList();
     }
 
     @Transactional(readOnly = true)
-    public List<AbsenceDto> listForTeacher(Long teacherId) {
-        return absences.findByTeacherIdOrderByDateFromDesc(teacherId).stream().map(AbsenceDto::of).toList();
+    public List<AbsenceView> listForTeacher(Long teacherId) {
+        return absences.findByTeacherIdOrderByDateFromDesc(teacherId).stream()
+                .map(AbsencesService::toView).toList();
     }
 
     @Transactional
-    public AbsenceDto create(Long teacherId, CreateAbsenceDto input) {
+    public AbsenceView create(Long teacherId, AbsenceInput input) {
         checkRange(input);
         Absence neu = new Absence(teacherId, input.dateFrom(), input.dateTo(), input.reason(),
                 input.active() == null || input.active(), false);
-        return AbsenceDto.of(absences.save(neu));
+        return toView(absences.save(neu));
     }
 
     @Transactional
-    public AbsenceDto update(Long teacherId, Long id, CreateAbsenceDto input) {
+    public AbsenceView update(Long teacherId, Long id, AbsenceInput input) {
         checkRange(input);
         Absence a = absences.findById(id).orElseThrow(() -> new NotFoundException("Diese Meldung gibt es nicht."));
         if (!a.getTeacherId().equals(teacherId)) {
@@ -60,23 +58,11 @@ public class AbsencesService {
         a.setReason(input.reason());
         a.setActive(input.active() == null || input.active());
         a.setSeen(false);
-        return AbsenceDto.of(a);
+        return toView(a);
     }
 
-    /**
-     * Meldung annehmen (Planung, #116): legt ein {@code change_event} der Art {@code TEACHER_ABSENCE}
-     * an und verknuepft es mit der Meldung. Der Regelplan bleibt unveraendert — das Ereignis haengt
-     * am Kalendertag, welche Stunden es trifft, rechnet der {@code WeekResolver} (E-31).
-     *
-     * <p>Die Meldung gilt danach als gesehen ({@code seen=true}). {@code active} bleibt unangetastet.</p>
-     *
-     * <p>Zurueck kommt beides: die aktualisierte Meldung <b>und</b> das neue Ereignis
-     * ({@link ConvertedAbsenceDto}).</p>
-     *
-     * @throws ConflictException {@code already-converted}, wenn schon ein Ereignis dranhaengt
-     */
     @Transactional
-    public ConvertedAbsenceDto convert(Long id) {
+    public ConvertedAbsenceView convert(Long id) {
         Absence a = absences.findById(id)
                 .orElseThrow(() -> new NotFoundException("Diese Meldung gibt es nicht."));
         if (a.getEventId() != null) {
@@ -93,7 +79,12 @@ public class AbsencesService {
         EventView created = changeEvents.create(input);
         a.setEventId(created.id());
         a.setSeen(true);
-        return new ConvertedAbsenceDto(AbsenceDto.of(a), created);
+        return new ConvertedAbsenceView(toView(a), created);
+    }
+
+    private static AbsenceView toView(Absence a) {
+        return new AbsenceView(a.getId(), a.getTeacherId(), a.getDateFrom(), a.getDateTo(),
+                a.getReason(), a.isActive(), a.isSeen(), a.getEventId());
     }
 
     private static String trimReason(String reason) {
@@ -103,7 +94,7 @@ public class AbsencesService {
         return reason.length() <= MAX_REASON_LENGTH ? reason : reason.substring(0, MAX_REASON_LENGTH);
     }
 
-    private void checkRange(CreateAbsenceDto input) {
+    private void checkRange(AbsenceInput input) {
         if (input.dateTo().isBefore(input.dateFrom())) {
             throw new ValidationException("dateTo", "Das Bis-Datum darf nicht vor dem Von-Datum liegen.");
         }
