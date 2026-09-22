@@ -37,7 +37,7 @@ public class AbsencesController {
 
     /** Planung: Meldung annehmen und zu einem Ereignis machen (#116 — Ereignis folgt). */
     @PostMapping("/{id}/convert")
-    public AbsenceDto convert(@PathVariable Long id) {
+    public AbsenceDtos.ConvertedAbsenceDto convert(@PathVariable Long id) {
         return service.convert(id);
     }
 

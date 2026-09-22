@@ -1,27 +1,33 @@
 package de.wsp3_1.absences.domain;
 
 import de.wsp3_1.absences.api.AbsenceDtos.AbsenceDto;
+import de.wsp3_1.absences.api.AbsenceDtos.ConvertedAbsenceDto;
 import de.wsp3_1.absences.api.AbsenceDtos.CreateAbsenceDto;
 import de.wsp3_1.absences.persistence.Absence;
 import de.wsp3_1.absences.persistence.AbsenceRepository;
+import de.wsp3_1.shared.domain.ConflictException;
 import de.wsp3_1.shared.domain.NotFoundException;
 import de.wsp3_1.shared.domain.ValidationException;
+import de.wsp3_1.substitution.domain.ChangeEventService;
+import de.wsp3_1.substitution.domain.EventKind;
+import de.wsp3_1.substitution.domain.SubstitutionViews.EventView;
+import de.wsp3_1.substitution.domain.SubstitutionViews.NewEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/**
- * Abwesenheitsmeldungen (#115, #116). Die Lehrkraft sieht und pflegt nur die eigenen; die Planung
- * sieht alle und wandelt eine Meldung in ein Ereignis (siehe {@link #convert}).
- */
 @Service
 public class AbsencesService {
 
-    private final AbsenceRepository absences;
+    private static final int MAX_REASON_LENGTH = 255;
 
-    public AbsencesService(AbsenceRepository absences) {
+    private final AbsenceRepository absences;
+    private final ChangeEventService changeEvents;
+
+    public AbsencesService(AbsenceRepository absences, ChangeEventService changeEvents) {
         this.absences = absences;
+        this.changeEvents = changeEvents;
     }
 
     @Transactional(readOnly = true)
@@ -34,7 +40,6 @@ public class AbsencesService {
         return absences.findByTeacherIdOrderByDateFromDesc(teacherId).stream().map(AbsenceDto::of).toList();
     }
 
-    /** Neue Meldung der eingeloggten Lehrkraft. Ungelesen ({@code seen=false}). */
     @Transactional
     public AbsenceDto create(Long teacherId, CreateAbsenceDto input) {
         checkRange(input);
@@ -43,16 +48,11 @@ public class AbsencesService {
         return AbsenceDto.of(absences.save(neu));
     }
 
-    /**
-     * Bearbeiten der eigenen Meldung. Eine Bearbeitung setzt sie wieder auf ungelesen — die Planung
-     * hat die alte Fassung gesehen, nicht die neue (so steht es in der Beschreibung von {@code seen}).
-     */
     @Transactional
     public AbsenceDto update(Long teacherId, Long id, CreateAbsenceDto input) {
         checkRange(input);
         Absence a = absences.findById(id).orElseThrow(() -> new NotFoundException("Diese Meldung gibt es nicht."));
         if (!a.getTeacherId().equals(teacherId)) {
-            // Keine fremde Meldung — auch nicht verraten, dass es sie gibt.
             throw new NotFoundException("Diese Meldung gibt es nicht.");
         }
         a.setDateFrom(input.dateFrom());
@@ -64,14 +64,43 @@ public class AbsencesService {
     }
 
     /**
-     * Meldung akzeptieren (Planung). Aktuell wird die Meldung unveraendert zurueckgegeben —
-     * das Anlegen des zugehoerigen Ereignisses kommt spaeter (#116).
+     * Meldung annehmen (Planung, #116): legt ein {@code change_event} der Art {@code TEACHER_ABSENCE}
+     * an und verknuepft es mit der Meldung. Der Regelplan bleibt unveraendert — das Ereignis haengt
+     * am Kalendertag, welche Stunden es trifft, rechnet der {@code WeekResolver} (E-31).
+     *
+     * <p>Die Meldung gilt danach als gesehen ({@code seen=true}). {@code active} bleibt unangetastet.</p>
+     *
+     * <p>Zurueck kommt beides: die aktualisierte Meldung <b>und</b> das neue Ereignis
+     * ({@link ConvertedAbsenceDto}).</p>
+     *
+     * @throws ConflictException {@code already-converted}, wenn schon ein Ereignis dranhaengt
      */
     @Transactional
-    public AbsenceDto convert(Long id) {
-        Absence a = absences.findById(id).orElseThrow(() -> new NotFoundException("Diese Meldung gibt es nicht."));
-        // TODO #116: Ereignis aus dieser Abwesenheit erzeugen.
-        return AbsenceDto.of(a);
+    public ConvertedAbsenceDto convert(Long id) {
+        Absence a = absences.findById(id)
+                .orElseThrow(() -> new NotFoundException("Diese Meldung gibt es nicht."));
+        if (a.getEventId() != null) {
+            throw new ConflictException("already-converted", "Diese Meldung wurde bereits umgewandelt.");
+        }
+        NewEvent input = new NewEvent(
+                EventKind.TEACHER_ABSENCE,
+                a.getTeacherId(),
+                null,
+                a.getDateFrom(),
+                a.getDateTo(),
+                trimReason(a.getReason()),
+                null);
+        EventView created = changeEvents.create(input);
+        a.setEventId(created.id());
+        a.setSeen(true);
+        return new ConvertedAbsenceDto(AbsenceDto.of(a), created);
+    }
+
+    private static String trimReason(String reason) {
+        if (reason == null) {
+            return null;
+        }
+        return reason.length() <= MAX_REASON_LENGTH ? reason : reason.substring(0, MAX_REASON_LENGTH);
     }
 
     private void checkRange(CreateAbsenceDto input) {

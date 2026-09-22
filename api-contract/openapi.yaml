@@ -3582,6 +3582,22 @@ paths:
       tags: [Abwesenheit]
       operationId: convertAbsences
       summary: Akzeptiere Abwesenheitsmeldung und mache zu Ereignis
+      x-role: PLANNING
+      responses:
+        '200':
+          description: Meldung angenommen, Ereignis angelegt
+          content:
+            application/json:
+            schema:
+              type: object
+              required: [absence, event]
+              properties:
+                absence: { $ref: '#/components/schemas/AbsencesDto' }
+                event:   { $ref: '#/components/schemas/EventDto' }
+        '401': { $ref: '#/components/responses/Unauthenticated401' }
+        '403': { $ref: '#/components/responses/Forbidden403' }
+        '404': { $ref: '#/components/responses/NotFound404' }
+        '409': { description: Meldung wurde bereits umgewandelt }
   
   /api/absences/me:
     get:
@@ -5224,6 +5240,6 @@ components:
       properties:
         dateFrom: { type: string, format: date }
         dateTo: { type: string, format: date }
-        reason: { type: string, examples: [Krankmeldung] }
+        reason: { type: string, maxLength: 255, examples: [Krankmeldung] }
         active: { type: boolean, description: false = deaktiviert; Wurde von einer Lehrkraft zurückgenommen }
 
