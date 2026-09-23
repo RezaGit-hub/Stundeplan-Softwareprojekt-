@@ -23,10 +23,7 @@ import de.wsp3_1.substitution.domain.SubstitutionViews.ExceptionView;
 import de.wsp3_1.substitution.domain.SubstitutionViews.NewException;
 import de.wsp3_1.substitution.domain.WeekViews.DayView;
 import de.wsp3_1.substitution.domain.WeekViews.EntryView;
-import de.wsp3_1.substitution.persistence.ChangeEvent;
-import de.wsp3_1.substitution.persistence.ChangeEventRepository;
-import de.wsp3_1.substitution.persistence.LessonException;
-import de.wsp3_1.substitution.persistence.LessonExceptionRepository;
+import de.wsp3_1.substitution.persistence.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -68,12 +65,14 @@ public class ExceptionService {
     private final ConflictService conflictService;
     private final ChangelogService changelog;
     private final WeekResolver weekResolver;
+    private final SubstitutionRequestRepository substitutionRequests;
 
     public ExceptionService(LessonExceptionRepository exceptions, ChangeEventRepository events,
                             Actors actors, TeacherRepository teachers,
                             RoomRepository rooms, TimeslotRepository timeslots,
                             PlanReader planReader, ConflictService conflictService,
-                            ChangelogService changelog, WeekResolver weekResolver) {
+                            ChangelogService changelog, WeekResolver weekResolver,
+                            SubstitutionRequestRepository substitutionRequests) {
         this.exceptions = exceptions;
         this.events = events;
         this.actors = actors;
@@ -84,6 +83,7 @@ public class ExceptionService {
         this.conflictService = conflictService;
         this.changelog = changelog;
         this.weekResolver = weekResolver;
+        this.substitutionRequests = substitutionRequests;
     }
 
     /** Die Ausnahmen eines Zeitraums; {@code conflicts} bleibt hier leer (nur {@code POST} fuellt es). */
@@ -125,6 +125,10 @@ public class ExceptionService {
                 input.newTimeslotId(), Instant.now(), actor);
         exception.getEventIds().addAll(eventIds(input, lesson, vorher, tagesereignisse));
         exceptions.saveAndFlush(exception);
+        // SUBSTITUTION, CANCEL und MOVE erledigen die Stunde an diesem Tag: die Planung hat
+        // entschieden, die Anfragen an die Lehrkraft sind gegenstandslos und werden geloescht.
+        // DELETE /api/exceptions/{id} holt sie nicht zurueck — die Lehrkraft hat schon reagiert.
+        substitutionRequests.deleteByLessonIdAndDate(lesson.id(), input.date());
 
         DayView nachher = resolvedDay(input.date());
         String newAssignment = newAssignmentText(input, lesson, nachher);
