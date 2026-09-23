@@ -21,4 +21,12 @@ public interface SubstitutionRequestRepository extends JpaRepository<Substitutio
 
     boolean existsByTeacherIdAndLessonIdAndDate(Long teacherId, Long lessonId, LocalDate date);
     Optional<SubstitutionRequest> findByTeacherIdAndLessonIdAndDate(Long teacherId, Long lessonId, LocalDate date);
+
+    /**
+     * Löscht alle Anfragen zu einer konkreten Stunde an einem Tag. Wird von
+     * {@code ExceptionService.create} aufgerufen, sobald eine datierte Ausnahme
+     * (SUBSTITUTION, CANCEL, MOVE) zu dieser Stunde entsteht — dann ist die Anfrage
+     * gegenstandslos und die Lehrkraft soll sie nicht mehr sehen.
+     */
+    void deleteByLessonIdAndDate(Long lessonId, java.time.LocalDate date);
 }

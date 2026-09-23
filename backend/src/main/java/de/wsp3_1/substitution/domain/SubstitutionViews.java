@@ -108,11 +108,25 @@ public final class SubstitutionViews {
     // ------------------------------------------------------------------ Vertretungsanfragen (V14-15)
 
     /**
-     * Leseform einer Vertretungsanfrage. Nur die Felder, die in der Datenbank stehen; die
-     * Anzeigefelder (Klasse, Fach, Position, Raum, ausfallende Lehrkraft) setzt der Controller
-     * aus der pending-Sicht des Tages zusammen (siehe {@code SubstitutionDtos.SubstitutionRequestDto}).
+     * Leseform einer Vertretungsanfrage. Sie traegt die Zeile aus der Datenbank und die
+     * Anzeigefelder, die der Dienst beim Lesen aus der pending-Sicht des Tages setzt. Die
+     * Anzeigefelder stehen NICHT in der Datenbank; bei einem Planwechsel koennen sie fehlen —
+     * dann blendet der Dienst die Anfrage aus.
      */
-    public record SubstitutionRequestView(Long id, Long teacherId, Long lessonId, LocalDate date,
-                                          SubstitutionRequestStatus status) {
+    public record SubstitutionRequestView(
+            Long id,
+            Long teacherId,
+            Long lessonId,
+            LocalDate date,
+            String classShort,
+            String subjectShort,
+            Integer position,
+            String roomShort,
+            String originalTeacherShort,
+            SubstitutionRequestStatus status) {
+    }
+
+    /** Eine neue Anfrage, wie der Controller sie dem Dienst uebergibt. */
+    public record NewSubstitutionRequest(Long teacherId, Long lessonId, LocalDate date) {
     }
 }
