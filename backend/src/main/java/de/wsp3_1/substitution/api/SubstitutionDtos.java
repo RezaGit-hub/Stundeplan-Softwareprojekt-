@@ -252,30 +252,48 @@ public final class SubstitutionDtos {
                                      String schoolYear) {
     }
 
-    // ------------------------------------------------------------------ Vertretungsanfragen (V14)
+    // ------------------------------------------------------------------ Vertretungsanfragen (V14/V15)
 
-    /** Antwort auf eine Vertretungsanfrage. */
-    public record SubstitutionRequestDto(Long id, Long teacherId, Long eventId,
-                                         SubstitutionRequestStatus status) {
+    /**
+     * Antwort: die Zeile aus der Datenbank plus die Anzeigefelder, die der Dienst beim Lesen
+     * aus der pending-Sicht des Tages setzt. Diese Felder stehen NICHT in der Datenbank — der
+     * Vertrag traegt sie trotzdem, damit die App nichts nachladen muss.
+     */
+    public record SubstitutionRequestDto(
+            Long id,
+            Long teacherId,
+            Long lessonId,
+            LocalDate date,
+            String classShort,
+            String subjectShort,
+            Integer position,
+            String roomShort,
+            String originalTeacherShort,
+            SubstitutionRequestStatus status) {
 
-        public static SubstitutionRequestDto of(SubstitutionRequestView view) {
-            return new SubstitutionRequestDto(view.id(), view.teacherId(), view.eventId(), view.status());
+        public static SubstitutionRequestDto of(SubstitutionRequestView view, PendingRowView pending) {
+            return new SubstitutionRequestDto(view.id(), view.teacherId(),
+                    view.lessonId(), view.date(),
+                    pending.classShort(), pending.subjectShort(), pending.position(),
+                    pending.roomShort(), pending.teacherShort(),
+                    view.status());
         }
     }
 
     /**
-     * Eingabe von {@code POST /api/substitution-requests}: welche Lehrkraft zu welchem Ereignis
-     * gefragt wird. Kein {@code status} — der beginnt als {@code UNKNOWN}.
+     * Eine Zeile des POST-Arrays: welche Lehrkraft zu welcher Stunde an welchem Tag gefragt
+     * wird. Der Dienst loest daraus die pending-Zeile auf (WeekResolver) und fuellt die
+     * Anzeigefelder in der Antwort.
      */
     public record CreateSubstitutionRequestDto(
             @NotNull(message = "Bitte die Lehrkraft angeben.") Long teacherId,
-            @NotNull(message = "Bitte das Ereignis angeben.") Long eventId) {
+            @NotNull(message = "Bitte die Stunde angeben.") Long lessonId,
+            @NotNull(message = "Bitte den Tag angeben.") LocalDate date) {
     }
 
     /**
      * Eingabe der Lehrkraft-Antwort: nur {@code status} ({@code ACCEPTED} oder {@code DECLINED});
-     * {@code UNKNOWN} weist der Dienst als 400 zurueck. {@code teacherId}/{@code eventId} stehen
-     * bewusst nicht im Body — die Lehrkraft aendert ihre eigene Antwort, nicht die Anfrage.
+     * {@code UNKNOWN} weist der Dienst als 400 zurueck.
      */
     public record AnswerSubstitutionRequestDto(
             @NotNull(message = "Bitte die Antwort angeben.") SubstitutionRequestStatus status) {
