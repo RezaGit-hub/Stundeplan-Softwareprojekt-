@@ -15,6 +15,11 @@ import java.time.LocalDate
  * Schnittstelle, damit das ViewModel in JVM-Tests eine Attrappe bekommt.
  */
 interface TimetableRepository {
+    suspend fun loadSubstitutionRequests(): SubstitutionResult<List<SubstitutionRequestDto>> =
+        SubstitutionResult.Failure(null, "Vertretungsanfragen sind nicht verfügbar.")
+
+    suspend fun answerSubstitutionRequest(id: Long, status: SubstitutionRequestStatus): SubstitutionResult<SubstitutionRequestDto> =
+        SubstitutionResult.Failure(null, "Vertretungsanfragen sind nicht verfügbar.")
 
     /** Prueft eine noch nicht gespeicherte Adresse (A-3, T-A3.1). */
     suspend fun checkHealth(baseUrl: String): HealthResult
@@ -57,6 +62,42 @@ class HttpTimetableRepository(
     private var api: TimetableApi? = null
     private var apiBaseUrl: String? = null
     private var timegridInMemory: TimegridDto? = null
+
+    override suspend fun loadSubstitutionRequests() = substitutionCall { api, auth ->
+        api.substitutionRequests(auth)
+    }
+
+    override suspend fun answerSubstitutionRequest(id: Long, status: SubstitutionRequestStatus): SubstitutionResult<SubstitutionRequestDto> {
+        require(status != SubstitutionRequestStatus.UNKNOWN)
+        return substitutionCall { api, auth ->
+            api.answerSubstitutionRequest(auth, id, AnswerSubstitutionRequestDto(status))
+        }
+    }
+
+    private suspend fun <T> substitutionCall(call: suspend (TimetableApi, String) -> Response<T>): SubstitutionResult<T> = withContext(Dispatchers.IO) {
+        val url = settings.serverUrl.first()
+            ?: return@withContext SubstitutionResult.Failure(null, "Bitte zuerst einen Server speichern.")
+        val token = settings.token.first()
+            ?: return@withContext SubstitutionResult.Failure(401, "Bitte erneut anmelden.")
+        try {
+            val response = call(apiFor(url), ApiFactory.bearer(token))
+            val body = response.body()
+            if (response.isSuccessful && body != null) SubstitutionResult.Success(body)
+            else SubstitutionResult.Failure(response.code(), when (response.code()) {
+                401 -> "Die Sitzung ist abgelaufen. Bitte erneut anmelden."
+                403 -> "Vertretungsanfragen sind auf dem Server derzeit nicht verfügbar."
+                404 -> "Die Anfrage ist nicht mehr verfügbar. Bitte aktualisieren."
+                409 -> "Die Anfrage wurde bereits beantwortet. Bitte aktualisieren."
+                else -> problemDetail(response)?.detail ?: "Die Anfrage konnte nicht verarbeitet werden."
+            })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            SubstitutionResult.Failure(null, "Keine Verbindung. Bitte erneut versuchen; die Antwort wurde nicht bestätigt.")
+        } catch (e: Exception) {
+            SubstitutionResult.Failure(null, "Die Serverantwort konnte nicht verarbeitet werden.")
+        }
+    }
 
     /** Adresse geaendert -> Retrofit neu bauen (A-3); das Raster des alten Servers faellt dabei weg. */
     private fun apiFor(baseUrl: String): TimetableApi {
