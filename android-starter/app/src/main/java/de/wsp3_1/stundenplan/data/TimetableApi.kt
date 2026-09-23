@@ -7,6 +7,8 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Query
+import retrofit2.http.PATCH
+import retrofit2.http.Path
 
 /**
  * Retrofit-Schnittstelle zum Vertrag (api-contract/openapi.yaml). Das Token wird je Aufruf als
@@ -14,6 +16,18 @@ import retrofit2.http.Query
  * und die Tests kommen ohne Interceptor aus.
  */
 interface TimetableApi {
+    @GET("api/substitution-requests/me")
+    suspend fun substitutionRequests(
+        @Header("Authorization") authorization: String,
+        @Query("open") open: Boolean = true,
+    ): Response<List<SubstitutionRequestDto>>
+
+    @PATCH("api/substitution-requests/me/{id}")
+    suspend fun answerSubstitutionRequest(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+        @Body body: AnswerSubstitutionRequestDto,
+    ): Response<SubstitutionRequestDto>
 
     @GET("api/health")
     suspend fun health(): Response<HealthDto>

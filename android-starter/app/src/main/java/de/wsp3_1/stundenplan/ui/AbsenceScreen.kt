@@ -61,6 +61,7 @@ fun AbsenceScreen(
     onDay: (LocalDate) -> Unit,
     onWeek: () -> Unit,
     onSettings: () -> Unit,
+    onSubstitute: () -> Unit = {},
 ) {
     var showDialog by remember { mutableStateOf(false) }
     var reason by remember { mutableStateOf("") }
@@ -104,7 +105,7 @@ fun AbsenceScreen(
                     label = {
                         Text(
                             text = "Tag",
-                            fontSize = 18.sp
+                            maxLines = 1
                         )
                     }
                 )
@@ -121,7 +122,7 @@ fun AbsenceScreen(
                     label = {
                         Text(
                             text = "Woche",
-                            fontSize = 18.sp
+                            maxLines = 1
                         )
                     }
                 )
@@ -139,7 +140,7 @@ fun AbsenceScreen(
                         label = {
                             Text(
                                 text = "Abwesenheit",
-                                fontSize = 18.sp
+                            maxLines = 1
                             )
                         },
                         colors = NavigationBarItemDefaults.colors(
@@ -151,6 +152,7 @@ fun AbsenceScreen(
                         )
                     )
                 }
+                if (isTeacher) SubstitutionTab(onClick = onSubstitute)
             }
         }
     ) { innerPadding ->
