@@ -282,13 +282,10 @@ public final class SubstitutionDtos {
 
     /**
      * Eine Zeile des POST-Arrays: welche Lehrkraft zu welcher Stunde an welchem Tag gefragt
-     * wird. Der Dienst loest daraus die pending-Zeile auf (WeekResolver) und fuellt die
-     * Anzeigefelder in der Antwort.
+     * wird. Die Pruefung passiert im Dienst (pending-Lookup, Lehrerpruefung, Dublette) — die
+     * Bean-Validation kann das nicht leisten und ist deshalb hier nicht im Spiel.
      */
-    public record CreateSubstitutionRequestDto(
-            @NotNull(message = "Bitte die Lehrkraft angeben.") Long teacherId,
-            @NotNull(message = "Bitte die Stunde angeben.") Long lessonId,
-            @NotNull(message = "Bitte den Tag angeben.") LocalDate date) {
+    public record CreateSubstitutionRequestDto(Long teacherId, Long lessonId, LocalDate date) {
     }
 
     /**
