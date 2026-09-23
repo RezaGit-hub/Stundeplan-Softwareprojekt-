@@ -34,6 +34,7 @@ export type ExceptionKind = 'SUBSTITUTION' | 'MOVE' | 'CANCEL' | 'ADDED'
 export type ChangelogAction = 'EXCEPTION_CREATED' | 'EXCEPTION_DELETED' | 'TIMETABLE_ACCEPTED'
 export type HolidayKind = 'VACATION' | 'PUBLIC_HOLIDAY'
 export type WarningCode = 'SUBJECT_NOT_TAUGHT' | 'QUOTA_EXCEEDED'
+export type SubstitutionRequestStatus = 'UNKNOWN' | 'ACCEPTED' | 'DECLINED'
 
 // ------------------------------------------------------------------ Auth, Konten
 export interface HealthDto { status: string; schoolName: string }
@@ -381,6 +382,23 @@ export interface ExceptionDto {
   /** Folgekonflikte des Tages — Daten, kein Fehler */
   conflicts: ConflictDto[]
 }
+
+export interface SubstitutionRequestDto {
+  id: number
+  teacherId: number
+  lessonId: number
+  date: string
+  classShort: string
+  subjectShort: string
+  position: number
+  roomShort: string
+  originalTeacherShort: string
+  status: SubstitutionRequestStatus
+}
+export interface CreateSubstitutionRequestInput { teacherId: number; lessonId: number; date: string }
+export interface AnswerSubstitutionRequestInput { status: 'ACCEPTED' | 'DECLINED' }
+
+
 export interface ExceptionInput {
   date: string
   lessonId: number
@@ -598,6 +616,16 @@ export interface Api {
   listExceptions(q: { from: string; to: string }): Promise<ExceptionDto[]>
   createException(body: ExceptionInput): Promise<ExceptionDto>
   deleteException(id: number): Promise<void>
+
+    listExceptions(q: { from: string; to: string }): Promise<ExceptionDto[]>
+  createException(body: ExceptionInput): Promise<ExceptionDto>
+  deleteException(id: number): Promise<void>
+
+  listSubstitutionRequests(teacherId?: number): Promise<SubstitutionRequestDto[]>
+  createSubstitutionRequests(body: CreateSubstitutionRequestInput[]): Promise<SubstitutionRequestDto[]>
+  withdrawSubstitutionRequest(id: number): Promise<void>
+  listMySubstitutionRequests(open?: boolean): Promise<SubstitutionRequestDto[]>
+  answerSubstitutionRequest(id: number, body: AnswerSubstitutionRequestInput): Promise<SubstitutionRequestDto>
 
   getChangelog(q?: ChangelogQuery): Promise<ChangelogPage>
 

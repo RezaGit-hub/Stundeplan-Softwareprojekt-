@@ -23,6 +23,7 @@ import {
   type RepairInput,                              // ← nur wenn in types.ts vorhanden
   type RoomInput, type RuleInput, type SectionImportResult, type SubjectInput,
   type TeacherInput, type TimegridInput, type TourFlag, type TransferScope, type View,
+  type CreateSubstitutionRequestInput,
 } from './types'
 
 import { api } from './api'
@@ -143,6 +144,12 @@ export function useChangelog(q: ChangelogQuery) {
 export function useHolidays() {
   return useQuery({ queryKey: qk.holidays, queryFn: api.listHolidays })
 }
+
+/** Admin-Sicht: alle Anfragen, optional auf eine Lehrkraft eingeschränkt. */
+export function useSubstitutionRequests(teacherId?: number) {
+  return useQuery({ queryKey: qk.substitutionRequests(teacherId), queryFn: () => api.listSubstitutionRequests(teacherId) })
+}
+
 /** Schuljahre der mitgelieferten Vorlage zum eingestellten Bundesland (E-51); leer = keine Vorlage. */
 export function useHolidayPresetYears() {
   return useQuery({ queryKey: qk.holidayPresetYears, queryFn: api.listHolidayPresetYears })
@@ -311,6 +318,14 @@ export function useImportMasterDataSection(scope: TransferScope, opts?: Mutation
 }
 
 export const useDeleteUser = (opts?: MutationOpts) => useApiMutation((id: number) => api.deleteUser(id), (qc) => invalidate(qc, qk.users), opts)
+
+// Vertretungsanfragen (V14/V15): eine Anfrage ist immer genau eine Stunde; "mehrere Stunden anfragen"
+// heißt serverseitig mehrere Zeilen in einem POST-Array. Invalidiert wird großzügig über beide
+// Präfixe, weil unklar ist, welche Lehrkraft/welcher Filter aktuell offen ist.
+export const useCreateSubstitutionRequests = (opts?: MutationOpts) =>
+  useApiMutation((body: CreateSubstitutionRequestInput[]) => api.createSubstitutionRequests(body), (qc) => invalidate(qc, qk.substitutionRequestsAll, qk.mySubstitutionRequestsAll), opts)
+export const useWithdrawSubstitutionRequest = (opts?: MutationOpts) =>
+  useApiMutation((id: number) => api.withdrawSubstitutionRequest(id), (qc) => invalidate(qc, qk.substitutionRequestsAll, qk.mySubstitutionRequestsAll), opts)
 
 // Rundgang (#139): danach /me neu laden — daran hängt, ob das Overlay in der Shell erscheint.
 export const useSetTour = () => useApiMutation((body: TourFlag) => api.setTour(body), (qc) => invalidate(qc, qk.me))

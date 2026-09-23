@@ -160,6 +160,12 @@ deleteUser: (id) => request('DELETE', `/users/${id}`),
   createException: (body) => request('POST', '/exceptions', { body }),
   deleteException: (id) => request('DELETE', `/exceptions/${id}`),
 
+    listSubstitutionRequests: (teacherId) => request('GET', '/substitution-requests', { query: teacherId != null ? { teacherId } : undefined }),
+  createSubstitutionRequests: (body) => request('POST', '/substitution-requests', { body }),
+  withdrawSubstitutionRequest: (id) => request('DELETE', `/substitution-requests/${id}`),
+  listMySubstitutionRequests: (open) => request('GET', '/substitution-requests/me', { query: open ? { open: true } : undefined }),
+  answerSubstitutionRequest: (id, body) => request('PATCH', `/substitution-requests/me/${id}`, { body }),
+
   getChangelog: (q) => request('GET', '/changelog', { query: q }),
 
   listHolidays: () => request('GET', '/holidays'),

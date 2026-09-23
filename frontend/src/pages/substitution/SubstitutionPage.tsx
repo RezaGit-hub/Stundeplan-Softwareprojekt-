@@ -1,6 +1,6 @@
 // /vertretung?datum= — das Leitszenario in EINER Ansicht: links Ereignis erfassen, Mitte offene Stunden der Woche,
 // rechts Optionen der markierten Stunde. Zuweisen speichert und markiert die nächste offene Stunde.
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useDeleteException, usePending } from '@/api/hooks'
@@ -17,6 +17,7 @@ import { rowKey, type ResolvedRow, type SelectedLesson } from '@/components/subs
 import { between, formatDay, weekRange } from '@/lib/dates'
 import { today } from '@/lib/today'
 
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export function SubstitutionPage() {
@@ -31,6 +32,16 @@ export function SubstitutionPage() {
   const [selected, setSelected] = useState<SelectedLesson | null>(null)
   const [resolved, setResolved] = useState<ResolvedRow[]>([])
   const [last, setLast] = useState<ResolvedRow | null>(null)
+
+  const [leftEl, setLeftEl] = useState<HTMLDivElement | null>(null)
+  const [leftHeight, setLeftHeight] = useState<number>()
+
+  useEffect(() => {
+    if (!leftEl) return
+    const observer = new ResizeObserver(([entry]) => setLeftHeight(entry.contentRect.height))
+    observer.observe(leftEl)
+    return () => observer.disconnect()
+  }, [leftEl])
 
   // Markierte Stunde: die gewählte, sonst die erste noch offene der Woche (abgeleitet, kein Effekt)
   const resolvedKeys = new Set(resolved.map((r) => rowKey(r.row)))
@@ -51,6 +62,10 @@ export function SubstitutionPage() {
     setSelected(next ? { date: next.date, lessonId: next.lessonId } : null)
     setLast(result)
   }
+
+  
+  const relatedRows = selectedRow ? (pending.data ?? []).filter((r) => r.eventIds.some((id) => selectedRow.eventIds.includes(id))) : []
+  
 
   /**
    * Eine falsche Zuweisung zuruecknehmen (FRONTEND-2): die Ausnahme loeschen, die Zeile wieder oeffnen
@@ -82,12 +97,12 @@ export function SubstitutionPage() {
       </p>
 
       <div className="grid items-start gap-5 xl:grid-cols-[17rem_minmax(0,1fr)_19rem]">
-        <div className="space-y-4">
+        <div ref={setLeftEl} className="space-y-4">
           <EventForm defaultDate={datum} onCreated={onCreated} />
           <AbsenceNoticeCard from={from} to={to} />
           <EventList from={from} to={to} />
         </div>
-
+        
         <div className="min-w-0">
           <PendingTable
             from={from}
@@ -98,10 +113,19 @@ export function SubstitutionPage() {
             onUndo={(res) => void onUndo(res)}
           />
         </div>
-
-        <div className="space-y-3 xl:sticky xl:top-[68px]">
+        
+        <div
+          className="min-h-0 space-y-3 overflow-y-auto xl:sticky xl:top-[68px]"
+          style={leftHeight ? { maxHeight: leftHeight } : undefined}
+        >
           <div className="min-h-64">
-            <OptionsPanel key={selectedRow ? rowKey(selectedRow) : 'none'} row={selectedRow} onAssigned={onAssigned} />
+            <OptionsPanel
+              key={selectedRow ? rowKey(selectedRow) : 'none'}
+              row={selectedRow}
+              onAssigned={onAssigned}
+              relatedRows={relatedRows}
+              
+            />
           </div>
           {last && last.conflicts.length > 0 && (
             <ProblemBanner problem={{ type: 'urn:pushnpull:problem:follow-up-conflicts', title: `Folgekonflikte: ${last.row.classShort}, ${formatDay(last.row.date)}`, status: 200, conflicts: last.conflicts }} />

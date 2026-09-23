@@ -2,7 +2,7 @@
 // Interne Datensätze sind schlanker als die DTOs (z. B. Klasse ohne Warnungen) — die DTOs baut mock-api.ts.
 import type {
   ChangelogItem, ConfigDto, DraftSource, DraftStatus, EventKind, ExceptionKind, HolidayDto, Role, RuleDto, RuleType, SolveInfo,
-  SubjectDto, RoomDto, TimeslotDto, ExtraLessonInput,
+  SubjectDto, RoomDto, TimeslotDto, ExtraLessonInput, SubstitutionRequestStatus,
 } from '@/api/types'
 import { planValidFrom } from '@/lib/dates'
 import { today } from '@/lib/today'
@@ -90,6 +90,18 @@ export interface MockChangelogEntry extends ChangelogItem {
   teacherId: number | null
 }
 
+/** Eine Zeile V14: wer, welche Stunde, welcher Tag, Antwort. Anzeigefelder (Klasse, Fach, Raum, ...)
+ *  stehen nicht hier, sondern werden beim Lesen aus der Pending-Sicht des Tages nachgeschlagen — wie
+ *  im Backend (SubstitutionRequestDto.of(view, pending)). */
+export interface MockSubstitutionRequest {
+  id: number
+  teacherId: number
+  lessonId: number
+  date: string
+  status: SubstitutionRequestStatus
+  createdAt: string
+}
+
 export interface Store {
   teachers: MockTeacher[]
   subjects: SubjectDto[]
@@ -102,6 +114,7 @@ export interface Store {
   timetables: MockTimetable[]
   events: MockEvent[]
   exceptions: MockException[]
+  substitutionRequests: MockSubstitutionRequest[]
   changelog: MockChangelogEntry[]
   holidays: HolidayDto[]
   /** token → userId */
@@ -124,8 +137,9 @@ export function emptyStore(): Store {
   return {
     teachers: [], subjects: [], rooms: [], classes: [], timeslots: [], rules: [],
     config: { schoolName: '', state: DEFAULT_STATE, schoolType: 'GYMNASIUM', maxSolveSeconds: 60 },
-    users: [], timetables: [], events: [], exceptions: [], changelog: [], holidays: [],
+        users: [], timetables: [], events: [], exceptions: [], changelog: [], holidays: [], substitutionRequests: [],
     tokens: new Map(), solveTimers: new Map(),
+    
   }
 }
 

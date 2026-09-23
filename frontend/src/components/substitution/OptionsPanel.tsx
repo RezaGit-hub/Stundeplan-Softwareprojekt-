@@ -3,9 +3,11 @@
 // Zuweisen (Lehrkraft und/oder Raum in EINER POST /exceptions) · Entfall · Verlegen…
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { ArrowRightLeft, Ban, Check, DoorOpen, MousePointerClick, Users } from 'lucide-react'
+import { ArrowRightLeft, Ban, Check, DoorOpen, MessageCircleQuestion, MousePointerClick, Users } from 'lucide-react'
+import { TeacherRequestPanel } from './TeacherRequestPanel'
+import { useTeacherRequestGroups } from './teacher-requests'
 import { toastValidation } from '@/api/errors'
-import { useCreateException, useOptions, useSubjects, useTimegrid } from '@/api/hooks'
+import { useCreateException, useCreateSubstitutionRequests, useOptions, useSubjects, useTimegrid, useWithdrawSubstitutionRequest } from '@/api/hooks'
 import type { PendingRow, RoomOption, TeacherOption } from '@/api/types'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { ErrorState } from '@/components/states/ErrorState'
@@ -17,6 +19,9 @@ import { cn } from '@/lib/utils'
 import { MoveDialog } from './MoveDialog'
 import { positionLabel } from './position-label'
 import type { ResolvedRow } from './types'
+import { RequestTeacherDialog } from './RequestTeacherDialog'
+
+
 
 // Umschalter, kein Radio: die Auswahl lässt sich wieder aufheben (Lehrkraft ODER Raum ODER beides zuweisen),
 // und die Liste hat keine Pfeiltasten-Steuerung. Deshalb aria-pressed statt role="radio"/aria-checked —
@@ -38,7 +43,11 @@ function OptionButton({ selected, onClick, children }: { selected: boolean; onCl
   )
 }
 
-export function OptionsPanel({ row, onAssigned }: { row: PendingRow | null; onAssigned(result: ResolvedRow): void }) {
+export function OptionsPanel({ row, onAssigned, relatedRows = [] }: {
+  row: PendingRow | null
+  onAssigned(result: ResolvedRow): void
+  relatedRows?: PendingRow[]
+}) {
   const options = useOptions(row?.date, row?.lessonId)
   const subjects = useSubjects()
   const timegrid = useTimegrid()
@@ -47,6 +56,13 @@ export function OptionsPanel({ row, onAssigned }: { row: PendingRow | null; onAs
   const [room, setRoom] = useState<RoomOption | null>(null)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
+  const relatedLessonIds = relatedRows.map((r) => r.lessonId)
+  const { groups } = useTeacherRequestGroups(relatedLessonIds)
+  const requestedTeacherIds = new Set(groups.map((g) => g.teacherId))
+  const createRequests = useCreateSubstitutionRequests()
+  const withdrawRequest = useWithdrawSubstitutionRequest()
+  const [requestTarget, setRequestTarget] = useState<TeacherOption | null>(null)
+
 
   const frame = 'flex h-full flex-col rounded-lg border bg-card shadow-xs'
 
@@ -103,43 +119,63 @@ export function OptionsPanel({ row, onAssigned }: { row: PendingRow | null; onAs
         )}
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
+      <div className="flex flex-1 flex-col divide-y overflow-y-auto">
         {options.isPending && (
-          <div className="space-y-2" aria-busy="true" aria-label="Lädt Optionen">
+          <div className="space-y-2 px-4 py-3" aria-busy="true" aria-label="Lädt Optionen">
             <Skeleton className="h-9 w-full bg-surface-sunken" />
             <Skeleton className="h-9 w-full bg-surface-sunken" />
             <Skeleton className="h-9 w-3/4 bg-surface-sunken" />
           </div>
         )}
-        {options.isError && <ErrorState problem={options.error} retry={() => void options.refetch()} />}
+        {options.isError && <div className="px-4 py-3"><ErrorState problem={options.error} retry={() => void options.refetch()} /></div>}
         {options.data && (
           <>
-            <section aria-label="Lehrkräfte" role="group">
-              <h3 className="mb-1.5 flex items-center gap-1.5 text-2xs font-medium tracking-wide text-foreground-subtle uppercase">
+            <section aria-label="Lehrkräfte" role="group" className="flex max-h-56 flex-col overflow-hidden px-4 py-3">
+              <h3 className="mb-1.5 flex shrink-0 items-center gap-1.5 text-2xs font-medium tracking-wide text-foreground-subtle uppercase">
                 <Users className="size-3.5" aria-hidden /> Lehrkräfte · {options.data.teachers.length}
               </h3>
               {options.data.teachers.length === 0 && <p className="text-xs text-foreground-subtle">Keine freie Lehrkraft in dieser Stunde.</p>}
-              <div className="space-y-1.5">
-                {options.data.teachers.map((t) => (
-                  <OptionButton key={t.id} selected={teacher?.id === t.id} onClick={() => setTeacher(teacher?.id === t.id ? null : t)}>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-medium">{t.name}</span>
-                        <span className="text-xs text-foreground-subtle">{t.shortName}</span>
-                        {t.teachesSubject && <Badge variant="outline" className="border-primary/40 bg-primary-soft text-primary-soft-foreground">{subjectName}</Badge>}
+              <div className="space-y-1.5 overflow-y-auto">
+                {options.data.teachers.map((t) => {
+                  const requested = requestedTeacherIds.has(t.id)
+                  return (
+                    <div key={t.id} className="flex items-center gap-1.5">
+                      <div className="flex-1">
+                        <OptionButton selected={teacher?.id === t.id} onClick={() => setTeacher(teacher?.id === t.id ? null : t)}>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium">{t.name}</span>
+                              <span className="text-xs text-foreground-subtle">{t.shortName}</span>
+                              {t.teachesSubject && <Badge variant="outline" className="border-primary/40 bg-primary-soft text-primary-soft-foreground">{subjectName}</Badge>}
+                            </div>
+                          </div>
+                        </OptionButton>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setRequestTarget(t)}
+                        disabled={requested}
+                        aria-label={`${t.name} anfragen`}
+                        title="Lehrkraft anfragen (echte Anfrage, Backend V14/V15)"
+                        className={cn(
+                          'flex size-9 shrink-0 items-center justify-center rounded-md border text-foreground-subtle transition-colors hover:border-primary/50 hover:text-foreground',
+                          requested && 'border-transparent text-success',
+                        )}
+                      >
+                        {requested ? <Check className="size-4" aria-hidden /> : <MessageCircleQuestion className="size-4" aria-hidden />}
+                      </button>
                     </div>
-                  </OptionButton>
-                ))}
+                  )
+                })}
               </div>
             </section>
-
-            <section aria-label="Räume" role="group">
-              <h3 className="mb-1.5 flex items-center gap-1.5 text-2xs font-medium tracking-wide text-foreground-subtle uppercase">
+              
+            <section aria-label="Räume" role="group" className="flex max-h-56 flex-col overflow-hidden px-4 py-3">
+              <h3 className="mb-1.5 flex shrink-0 items-center gap-1.5 text-2xs font-medium tracking-wide text-foreground-subtle uppercase">
                 <DoorOpen className="size-3.5" aria-hidden /> Räume · {options.data.rooms.length}
               </h3>
               {options.data.rooms.length === 0 && <p className="text-xs text-foreground-subtle">Kein freier Raum in dieser Stunde.</p>}
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 overflow-y-auto">
                 {options.data.rooms.map((r) => (
                   <OptionButton key={r.id} selected={room?.id === r.id} onClick={() => setRoom(room?.id === r.id ? null : r)}>
                     <div className="min-w-0 flex-1">
@@ -153,6 +189,13 @@ export function OptionsPanel({ row, onAssigned }: { row: PendingRow | null; onAs
                 ))}
               </div>
             </section>
+              
+            <TeacherRequestPanel
+              groups={groups}
+              teacherNames={Object.fromEntries((options.data?.teachers ?? []).map((t) => [t.id, t.name]))}
+              timeslots={timegrid.data?.slots}
+              onWithdraw={(id) => withdrawRequest.mutate(id)}
+            />
           </>
         )}
       </div>
@@ -184,6 +227,20 @@ export function OptionsPanel({ row, onAssigned }: { row: PendingRow | null; onAs
           onDone={(ex, target) => {
             toast.success('Stunde verlegt')
             onAssigned({ row, kind: 'MOVE', exceptionId: ex.id, target, conflicts: ex.conflicts })
+          }}
+        />
+      )}
+      {requestTarget && (
+        <RequestTeacherDialog
+          open
+          onOpenChange={(o) => { if (!o) setRequestTarget(null) }}
+          teacherName={requestTarget.name}
+          rows={relatedRows}
+          timeslots={timegrid.data?.slots}
+          onConfirm={(lessonIds) => {
+            const chosen = relatedRows.filter((r) => lessonIds.includes(r.lessonId))
+            createRequests.mutate(chosen.map((r) => ({ teacherId: requestTarget.id, lessonId: r.lessonId, date: r.date })))
+            setRequestTarget(null)
           }}
         />
       )}
