@@ -1,6 +1,10 @@
 package de.wsp3_1.stundenplan.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -9,6 +13,17 @@ import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import de.wsp3_1.stundenplan.data.SubstitutionRequestDto
@@ -40,6 +55,7 @@ fun SubstituteScreen(
     onAnswer: (Long, SubstitutionRequestStatus) -> Unit,
 ) {
     val busy = state.loading || state.answeringId != null
+    var expandedRequestId by rememberSaveable { mutableStateOf<Long?>(null) }
     Scaffold(
         topBar = { TopAppBar(title = { Text("Vertretungsanfragen") }, actions = {
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Einstellungen") }
@@ -54,27 +70,45 @@ fun SubstituteScreen(
             SubstitutionTab(selected = true, onClick = {})
         } },
     ) { padding ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding),
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        LazyColumn(modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                if (state.loading) CircularProgressIndicator()
                 if (state.requests.isNotEmpty()) {
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    state.notice?.let { Text(it) }
                 }
             }
             items(state.requests, key = { it.id }) { request ->
-                Card(modifier = Modifier.fillMaxWidth()) {
+                val expanded = expandedRequestId == request.id
+                Card(
+                    modifier = Modifier.fillMaxWidth().animateContentSize().clickable(
+                        enabled = !busy,
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { expandedRequestId = if (expanded) null else request.id },
+                    ).semantics {
+                        stateDescription = if (expanded) "Ausgeklappt" else "Eingeklappt"
+                    },
+                ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Vertretungsanfrage #${request.id}", style = MaterialTheme.typography.titleMedium)
-                        Text("Ereignis #${request.eventId}")
-                        // The API currently supplies only eventId; never infer a lesson from it.
-                        Text("Datum: nicht übermittelt\nKlasse: nicht übermittelt\nStunde: nicht übermittelt\nFach: nicht übermittelt")
-                        Text("Der Server liefert noch keine Stundendetails zu dieser Anfrage.",
-                            style = MaterialTheme.typography.bodySmall)
+                        Text(substitutionDateText(request.date), style = MaterialTheme.typography.titleMedium)
+                        Text("${substitutionWeekdayText(request.date)} · ${request.position}. Stunde")
+                        Text("${request.classShort} · ${request.subjectShort} für ${request.originalTeacherShort}")
+                        if (expanded) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { onAnswer(request.id, SubstitutionRequestStatus.ACCEPTED) }, enabled = !busy) { Text("Annehmen") }
-                            OutlinedButton(onClick = { onAnswer(request.id, SubstitutionRequestStatus.DECLINED) }, enabled = !busy) { Text("Ablehnen") }
+                            Button(
+                                onClick = { onAnswer(request.id, SubstitutionRequestStatus.DECLINED) },
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E), contentColor = Color.White),
+                            ) { Text("Ablehnen") }
+                            Button(
+                                onClick = { onAnswer(request.id, SubstitutionRequestStatus.ACCEPTED) },
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF256B35), contentColor = Color.White),
+                            ) { Text("Annehmen") }
+                        }
                         }
                         if (state.answeringId == request.id) {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -84,5 +118,19 @@ fun SubstituteScreen(
                 }
             }
         }
+        if (state.loading) CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        }
     }
+}
+
+internal fun substitutionDateText(date: String): String = try {
+    LocalDate.parse(date).format(DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale.GERMAN))
+} catch (_: java.time.format.DateTimeParseException) {
+    date
+}
+
+internal fun substitutionWeekdayText(date: String): String = try {
+    LocalDate.parse(date).format(DateTimeFormatter.ofPattern("EEEE", Locale.GERMAN))
+} catch (_: java.time.format.DateTimeParseException) {
+    "Wochentag unbekannt"
 }

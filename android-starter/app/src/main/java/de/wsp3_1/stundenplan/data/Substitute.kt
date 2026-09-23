@@ -5,13 +5,19 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class SubstitutionRequestStatus { UNKNOWN, ACCEPTED, DECLINED }
 
-/** The current contract identifies an event, but supplies no lesson details. */
+/** Anfrage für eine konkrete Unterrichtsstunde mit Anzeigedaten aus der API. */
 @Serializable
 data class SubstitutionRequestDto(
     val id: Long,
     val teacherId: Long,
-    val eventId: Long,
+    val lessonId: Long,
+    val date: String,
+    val classShort: String,
+    val subjectShort: String,
+    val position: Int,
+    val originalTeacherShort: String,
     val status: SubstitutionRequestStatus,
+    val roomShort: String? = null,
 )
 
 @Serializable
