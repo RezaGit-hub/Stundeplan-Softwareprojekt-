@@ -3727,32 +3727,71 @@ paths:
           $ref: '#/components/responses/NotFound404'
 
   /api/substitution-requests:
+    get:
+      tags: [Vertretung]
+      operationId: listSubstitutionRequests
+      summary: Vertretungsanfragen lesen (Planung)
+      description: |
+        Ohne `teacherId`: alle Anfragen. Mit `teacherId`: nur die Anfragen an diese Lehrkraft.
+        Optional `status` filtert auf `UNKNOWN`, `ACCEPTED` oder `DECLINED`.
+        Die Anzeigefelder (Klasse, Fach, Position, Raum, ausfallende Lehrkraft) setzt der
+        Server beim Lesen aus der pending-Sicht des Tages.
+      x-role: PLANNING
+      parameters:
+        - name: teacherId
+          in: query
+          required: false
+          description: nur Anfragen an diese Lehrkraft
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: die Anfragen, neueste zuerst
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SubstitutionRequestDto' }
+              example:
+                - { id: 1, teacherId: 3, lessonId: 4, date: 2026-09-21, classShort: 8b, subjectShort: Ma, position: 2, roomShort: R204, originalTeacherShort: MEY, status: UNKNOWN }
+                - { id: 2, teacherId: 4, lessonId: 6, date: 2026-09-21, classShort: 8b, subjectShort: Ma, position: 5, roomShort: R204, originalTeacherShort: MEY, status: ACCEPTED }
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
     post:
-      tags: [Vertretungsanfrage]
-      operationId: addSubstitutionRequest
-      summary: Legt eine neue Vertretunganfrage an
+      tags: [Vertretung]
+      operationId: addSubstitutionRequests
+      summary: Legt mehrere Vertretungsanfragen in einem Zug an
+      description: |
+        Die Planung schickt ein Array — je Zeile eine Anfrage an eine Lehrkraft zu einer
+        konkreten ausfallenden Stunde. Der Server loest daraus die pending-Zeile auf und
+        antwortet mit dem Array der angelegten Anfragen in derselben Reihenfolge.
+        Die ganze Liste laeuft in einer Transaktion: ist eine Zeile ungueltig, wird keine
+        angelegt (400 mit Feldliste).
       x-role: PLANNING
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateSubstitutionRequestDto'
-            example:
-              teacherId: 1
-              eventId: 1
+              type: array
+              items:
+                $ref: '#/components/schemas/CreateSubstitutionRequestDto'
+              example:
+                - { teacherId: 1, lessonId: 4, date: 2026-09-21 }
+                - { teacherId: 2, lessonId: 6, date: 2026-09-21 }
       responses:
         '201':
-          description: Anfrage eingefügt
+          description: die angelegten Anfragen, in der Reihenfolge der Eingabe
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubstitutionRequestDto'
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubstitutionRequestDto'
               example:
-                id: 1
-                teacherId: 1
-                eventId: 1
-                status: UNKNOWN
+                - { id: 1, teacherId: 1, lessonId: 4, date: 2026-09-21, classShort: 8b, subjectShort: Ma, position: 2, roomShort: R204, originalTeacherShort: MEY, status: UNKNOWN }
+                - { id: 2, teacherId: 2, lessonId: 6, date: 2026-09-21, classShort: 8b, subjectShort: Ma, position: 5, roomShort: R204, originalTeacherShort: MEY, status: UNKNOWN }
         '400':
           $ref: '#/components/responses/Validation400'
         '401':
@@ -3761,40 +3800,6 @@ paths:
           $ref: '#/components/responses/Forbidden403'
         '409':
           $ref: '#/components/responses/Conflict409'
-
-  /api/substitution-requests/{eventId}:
-    parameters:
-      - name: eventId
-        in: path
-        required: true
-        description: ID des Änderungsereignisses (change_event)
-        schema: { type: integer, format: int64, minimum: 1 }
-        example: 1
-    get:
-      tags: [Vertretung]
-      operationId: listSubstitutionRequestsForEvent
-      summary: Alle Anfragen zu einem Ereignis (Planung)
-      description: |
-        Sicht der Planung: welche Lehrkräfte zu diesem Ereignis schon gefragt wurden und wie sie
-        geantwortet haben. Ersetzt die frühere Query-Variante `?eventId=`.
-      x-role: PLANNING
-      responses:
-        '200':
-          description: Anfragen zum Ereignis
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/SubstitutionRequestDto' }
-              example:
-                - { id: 1, teacherId: 3, eventId: 1, status: UNKNOWN }
-                - { id: 2, teacherId: 4, eventId: 1, status: ACCEPTED }
-        '401':
-          $ref: '#/components/responses/Unauthenticated401'
-        '403':
-          $ref: '#/components/responses/Forbidden403'
-        '404':
-          $ref: '#/components/responses/NotFound404'
 
   /api/substitution-requests/me:
     get:
@@ -5422,20 +5427,31 @@ components:
 
     SubstitutionRequestDto:
       type: object
-      required: [id, teacherId, eventId, status]
+      description: |
+        Eine Vertretungsanfrage. Die Anzeigefelder (Klasse, Fach, Position, Raum, ausfallende
+        Lehrkraft) stehen NICHT in der Datenbank — der Dienst setzt sie beim Lesen aus der
+        pending-Sicht des Tages.
+      required: [id, teacherId, lessonId, date, classShort, subjectShort, position, originalTeacherShort, status]
       properties:
         id: { type: integer, format: int64 }
-        teacherId: { type: integer, format: int64 }
-        eventId: { type: integer, format: int64 }
-        status:
-          $ref: '#/components/schemas/SubstitutionRequestStatus'
+        teacherId: { type: integer, format: int64, description: die gefragte Lehrkraft }
+        lessonId: { type: integer, format: int64, description: die konkrete Stunde des Plans }
+        date: { type: string, format: date, description: der Kalendertag, an dem die Stunde ausfaellt }
+        classShort: { type: string }
+        subjectShort: { type: string }
+        position: { type: integer, minimum: 1 }
+        roomShort: { type: [string, 'null'] }
+        originalTeacherShort: { type: string, description: Kuerzel der Lehrkraft, die ausfaellt (die Stunde normalerweise haelt) }
+        status: { $ref: '#/components/schemas/SubstitutionRequestStatus' }
 
     CreateSubstitutionRequestDto:
       type: object
-      required: [teacherId, eventId]
+      description: eine Zeile des POST-Arrays — welche Lehrkraft zu welcher Stunde an welchem Tag gefragt wird
+      required: [teacherId, lessonId, date]
       properties:
         teacherId: { type: integer, format: int64 }
-        eventId: { type: integer, format: int64 }
+        lessonId: { type: integer, format: int64 }
+        date: { type: string, format: date }
   
     AnswerSubstitutionRequestDto:
       type: object
