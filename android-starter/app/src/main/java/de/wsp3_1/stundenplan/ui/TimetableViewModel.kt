@@ -87,8 +87,12 @@ class TimetableViewModel(
         substitutionJob = viewModelScope.launch {
             _substitutionState.update { it.copy(loading = true, error = null) }
             when (val result = repository.loadSubstitutionRequests()) {
-                is SubstitutionResult.Success -> _substitutionState.update {
-                    it.copy(loading = false, requests = result.value.filter { request -> request.status == SubstitutionRequestStatus.UNKNOWN })
+                is SubstitutionResult.Success -> {
+                    val timegrid = if (result.value.isNotEmpty()) repository.loadTimegrid() else null
+                    _substitutionState.update {
+                        it.copy(loading = false, timegrid = timegrid,
+                            requests = result.value.filter { request -> request.status == SubstitutionRequestStatus.UNKNOWN })
+                    }
                 }
                 is SubstitutionResult.Failure -> handleSubstitutionFailure(result)
             }

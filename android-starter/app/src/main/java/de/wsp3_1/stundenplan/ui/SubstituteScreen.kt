@@ -28,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import de.wsp3_1.stundenplan.data.SubstitutionRequestDto
 import de.wsp3_1.stundenplan.data.SubstitutionRequestStatus
+import de.wsp3_1.stundenplan.data.TimegridDto
+import de.wsp3_1.stundenplan.data.PlanDates
 
 data class SubstitutionUiState(
     val requests: List<SubstitutionRequestDto> = emptyList(),
@@ -35,6 +37,7 @@ data class SubstitutionUiState(
     val answeringId: Long? = null,
     val error: String? = null,
     val notice: String? = null,
+    val timegrid: TimegridDto? = null,
 )
 
 @Composable
@@ -92,7 +95,7 @@ fun SubstituteScreen(
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(substitutionDateText(request.date), style = MaterialTheme.typography.titleMedium)
-                        Text("${substitutionWeekdayText(request.date)} · ${request.position}. Stunde")
+                        Text("${substitutionWeekdayText(request.date)} · ${substitutionLessonText(state.timegrid, request.date, request.position)}")
                         Text("${request.classShort} · ${request.subjectShort} für ${request.originalTeacherShort}")
                         if (expanded) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -133,4 +136,18 @@ internal fun substitutionWeekdayText(date: String): String = try {
     LocalDate.parse(date).format(DateTimeFormatter.ofPattern("EEEE", Locale.GERMAN))
 } catch (_: java.time.format.DateTimeParseException) {
     "Wochentag unbekannt"
+}
+
+/** Positionen enthalten Pausen; nur Unterrichtszeitfenster am betreffenden Tag zählen. */
+internal fun substitutionLessonText(timegrid: TimegridDto?, date: String, position: Int): String {
+    val day = try {
+        PlanDates.weekdayCode(LocalDate.parse(date))
+    } catch (_: java.time.format.DateTimeParseException) {
+        return "Stunde unbekannt"
+    }
+    val slots = timegrid?.slots.orEmpty().filter { it.day == day }.sortedBy { it.position }
+    val slot = slots.firstOrNull { it.position == position } ?: return "Stunde unbekannt"
+    if (slot.isBreak) return "Pause"
+    val number = slots.count { !it.isBreak && it.position <= position }
+    return "$number. Stunde"
 }
