@@ -4,8 +4,7 @@ import de.wsp3_1.masterdata.persistence.TeacherRepository;
 import de.wsp3_1.shared.domain.ConflictException;
 import de.wsp3_1.shared.domain.NotFoundException;
 import de.wsp3_1.shared.domain.ValidationException;
-import de.wsp3_1.substitution.api.SubstitutionDtos.CreateSubstitutionRequestDto;
-import de.wsp3_1.substitution.api.SubstitutionDtos.SubstitutionRequestDto;
+import de.wsp3_1.substitution.domain.SubstitutionViews.NewSubstitutionRequest;
 import de.wsp3_1.substitution.domain.SubstitutionViews.PendingRowView;
 import de.wsp3_1.substitution.domain.SubstitutionViews.SubstitutionRequestView;
 import de.wsp3_1.substitution.persistence.SubstitutionRequest;
@@ -55,11 +54,11 @@ public class SubstitutionRequestService {
 
     /** Planung: alle Anfragen, neueste zuerst. Optional auf eine Lehrkraft eingeschraenkt. */
     @Transactional(readOnly = true)
-    public List<SubstitutionRequestDto> list(Long teacherId) {
+    public List<SubstitutionRequestView> list(Long teacherId) {
         List<SubstitutionRequest> rows = teacherId == null
                 ? requests.findAllByOrderByIdDesc()
                 : requests.findByTeacherIdOrderByIdDesc(teacherId);
-        return toDtos(rows, new HashMap<>());
+        return toViews(rows, new HashMap<>());
     }
 
     /**
@@ -67,22 +66,22 @@ public class SubstitutionRequestService {
      * ist eine Zeile ungueltig, wird keine angelegt. Fehler nennen den Index ({@code [2].lessonId}),
      * damit die Oberflaeche die Zeile markieren kann.
      *
-     * <p>Leere Eingabe ist kein Fehler: die Antwort ist ein leeres Array (201).</p>
+     * <p>Leere Eingabe ist kein Fehler: die Antwort ist eine leere Liste.</p>
      */
     @Transactional
-    public List<SubstitutionRequestDto> create(List<CreateSubstitutionRequestDto> input) {
+    public List<SubstitutionRequestView> create(List<NewSubstitutionRequest> input) {
         if (input == null || input.isEmpty()) {
             return List.of();
         }
         Map<LocalDate, Map<Long, PendingRowView>> pendingCache = new HashMap<>();
         List<SubstitutionRequest> neu = new ArrayList<>();
         for (int i = 0; i < input.size(); i++) {
-            CreateSubstitutionRequestDto row = input.get(i);
+            NewSubstitutionRequest row = input.get(i);
             validateRow(row, i, pendingCache);
             neu.add(new SubstitutionRequest(row.teacherId(), row.lessonId(), row.date()));
         }
         List<SubstitutionRequest> saved = requests.saveAll(neu);
-        return toDtos(saved, pendingCache);
+        return toViews(saved, pendingCache);
     }
 
     /** Planung: eine Anfrage zurueckziehen — auch nach einer Antwort. */
@@ -106,7 +105,7 @@ public class SubstitutionRequestService {
      * kommt, steht oben. Die Position kommt aus der pending-Sicht; Orphans fallen vorher raus.</p>
      */
     @Transactional(readOnly = true)
-    public List<SubstitutionRequestDto> listForTeacher(Long teacherId, boolean open) {
+    public List<SubstitutionRequestView> listForTeacher(Long teacherId, boolean open) {
         List<SubstitutionRequest> rows = open
                 ? requests.findByTeacherIdAndStatusOrderByIdDesc(teacherId, SubstitutionRequestStatus.UNKNOWN)
                 : requests.findByTeacherIdOrderByIdDesc(teacherId);
@@ -114,11 +113,11 @@ public class SubstitutionRequestService {
         List<SubstitutionRequest> sichtbar = rows.stream()
                 .filter(r -> !r.getDate().isBefore(heute))
                 .toList();
-        List<SubstitutionRequestDto> out = new ArrayList<>(toDtos(sichtbar, new HashMap<>()));
+        List<SubstitutionRequestView> out = new ArrayList<>(toViews(sichtbar, new HashMap<>()));
         out.sort(Comparator
-                .comparing(SubstitutionRequestDto::date)
-                .thenComparing(dto -> dto.position() == null ? Integer.MAX_VALUE : dto.position())
-                .thenComparing(SubstitutionRequestDto::id));
+                .comparing(SubstitutionRequestView::date)
+                .thenComparing(view -> view.position() == null ? Integer.MAX_VALUE : view.position())
+                .thenComparing(SubstitutionRequestView::id));
         return out;
     }
 
@@ -127,10 +126,9 @@ public class SubstitutionRequestService {
      *
      * @throws ValidationException {@code status} fehlt oder ist {@code UNKNOWN}
      * @throws NotFoundException   die Anfrage gibt es nicht oder sie gehoert einer anderen Lehrkraft
-     * @throws ConflictException   die Anfrage ist schon beantwortet
      */
     @Transactional
-    public SubstitutionRequestDto answer(Long id, Long teacherId, SubstitutionRequestStatus status) {
+    public SubstitutionRequestView answer(Long id, Long teacherId, SubstitutionRequestStatus status) {
         if (status == null || status == SubstitutionRequestStatus.UNKNOWN) {
             throw new ValidationException("status", "Bitte mit ACCEPTED oder DECLINED antworten.");
         }
@@ -142,19 +140,12 @@ public class SubstitutionRequestService {
         }
         request.setStatus(status);
         PendingRowView pending = pendingRow(request.getDate(), request.getLessonId(), new HashMap<>());
-        if (pending == null) {
-            // Die Stunde ist inzwischen weg (Planwechsel): trotzdem antworten, aber keine
-            // Anzeigefelder mehr liefern — die Antwort bleibt ein schlankes Echo.
-            return new SubstitutionRequestDto(request.getId(), request.getTeacherId(),
-                    request.getLessonId(), request.getDate(),
-                    null, null, null, null, null, request.getStatus());
-        }
-        return SubstitutionRequestDto.of(toView(request), pending);
+        return toView(request, pending);
     }
 
     // ------------------------------------------------------------------ Helpers
 
-    private void validateRow(CreateSubstitutionRequestDto row, int index,
+    private void validateRow(NewSubstitutionRequest row, int index,
                              Map<LocalDate, Map<Long, PendingRowView>> cache) {
         String prefix = "[" + index + "].";
         if (row == null) {
@@ -197,24 +188,31 @@ public class SubstitutionRequestService {
     }
 
     /**
-     * Die Anfragen als DTOs. Anfragen, deren pending-Zeile fehlt (Planwechsel), werden
-     * ausgeblendet — der {@code pendingCache} wird zwischen Aufrufen nicht mitgeschleppt.
+     * Die Anfragen als Views. Anfragen, deren pending-Zeile fehlt (Planwechsel), werden
+     * ausgeblendet.
      */
-    private List<SubstitutionRequestDto> toDtos(List<SubstitutionRequest> rows,
-                                                Map<LocalDate, Map<Long, PendingRowView>> cache) {
-        List<SubstitutionRequestDto> out = new ArrayList<>(rows.size());
+    private List<SubstitutionRequestView> toViews(List<SubstitutionRequest> rows,
+                                                  Map<LocalDate, Map<Long, PendingRowView>> cache) {
+        List<SubstitutionRequestView> out = new ArrayList<>(rows.size());
         for (SubstitutionRequest r : rows) {
             PendingRowView pending = pendingRow(r.getDate(), r.getLessonId(), cache);
             if (pending == null) {
                 continue;
             }
-            out.add(SubstitutionRequestDto.of(toView(r), pending));
+            out.add(toView(r, pending));
         }
         return out;
     }
 
-    private static SubstitutionRequestView toView(SubstitutionRequest r) {
+    private static SubstitutionRequestView toView(SubstitutionRequest r, PendingRowView pending) {
+        if (pending == null) {
+            // Orphan: die Anzeigefelder sind weg, aber die Zeile bleibt lesbar (z. B. fuer die
+            // Antwort auf ein PATCH direkt nach einem Planwechsel).
+            return new SubstitutionRequestView(r.getId(), r.getTeacherId(), r.getLessonId(), r.getDate(),
+                    null, null, null, null, null, r.getStatus());
+        }
         return new SubstitutionRequestView(r.getId(), r.getTeacherId(), r.getLessonId(), r.getDate(),
-                r.getStatus());
+                pending.classShort(), pending.subjectShort(), pending.position(),
+                pending.roomShort(), pending.teacherShort(), r.getStatus());
     }
 }

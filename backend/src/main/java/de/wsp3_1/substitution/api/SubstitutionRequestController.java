@@ -5,6 +5,8 @@ import de.wsp3_1.substitution.api.SubstitutionDtos.AnswerSubstitutionRequestDto;
 import de.wsp3_1.substitution.api.SubstitutionDtos.CreateSubstitutionRequestDto;
 import de.wsp3_1.substitution.api.SubstitutionDtos.SubstitutionRequestDto;
 import de.wsp3_1.substitution.domain.SubstitutionRequestService;
+import de.wsp3_1.substitution.domain.SubstitutionViews.NewSubstitutionRequest;
+import de.wsp3_1.substitution.domain.SubstitutionViews.SubstitutionRequestView;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -19,8 +21,9 @@ import java.util.List;
  * <p>Die Rollen macht die Pfadregel in {@code SecurityConfig}: {@code /api/substitution-requests/me/**}
  * fuer {@code TEACHER}, alles Uebrige unter {@code /api/**} fuer {@code PLANNING}.</p>
  *
- * <p>Die Anzeigefelder in den Antworten kommen aus der pending-Sicht des Tages und werden im
- * Service gesetzt — hier gibt es keine Fachlogik.</p>
+ * <p>Der Controller ist die einzige Stelle, an der die DTOs der Schnittstelle und die Views der
+ * Fachlogik aufeinandertreffen. Der Dienst sieht keine DTOs (ArchUnit-Regel 3), der Controller
+ * macht die Uebersetzung.</p>
  */
 @RestController
 @RequestMapping("/api/substitution-requests")
@@ -35,14 +38,18 @@ public class SubstitutionRequestController {
     /** Planung: alle Anfragen, optional auf eine Lehrkraft eingeschraenkt. */
     @GetMapping
     public List<SubstitutionRequestDto> list(@RequestParam(required = false) Long teacherId) {
-        return service.list(teacherId);
+        return service.list(teacherId).stream().map(SubstitutionRequestController::toDto).toList();
     }
 
     /** Planung: mehrere Anfragen in einem Zug (Array). */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public List<SubstitutionRequestDto> create(@RequestBody List<CreateSubstitutionRequestDto> input) {
-        return service.create(input);
+        List<NewSubstitutionRequest> domain = (input == null ? List.<CreateSubstitutionRequestDto>of() : input)
+                .stream()
+                .map(row -> new NewSubstitutionRequest(row.teacherId(), row.lessonId(), row.date()))
+                .toList();
+        return service.create(domain).stream().map(SubstitutionRequestController::toDto).toList();
     }
 
     /** Planung: eine Anfrage zurueckziehen. */
@@ -56,7 +63,9 @@ public class SubstitutionRequestController {
     @GetMapping("/me")
     public List<SubstitutionRequestDto> listMe(@AuthenticationPrincipal CurrentUser user,
                                                @RequestParam(defaultValue = "false") boolean open) {
-        return service.listForTeacher(user.teacherId(), open);
+        return service.listForTeacher(user.teacherId(), open).stream()
+                .map(SubstitutionRequestController::toDto)
+                .toList();
     }
 
     /** Lehrkraft: eigene Anfrage beantworten (ACCEPTED oder DECLINED). */
@@ -64,6 +73,14 @@ public class SubstitutionRequestController {
     public SubstitutionRequestDto answer(@AuthenticationPrincipal CurrentUser user,
                                          @PathVariable Long id,
                                          @Valid @RequestBody AnswerSubstitutionRequestDto input) {
-        return service.answer(id, user.teacherId(), input.status());
+        return toDto(service.answer(id, user.teacherId(), input.status()));
+    }
+
+    // ------------------------------------------------------------------ Mapping View → DTO
+
+    private static SubstitutionRequestDto toDto(SubstitutionRequestView view) {
+        return new SubstitutionRequestDto(view.id(), view.teacherId(), view.lessonId(), view.date(),
+                view.classShort(), view.subjectShort(), view.position(), view.roomShort(),
+                view.originalTeacherShort(), view.status());
     }
 }
