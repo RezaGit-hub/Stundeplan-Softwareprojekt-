@@ -7,6 +7,9 @@ class DemoSubstitutionRepository(
     private val delegate: TimetableRepository,
 ) : TimetableRepository by delegate {
     private val requests = mutableListOf(
+        demoRequest(5, 8, "6c", "Englisch", 1, "CLA"),
+        demoRequest(6, 32, "6c", "Englisch", 1, "CLA"),
+        demoRequest(7, 109, "6c", "Englisch", 1, "CLA"),
         demoRequest(1, 1, "7a", "Mathematik", 2, "MEY"),
         demoRequest(2, 1, "8b", "Deutsch", 4, "SCH"),
         demoRequest(3, 2, "9a", "Physik", 3, "WEB"),

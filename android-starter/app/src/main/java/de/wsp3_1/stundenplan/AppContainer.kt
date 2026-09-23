@@ -29,7 +29,7 @@ class AppContainer(context: Context) {
     val offlineCache: OfflineCache = OfflineCache(File(appContext.filesDir, "offline"), apiFactory.json)
 
     // TEMPORÄRE DEMODATEN: auf false setzen, um wieder echte Vertretungsanfragen zu verwenden.
-    private val demoSubstitutionsEnabled = true
+    private val demoSubstitutionsEnabled = false
 
     val repository: TimetableRepository = HttpTimetableRepository(settings, apiFactory, offlineCache).let {
         if (demoSubstitutionsEnabled && appContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
