@@ -17,5 +17,4 @@ ALTER TABLE substitution_request ADD COLUMN date      date   NOT NULL;
 ALTER TABLE substitution_request ADD CONSTRAINT substitution_request_unique
     UNIQUE (teacher_id, lesson_id, date);
 
-DROP INDEX substitution_request_event_idx;
 CREATE INDEX substitution_request_lesson_idx ON substitution_request (lesson_id);

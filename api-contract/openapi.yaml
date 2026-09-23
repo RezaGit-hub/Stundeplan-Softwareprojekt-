@@ -3801,6 +3801,30 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict409'
 
+  /api/substitution-requests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    delete:
+      tags: [Vertretung]
+      operationId: withdrawSubstitutionRequest
+      summary: Eine Vertretungsanfrage zurückziehen (Planung)
+      description: |
+        Löscht die Anfrage — unabhängig davon, ob die Lehrkraft schon geantwortet
+        hat. Die Lehrkraft sieht sie danach nicht mehr in ihrer Liste.
+
+        Danach ist die Stunde wieder unbeauftragt; die Planung trägt eine Vertretung
+        wie bisher über `POST /api/exceptions` ein.
+      x-role: PLANNING
+      responses:
+        '204':
+          description: gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthenticated401'
+        '403':
+          $ref: '#/components/responses/Forbidden403'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+
   /api/substitution-requests/me:
     get:
       tags: [Vertretung]
@@ -3826,7 +3850,8 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/SubstitutionRequestDto' }
               example:
-                - { id: 1, teacherId: 3, eventId: 1, status: UNKNOWN }
+                - { id: 1, teacherId: 3, lessonId: 4, date: 2026-09-21, classShort: 8b, subjectShort: Ma, position: 2, roomShort: R204, originalTeacherShort: MEY, status: UNKNOWN }
+                - { id: 2, teacherId: 3, lessonId: 6, date: 2026-09-21, classShort: 8b, subjectShort: Ma, position: 5, roomShort: R204, originalTeacherShort: MEY, status: ACCEPTED }
         '401':
           $ref: '#/components/responses/Unauthenticated401'
         '403':
@@ -3858,7 +3883,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SubstitutionRequestDto'
-              example: { id: 1, teacherId: 3, eventId: 1, status: ACCEPTED }
+              example: { id: 1, teacherId: 3, lessonId: 4, date: 2026-09-21, classShort: 8b, subjectShort: Ma, position: 2, roomShort: R204, originalTeacherShort: MEY, status: ACCEPTED }
         '400':
           $ref: '#/components/responses/Validation400'
         '401':
@@ -5436,12 +5461,12 @@ components:
         id: { type: integer, format: int64 }
         teacherId: { type: integer, format: int64, description: die gefragte Lehrkraft }
         lessonId: { type: integer, format: int64, description: die konkrete Stunde des Plans }
-        date: { type: string, format: date, description: der Kalendertag, an dem die Stunde ausfaellt }
+        date: { type: string, format: date, description: der Kalendertag an dem die Stunde ausfaellt }
         classShort: { type: string }
         subjectShort: { type: string }
         position: { type: integer, minimum: 1 }
         roomShort: { type: [string, 'null'] }
-        originalTeacherShort: { type: string, description: Kuerzel der Lehrkraft, die ausfaellt (die Stunde normalerweise haelt) }
+        originalTeacherShort: { type: string, description: Kuerzel der Lehrkraft die ausfaellt (die Stunde normalerweise haelt) }
         status: { $ref: '#/components/schemas/SubstitutionRequestStatus' }
 
     CreateSubstitutionRequestDto:
