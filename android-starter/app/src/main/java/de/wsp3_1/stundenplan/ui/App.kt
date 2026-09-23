@@ -20,6 +20,7 @@ fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val settingsState by viewModel.settingsState.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+    val substitutionState by viewModel.substitutionState.collectAsStateWithLifecycle()
 
     // Abruf bei jedem Start bzw. jeder Rueckkehr in den Vordergrund (kein Push, kein WorkManager).
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.refresh() }
@@ -29,11 +30,21 @@ fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: 
         Screen.Settings -> uiState !is UiState.NoServerConfigured && uiState !is UiState.LoginRequired
         is Screen.Week, is Screen.Detail -> true
         is Screen.Absence -> true
+        Screen.Substitute -> true
     }
     BackHandler(enabled = backEnabled) { viewModel.back() }
 
     val base = screen.let { if (it is Screen.Detail) it.from else it }
     when (base) {
+        Screen.Substitute -> SubstituteScreen(
+            state = substitutionState,
+            onDay = { viewModel.back() },
+            onWeek = viewModel::showWeek,
+            onAbsence = viewModel::openAbsence,
+            onSettings = viewModel::openSettings,
+            onAnswer = viewModel::answerSubstitution,
+            onRefresh = viewModel::loadSubstitutionRequests,
+        )
         Screen.Settings -> SettingsScreen(
             state = settingsState,
             uiState = uiState,
@@ -64,6 +75,7 @@ fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: 
             onEntry = viewModel::openDetail,
             onSettings = viewModel::openSettings,
             onPickDate = viewModel::showDay,
+            onSubstitute = viewModel::openSubstitute,
         )
 
         is Screen.Week -> WeekScreen(
@@ -80,6 +92,7 @@ fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: 
             onEntry = viewModel::openDetail,
             onSettings = viewModel::openSettings,
             onPickDate = viewModel::selectWeek,
+            onSubstitute = viewModel::openSubstitute,
         )
 
         is Screen.Absence -> AbsenceScreen(
@@ -89,6 +102,7 @@ fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: 
             onDay = viewModel::showDay,
             onWeek = viewModel::showWeek,
             onSettings = viewModel::openSettings,
+            onSubstitute = viewModel::openSubstitute,
         )
 
         is Screen.Detail -> Unit // kommt nicht vor: base ist nie ein Detail

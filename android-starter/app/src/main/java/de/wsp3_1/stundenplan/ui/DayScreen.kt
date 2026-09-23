@@ -86,6 +86,7 @@ fun DayScreen(
     onRefresh: () -> Unit,
     onEntry: (EntryDto) -> Unit,
     onSettings: () -> Unit,
+    onSubstitute: () -> Unit = {},
     onPickDate: (LocalDate) -> Unit,
 ) {
     var pickerOpen by remember { mutableStateOf(false) }
@@ -127,7 +128,7 @@ fun DayScreen(
                     label = {
                         Text(
                             text = "Tag",
-                            fontSize = 18.sp
+                            maxLines = 1
                         )
                     },
                     colors = NavigationBarItemDefaults.colors(
@@ -151,7 +152,7 @@ fun DayScreen(
                     label = {
                         Text(
                             text = "Woche",
-                            fontSize = 18.sp
+                            maxLines = 1
                         )
                     }
                 )
@@ -169,11 +170,12 @@ fun DayScreen(
                         label = {
                             Text(
                                 text = "Abwesenheit",
-                                fontSize = 18.sp
+                            maxLines = 1
                             )
                         }
                     )
                 }
+                if (isTeacher) SubstitutionTab(onClick = onSubstitute)
             }
         }
     ) { innerPadding ->

@@ -16,6 +16,8 @@ import de.wsp3_1.stundenplan.data.PlanDates
 import de.wsp3_1.stundenplan.data.ThemeMode
 import de.wsp3_1.stundenplan.data.TimetableRepository
 import de.wsp3_1.stundenplan.data.WeekResult
+import de.wsp3_1.stundenplan.data.SubstitutionResult
+import de.wsp3_1.stundenplan.data.SubstitutionRequestStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -70,6 +72,61 @@ class TimetableViewModel(
     private var loadTicket: Int = 0
 
     private var serverCheckJob: Job? = null
+    private var substitutionJob: Job? = null
+    private val _substitutionState = MutableStateFlow(SubstitutionUiState())
+    val substitutionState: StateFlow<SubstitutionUiState> = _substitutionState.asStateFlow()
+
+    fun openSubstitute() {
+        if (_settingsState.value.role != "TEACHER") return
+        _screen.value = Screen.Substitute
+        loadSubstitutionRequests()
+    }
+
+    fun loadSubstitutionRequests() {
+        if (_settingsState.value.role != "TEACHER" || substitutionJob?.isActive == true) return
+        substitutionJob = viewModelScope.launch {
+            _substitutionState.update { it.copy(loading = true, error = null) }
+            when (val result = repository.loadSubstitutionRequests()) {
+                is SubstitutionResult.Success -> {
+                    val timegrid = if (result.value.isNotEmpty()) repository.loadTimegrid() else null
+                    _substitutionState.update {
+                        it.copy(loading = false, timegrid = timegrid,
+                            requests = result.value.filter { request -> request.status == SubstitutionRequestStatus.UNKNOWN })
+                    }
+                }
+                is SubstitutionResult.Failure -> handleSubstitutionFailure(result)
+            }
+        }
+    }
+
+    fun answerSubstitution(id: Long, status: SubstitutionRequestStatus) {
+        if (_settingsState.value.role != "TEACHER" || substitutionJob?.isActive == true ||
+            status == SubstitutionRequestStatus.UNKNOWN || _substitutionState.value.requests.none { it.id == id }) return
+        substitutionJob = viewModelScope.launch {
+            _substitutionState.update { it.copy(answeringId = id, error = null) }
+            when (val result = repository.answerSubstitutionRequest(id, status)) {
+                is SubstitutionResult.Success -> _substitutionState.update {
+                    it.copy(answeringId = null, requests = it.requests.filterNot { request -> request.id == id })
+                }
+                is SubstitutionResult.Failure -> handleSubstitutionFailure(result)
+            }
+        }
+    }
+
+    private suspend fun handleSubstitutionFailure(failure: SubstitutionResult.Failure) {
+        if (failure.code == 401) {
+            loadTicket++
+            loadJob?.cancelAndJoin()
+            settings.clearToken()
+            repository.clearCache()
+            _substitutionState.value = SubstitutionUiState()
+            _settingsState.update { it.copy(displayName = null, role = null) }
+            _uiState.value = UiState.LoginRequired(LoginReason.SESSION_EXPIRED)
+            _screen.value = Screen.Settings
+        } else {
+            _substitutionState.update { it.copy(loading = false, answeringId = null, error = failure.message) }
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -103,6 +160,10 @@ class TimetableViewModel(
 
     /** Bei onStart, nach Anmeldung, beim Ziehen und beim Wechsel ueber eine Wochengrenze. */
     fun refresh() {
+        if (_screen.value == Screen.Substitute) {
+            loadSubstitutionRequests()
+            return
+        }
         startLoad()
     }
 
@@ -115,6 +176,9 @@ class TimetableViewModel(
 
     /** Laufende Abrufe entwerten und abwarten - danach schreibt keine alte Antwort mehr. */
     private suspend fun stopLoads() {
+        substitutionJob?.cancelAndJoin()
+        substitutionJob = null
+        _substitutionState.value = SubstitutionUiState()
         loadTicket++
         loadJob?.cancelAndJoin()
         loadJob = null
@@ -176,11 +240,13 @@ class TimetableViewModel(
                 }
 
                 WeekResult.Unauthorized -> {
+                    substitutionJob?.cancelAndJoin()
+                    _substitutionState.value = SubstitutionUiState()
                     settings.clearToken()
                     // Der gespeicherte Stand gehoert zu einer Sitzung, die es nicht mehr gibt:
                     // sonst sieht das naechste Konto am Geraet den Plan des vorigen (A-1).
                     repository.clearCache()
-                    _settingsState.update { it.copy(displayName = null) }
+                    _settingsState.update { it.copy(displayName = null, role = null) }
                     _screen.value = Screen.Settings
                     UiState.LoginRequired(LoginReason.SESSION_EXPIRED)
                 }
@@ -261,6 +327,7 @@ class TimetableViewModel(
      */
     fun back(): Boolean = when (val s = _screen.value) {
         is Screen.Detail -> { _screen.value = s.from; true }
+        Screen.Substitute -> { _screen.value = Screen.Day(dayDate); true }
         is Screen.Absence -> { _screen.value = Screen.Day(dayDate); true }
         is Screen.Week -> { _screen.value = Screen.Day(dayDate); true }
         Screen.Settings -> {

@@ -50,6 +50,7 @@ sealed interface Message {
 /** Bildschirmwechsel als Zustand im ViewModel - keine Navigations-Bibliothek. */
 sealed interface Screen {
     data object Settings : Screen
+    data object Substitute : Screen
     data class Absence(val monday: LocalDate) : Screen
     data class Day(val date: LocalDate) : Screen
     data class Week(val monday: LocalDate) : Screen

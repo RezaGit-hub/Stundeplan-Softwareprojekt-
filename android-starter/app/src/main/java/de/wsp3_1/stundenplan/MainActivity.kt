@@ -34,9 +34,6 @@ class MainActivity : ComponentActivity() {
             StundenplanTheme(
                 themeMode = themeMode
             ) {
-                val viewModel: TimetableViewModel = viewModel(
-                    factory = TimetableViewModel.factory(container)
-                )
                 App(
                     viewModel = viewModel,
                     themeMode = themeMode,
