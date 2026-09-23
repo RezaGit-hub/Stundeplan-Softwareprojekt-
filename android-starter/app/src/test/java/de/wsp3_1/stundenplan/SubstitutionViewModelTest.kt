@@ -15,7 +15,16 @@ class SubstitutionViewModelTest {
     @Before fun setUp() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
     @After fun tearDown() { Dispatchers.resetMain() }
 
-    private val request = SubstitutionRequestDto(1, 3, 7, SubstitutionRequestStatus.UNKNOWN)
+    private val request = SubstitutionRequestDto(
+        id = 1, teacherId = 3, lessonId = 7, date = "2026-09-24",
+        classShort = "8b", subjectShort = "Ma", position = 3,
+        originalTeacherShort = "MEY", status = SubstitutionRequestStatus.UNKNOWN,
+    )
+
+    @Test fun `date includes German weekday and calendar date`() {
+        assertEquals("24.09.2026", substitutionDateText(request.date))
+        assertEquals("Donnerstag", substitutionWeekdayText(request.date))
+    }
 
     @Test fun `teacher can answer and confirmed request disappears`() = runTest {
         val settings = FakeSettings(serverUrl = "http://localhost", token = "t", role = "TEACHER")

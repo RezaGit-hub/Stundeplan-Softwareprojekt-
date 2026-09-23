@@ -27,10 +27,19 @@ class SubstitutionRepositoryTest {
 
     @After fun tearDown() { server.shutdown() }
 
+    private fun requestJson(status: String) = """{"id":1,"teacherId":3,"lessonId":7,"date":"2026-09-24","classShort":"8b","subjectShort":"Ma","position":3,"originalTeacherShort":"MEY","status":"$status"}"""
+
     @Test fun `loads only open requests with session token`() = runTest {
-        server.enqueue(MockResponse().setBody("""[{"id":1,"teacherId":3,"eventId":7,"status":"UNKNOWN"}]"""))
+        server.enqueue(MockResponse().setBody("""[${requestJson("UNKNOWN")}]"""))
         val result = repository.loadSubstitutionRequests() as SubstitutionResult.Success
-        assertEquals(7L, result.value.single().eventId)
+        val entry = result.value.single()
+        assertEquals(7L, entry.lessonId)
+        assertEquals("2026-09-24", entry.date)
+        assertEquals("8b", entry.classShort)
+        assertEquals("Ma", entry.subjectShort)
+        assertEquals(3, entry.position)
+        assertEquals("MEY", entry.originalTeacherShort)
+        assertNull(entry.roomShort)
         val request = server.takeRequest()
         assertEquals("/api/substitution-requests/me?open=true", request.path)
         assertEquals("Bearer teacher-token", request.getHeader("Authorization"))
@@ -38,7 +47,7 @@ class SubstitutionRepositoryTest {
 
     @Test fun `both answers use PATCH and contract status`() = runTest {
         for (status in listOf(SubstitutionRequestStatus.ACCEPTED, SubstitutionRequestStatus.DECLINED)) {
-            server.enqueue(MockResponse().setBody("""{"id":1,"teacherId":3,"eventId":7,"status":"${status.name}"}"""))
+            server.enqueue(MockResponse().setBody(requestJson(status.name)))
             val result = repository.answerSubstitutionRequest(1, status) as SubstitutionResult.Success
             assertEquals(status, result.value.status)
             val request = server.takeRequest()
