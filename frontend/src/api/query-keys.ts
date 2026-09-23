@@ -46,6 +46,13 @@ export const qk = {
   // Schlüssel und Invalidierung bleiben stehen: wer die Liste baut, hat sie sonst still ohne Auffrischung.
   exceptions: (from: string, to: string) => ['exceptions', from, to] as const,
   exceptionsAll: ['exceptions'] as const,
+  /** Präfix aller Admin-Anfragen, optional nach Lehrkraft gefiltert (V14) */
+  substitutionRequestsAll: ['substitution-requests'] as const,
+  substitutionRequests: (teacherId?: number) => ['substitution-requests', teacherId ?? null] as const,
+  /** Präfix aller Lehrkraft-Sichten auf ihre eigenen Anfragen */
+  mySubstitutionRequestsAll: ['my-substitution-requests'] as const,
+  mySubstitutionRequests: (open?: boolean) => ['my-substitution-requests', open ?? null] as const,
+
   changelog: (q: ChangelogQuery) => ['changelog', q] as const,
   changelogAll: ['changelog'] as const,
   holidays: ['holidays'] as const,
