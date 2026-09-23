@@ -41,7 +41,8 @@ class SubstitutionViewModelTest {
         vm.answerSubstitution(1, SubstitutionRequestStatus.ACCEPTED)
         advanceUntilIdle()
         assertTrue(vm.substitutionState.value.requests.isEmpty())
-        assertEquals("Anfrage angenommen.", vm.substitutionState.value.notice)
+        assertNull(vm.substitutionState.value.answeringId)
+        assertNull(vm.substitutionState.value.error)
     }
 
     @Test fun `failed answer keeps request visible and allows retry`() = runTest {

@@ -43,6 +43,7 @@ fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: 
             onAbsence = viewModel::openAbsence,
             onSettings = viewModel::openSettings,
             onAnswer = viewModel::answerSubstitution,
+            onRefresh = viewModel::loadSubstitutionRequests,
         )
         Screen.Settings -> SettingsScreen(
             state = settingsState,

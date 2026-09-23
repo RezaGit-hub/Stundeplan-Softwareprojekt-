@@ -103,11 +103,10 @@ class TimetableViewModel(
         if (_settingsState.value.role != "TEACHER" || substitutionJob?.isActive == true ||
             status == SubstitutionRequestStatus.UNKNOWN || _substitutionState.value.requests.none { it.id == id }) return
         substitutionJob = viewModelScope.launch {
-            _substitutionState.update { it.copy(answeringId = id, error = null, notice = null) }
+            _substitutionState.update { it.copy(answeringId = id, error = null) }
             when (val result = repository.answerSubstitutionRequest(id, status)) {
                 is SubstitutionResult.Success -> _substitutionState.update {
-                    it.copy(answeringId = null, requests = it.requests.filterNot { request -> request.id == id },
-                        notice = if (status == SubstitutionRequestStatus.ACCEPTED) "Anfrage angenommen." else "Anfrage abgelehnt.")
+                    it.copy(answeringId = null, requests = it.requests.filterNot { request -> request.id == id })
                 }
                 is SubstitutionResult.Failure -> handleSubstitutionFailure(result)
             }

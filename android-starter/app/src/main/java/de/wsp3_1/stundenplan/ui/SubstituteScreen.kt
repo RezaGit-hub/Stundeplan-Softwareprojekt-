@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -36,7 +37,6 @@ data class SubstitutionUiState(
     val loading: Boolean = false,
     val answeringId: Long? = null,
     val error: String? = null,
-    val notice: String? = null,
     val timegrid: TimegridDto? = null,
 )
 
@@ -55,6 +55,7 @@ fun SubstituteScreen(
     onWeek: () -> Unit,
     onAbsence: () -> Unit,
     onSettings: () -> Unit,
+    onRefresh: () -> Unit,
     onAnswer: (Long, SubstitutionRequestStatus) -> Unit,
 ) {
     val busy = state.loading || state.answeringId != null
@@ -73,12 +74,17 @@ fun SubstituteScreen(
             SubstitutionTab(selected = true, onClick = {})
         } },
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        PullToRefreshBox(
+            isRefreshing = state.loading && state.requests.isNotEmpty(),
+            onRefresh = { if (!busy) onRefresh() },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
         LazyColumn(modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item {
-                if (state.requests.isNotEmpty()) {
-                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            state.error?.let { error ->
+                item {
+                    Text(error, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium)
                 }
             }
             items(state.requests, key = { it.id }) { request ->
@@ -121,7 +127,9 @@ fun SubstituteScreen(
                 }
             }
         }
-        if (state.loading) CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        if (state.loading && state.requests.isEmpty()) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        }
         }
     }
 }

@@ -86,8 +86,8 @@ class HttpTimetableRepository(
             else SubstitutionResult.Failure(response.code(), when (response.code()) {
                 401 -> "Die Sitzung ist abgelaufen. Bitte erneut anmelden."
                 403 -> "Vertretungsanfragen sind auf dem Server derzeit nicht verfügbar."
-                404 -> "Die Anfrage ist nicht mehr verfügbar. Bitte aktualisieren."
-                409 -> "Die Anfrage wurde bereits beantwortet. Bitte aktualisieren."
+                404 -> "Die Anfrage ist nicht mehr verfügbar."
+                409 -> "Die Anfrage wurde bereits beantwortet."
                 else -> problemDetail(response)?.detail ?: "Die Anfrage konnte nicht verarbeitet werden."
             })
         } catch (e: CancellationException) {

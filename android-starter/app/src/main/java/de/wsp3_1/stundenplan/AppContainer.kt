@@ -1,8 +1,6 @@
 package de.wsp3_1.stundenplan
 
 import android.content.Context
-import android.content.pm.ApplicationInfo
-import de.wsp3_1.stundenplan.data.DemoSubstitutionRepository
 import de.wsp3_1.stundenplan.data.ApiFactory
 import de.wsp3_1.stundenplan.data.HttpTimetableRepository
 import de.wsp3_1.stundenplan.data.OfflineCache
@@ -28,12 +26,5 @@ class AppContainer(context: Context) {
 
     val offlineCache: OfflineCache = OfflineCache(File(appContext.filesDir, "offline"), apiFactory.json)
 
-    // TEMPORÄRE DEMODATEN: auf false setzen, um wieder echte Vertretungsanfragen zu verwenden.
-    private val demoSubstitutionsEnabled = true
-
-    val repository: TimetableRepository = HttpTimetableRepository(settings, apiFactory, offlineCache).let {
-        if (demoSubstitutionsEnabled && appContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            DemoSubstitutionRepository(it)
-        } else it
-    }
+    val repository: TimetableRepository = HttpTimetableRepository(settings, apiFactory, offlineCache)
 }
