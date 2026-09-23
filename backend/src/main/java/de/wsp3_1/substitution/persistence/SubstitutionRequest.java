@@ -10,11 +10,20 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.time.LocalDate;
+
 /**
- * Eine Vertretungsanfrage an eine Lehrkraft (V14). Eine Zeile je Anfrage; {@code status} laeuft
- * {@code UNKNOWN -> ACCEPTED/DECLINED}. Wie {@code change_event.kind} (V4) als {@code varchar} mit
- * CHECK-Liste und {@link EnumType#STRING} — {@code ORDINAL} wuerde 0/1/2 schreiben, und jede
- * Umsortierung des Enums kippte die Daten.
+ * Eine Vertretungsanfrage an eine Lehrkraft (V14/V15). Sie haengt an einer konkreten
+ * ausfallenden Stunde — (lesson_id, date) — und nicht an einem Ereignis: ein change_event
+ * betrifft mehrere Stunden, mehrere Ereignisse koennen dieselbe Stunde offen machen, und
+ * pending-Rows sind berechnet (E-31), haben also keine Kennung.
+ *
+ * <p>{@code status} laeuft {@code UNKNOWN -> ACCEPTED/DECLINED} und bleibt danach stehen,
+ * damit die Planung sieht, wen sie gefragt hat und wer nicht geantwortet hat.</p>
+ *
+ * <p>Anzeigefelder (Klasse, Fach, Position, Raum, ausfallende Lehrkraft) stehen NICHT in der
+ * Datenbank. Der Dienst liest sie beim Anzeigen aus dem {@code WeekResolver} (pending-Sicht)
+ * und setzt sie im DTO zusammen — dieselbe Bauweise wie bei den berechneten Konflikten.</p>
  */
 @Entity
 @Table(name = "substitution_request")
@@ -28,8 +37,11 @@ public class SubstitutionRequest {
     @Column(name = "teacher_id", nullable = false)
     private Long teacherId;
 
-    @Column(name = "event_id", nullable = false)
-    private Long eventId;
+    @Column(name = "lesson_id", nullable = false)
+    private Long lessonId;
+
+    @Column(name = "date", nullable = false)
+    private LocalDate date;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
@@ -38,14 +50,16 @@ public class SubstitutionRequest {
     protected SubstitutionRequest() {
     }
 
-    public SubstitutionRequest(Long teacherId, Long eventId) {
+    public SubstitutionRequest(Long teacherId, Long lessonId, LocalDate date) {
         this.teacherId = teacherId;
-        this.eventId = eventId;
+        this.lessonId = lessonId;
+        this.date = date;
     }
 
     public Long getId() { return id; }
     public Long getTeacherId() { return teacherId; }
-    public Long getEventId() { return eventId; }
+    public Long getLessonId() { return lessonId; }
+    public LocalDate getDate() { return date; }
     public SubstitutionRequestStatus getStatus() { return status; }
     public void setStatus(SubstitutionRequestStatus status) { this.status = status; }
 }

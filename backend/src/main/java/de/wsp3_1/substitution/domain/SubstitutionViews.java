@@ -105,14 +105,14 @@ public final class SubstitutionViews {
     public record HolidayPresetResultView(int added, int skipped, String state, String schoolYear) {
     }
 
-    // ------------------------------------------------------------------ Vertretungsanfragen (V14)
+    // ------------------------------------------------------------------ Vertretungsanfragen (V14-15)
 
     /**
-     * Eine Vertretungsanfrage an eine Lehrkraft. {@code status} laeuft
-     * {@code UNKNOWN -> ACCEPTED/DECLINED}; eine Anfrage bleibt bestehen, damit die Planung sieht,
-     * wen sie schon gefragt hat und wer nicht geantwortet hat.
+     * Leseform einer Vertretungsanfrage. Nur die Felder, die in der Datenbank stehen; die
+     * Anzeigefelder (Klasse, Fach, Position, Raum, ausfallende Lehrkraft) setzt der Controller
+     * aus der pending-Sicht des Tages zusammen (siehe {@code SubstitutionDtos.SubstitutionRequestDto}).
      */
-    public record SubstitutionRequestView(Long id, Long teacherId, Long eventId,
+    public record SubstitutionRequestView(Long id, Long teacherId, Long lessonId, LocalDate date,
                                           SubstitutionRequestStatus status) {
     }
 }
