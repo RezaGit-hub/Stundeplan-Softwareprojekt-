@@ -7,7 +7,7 @@ import type {
   TeacherInput, TimegridInput, TimetableDto, TimetableSummaryDto, UserDto, WeekDto, ClassInput, HolidayInput, HolidayPresetInput,
   MasterDataExport, MasterDataImport, MasterDataImportResult,
   MasterDataSection, SectionImportResult, TransferScope,
-  CapacityViolation, Weekday,
+  CapacityViolation, Weekday, SubstitutionRequestDto, CreateSubstitutionRequestInput,
 } from '@/api/types'
 import { authToken } from '@/api/auth-token'
 import { addDaysIso, between, startOfIsoWeek } from '@/lib/dates'
@@ -17,7 +17,7 @@ import { conflict409, forbidden, notFound, unauthenticated, validation } from '.
 import {
   activePlans, activeTimetable, draftTimetables, newTimetable, nextDraftName, nextId, planCovers, planStart,
   rulesFromPreset, store,
-  type MockClass, type MockEvent, type MockException, type MockLesson, type MockTeacher, type MockTimetable, type MockUser, type Store,
+    type MockClass, type MockEvent, type MockException, type MockLesson, type MockSubstitutionRequest, type MockTeacher, type MockTimetable, type MockUser, type Store,
 } from './store'
 import { loadSmall } from './data-small'
 import { loadFull } from './data-full'
@@ -163,6 +163,18 @@ function eventDto(e: MockEvent, s: Store): EventDto {
 function exceptionDto(x: MockException, conflicts: ExceptionDto['conflicts'] = []): ExceptionDto {
   return { id: x.id, date: x.date, lessonId: x.lessonId, kind: x.kind, substituteTeacherId: x.substituteTeacherId, substituteRoomId: x.substituteRoomId, newDate: x.newDate, newTimeslotId: x.newTimeslotId, eventIds: [...x.eventIds], conflicts }
 }
+
+/** Anzeigefelder aus der Pending-Sicht des Tages nachgeschlagen, wie im Backend (V14/V15). */
+function substitutionRequestDto(r: MockSubstitutionRequest, s: Store): SubstitutionRequestDto {
+  const entry = resolveDay(r.date, s).find((e) => e.lessonId === r.lessonId)
+  return {
+    id: r.id, teacherId: r.teacherId, lessonId: r.lessonId, date: r.date,
+    classShort: entry?.classShort ?? '?', subjectShort: entry?.subjectShort ?? '?',
+    position: entry?.position ?? 0, roomShort: entry?.roomShort ?? '—',
+    originalTeacherShort: entry?.teacherShort ?? '—', status: r.status,
+  }
+}
+
 function userDto(u: MockUser, s: Store): UserDto {
   const cls = u.classId != null ? s.classes.find((c) => c.id === u.classId) : undefined
   return { id: u.id, username: u.username, role: u.role, teacherId: u.teacherId, classId: u.classId, classShort: cls?.name ?? null }
@@ -1080,6 +1092,51 @@ function createApi(identity: () => MockUser | null, s: Store): Api {
     async deleteException(id) {
       const u = await planning()
       deleteException(id, u.username, s)
+    },
+
+        // ---------------- Vertretungsanfragen (V14/V15)
+    async listSubstitutionRequests(teacherId) {
+      await planning()
+      return s.substitutionRequests
+        .filter((r) => teacherId == null || r.teacherId === teacherId)
+        .map((r) => substitutionRequestDto(r, s))
+    },
+    async createSubstitutionRequests(body: CreateSubstitutionRequestInput[]) {
+      await planning()
+      const rows = body ?? []
+      const errors: FieldErrorDto[] = []
+      rows.forEach((row, i) => {
+        if (!s.teachers.some((t) => t.id === row.teacherId)) errors.push({ field: `[${i}].teacherId`, message: 'Lehrkraft fehlt' })
+        if (!resolveDay(row.date, s).some((e) => e.lessonId === row.lessonId)) errors.push({ field: `[${i}].lessonId`, message: 'Stunde nicht gefunden' })
+        if (s.substitutionRequests.some((r) => r.teacherId === row.teacherId && r.lessonId === row.lessonId && r.date === row.date)) {
+          errors.push({ field: `[${i}]`, message: 'Diese Lehrkraft ist für diese Stunde bereits angefragt' })
+        }
+      })
+      throwIfErrors(errors)
+      const created = rows.map((row): MockSubstitutionRequest => ({ id: nextId(), teacherId: row.teacherId, lessonId: row.lessonId, date: row.date, status: 'UNKNOWN', createdAt: nowIso() }))
+      s.substitutionRequests.push(...created)
+      return created.map((r) => substitutionRequestDto(r, s))
+    },
+    async withdrawSubstitutionRequest(id) {
+      await planning()
+      if (!s.substitutionRequests.some((r) => r.id === id)) throw notFound(`Anfrage ${id} nicht gefunden`)
+      s.substitutionRequests = s.substitutionRequests.filter((r) => r.id !== id)
+    },
+    async listMySubstitutionRequests(open) {
+      const u = await authenticated()
+      if (u.teacherId == null) throw notFound('Dieses Konto ist keiner Lehrkraft zugeordnet')
+      return s.substitutionRequests
+        .filter((r) => r.teacherId === u.teacherId)
+        .filter((r) => !open || r.status === 'UNKNOWN')
+        .map((r) => substitutionRequestDto(r, s))
+    },
+    async answerSubstitutionRequest(id, body) {
+      const u = await authenticated()
+      const r = s.substitutionRequests.find((x) => x.id === id)
+      if (!r) throw notFound(`Anfrage ${id} nicht gefunden`)
+      if (u.teacherId == null || r.teacherId !== u.teacherId) throw forbidden()
+      r.status = body.status
+      return substitutionRequestDto(r, s)
     },
 
     // ---------------- Verlauf
