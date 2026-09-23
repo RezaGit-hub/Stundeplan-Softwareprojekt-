@@ -24,6 +24,8 @@ import de.wsp3_1.substitution.domain.WeekViews.DayView;
 import de.wsp3_1.substitution.domain.WeekViews.EntryView;
 import de.wsp3_1.substitution.domain.WeekViews.OriginalView;
 import de.wsp3_1.substitution.domain.WeekViews.WeekView;
+import de.wsp3_1.substitution.domain.SubstitutionRequestStatus;
+import de.wsp3_1.substitution.domain.SubstitutionViews.SubstitutionRequestView;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -248,5 +250,49 @@ public final class SubstitutionDtos {
     public record HolidayPresetInput(@NotBlank(message = "darf nicht leer sein")
                                      @Pattern(regexp = "\\d{4}/\\d{2}", message = "Schreibweise 2026/27")
                                      String schoolYear) {
+    }
+
+    // ------------------------------------------------------------------ Vertretungsanfragen (V14/V15)
+
+    /**
+     * Antwort: die Zeile aus der Datenbank plus die Anzeigefelder, die der Dienst beim Lesen
+     * aus der pending-Sicht des Tages setzt. Diese Felder stehen NICHT in der Datenbank — der
+     * Vertrag traegt sie trotzdem, damit die App nichts nachladen muss.
+     */
+    public record SubstitutionRequestDto(
+            Long id,
+            Long teacherId,
+            Long lessonId,
+            LocalDate date,
+            String classShort,
+            String subjectShort,
+            Integer position,
+            String roomShort,
+            String originalTeacherShort,
+            SubstitutionRequestStatus status) {
+
+        public static SubstitutionRequestDto of(SubstitutionRequestView view, PendingRowView pending) {
+            return new SubstitutionRequestDto(view.id(), view.teacherId(),
+                    view.lessonId(), view.date(),
+                    pending.classShort(), pending.subjectShort(), pending.position(),
+                    pending.roomShort(), pending.teacherShort(),
+                    view.status());
+        }
+    }
+
+    /**
+     * Eine Zeile des POST-Arrays: welche Lehrkraft zu welcher Stunde an welchem Tag gefragt
+     * wird. Die Pruefung passiert im Dienst (pending-Lookup, Lehrerpruefung, Dublette) — die
+     * Bean-Validation kann das nicht leisten und ist deshalb hier nicht im Spiel.
+     */
+    public record CreateSubstitutionRequestDto(Long teacherId, Long lessonId, LocalDate date) {
+    }
+
+    /**
+     * Eingabe der Lehrkraft-Antwort: nur {@code status} ({@code ACCEPTED} oder {@code DECLINED});
+     * {@code UNKNOWN} weist der Dienst als 400 zurueck.
+     */
+    public record AnswerSubstitutionRequestDto(
+            @NotNull(message = "Bitte die Antwort angeben.") SubstitutionRequestStatus status) {
     }
 }

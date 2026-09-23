@@ -263,19 +263,19 @@ public class TimetableConstraintProvider implements ConstraintProvider {
     /** S2: dasselbe Fach einer Klasse zweimal am selben Tag (Faecherverteilung ueber die Woche). 
      * Ausgenommen sind Doppelstunden
     */
-    public Constraint subjectSpreadOverWeek(ConstraintFactory f) {
-    return f.forEachUniquePair(SolverLesson.class,
-                        Joiners.equal(SolverLesson::getClassId),
-                        Joiners.equal(SolverLesson::getSubjectId),
-                        Joiners.equal(lesson -> lesson.getTimeslot().day()))
-                .filter((a, b) -> {
-                        int diff = Math.abs(a.getTimeslot().position() - b.getTimeslot().position());
-                        // NUR bestrafen, wenn die Stunden NICHT aufeinanderfolgen
-                        return diff > 1;
-                 })
-                .penalize(HardMediumSoftScore.ONE_SOFT)
-                .asConstraint("subjectSpreadOverWeek");
-        }
+        public Constraint subjectSpreadOverWeek(ConstraintFactory f) {
+        return f.forEachUniquePair(SolverLesson.class,
+                                Joiners.equal(SolverLesson::getClassId),
+                                Joiners.equal(SolverLesson::getSubjectId),
+                                Joiners.equal(lesson -> lesson.getTimeslot().day()))
+                        .filter((a, b) -> {
+                                int diff = Math.abs(a.getTimeslot().position() - b.getTimeslot().position());
+                                // NUR bestrafen, wenn die Stunden NICHT aufeinanderfolgen
+                                return diff > 1;
+                        })
+                        .penalize(HardMediumSoftScore.ONE_SOFT)
+                        .asConstraint("subjectSpreadOverWeek");
+                }
 
         public Constraint doubleLessonSameRoom(ConstraintFactory f) {
             return f.forEachUniquePair(SolverLesson.class,
@@ -313,29 +313,25 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         }
 
         /* S4: Bestrafung für mehr als 2 gleiche Fachstunden hintereinander */
-        // ================================================================
-        // NEU 3: 3+ Stunden hintereinander vermeiden (Blockunterricht)
-        // ================================================================
+        public Constraint avoidTripleLessons(ConstraintFactory f) {
+                return f.forEach(SolverLesson.class)
+                        .groupBy(
+                                SolverLesson::getClassId,
+                                SolverLesson::getSubjectId,
+                                lesson -> lesson.getTimeslot().day(),
+                                ConstraintCollectors.count()
+                        )
+                        .filter((classId, subjectId, day, count) -> count > 2)
+                        .penalize(HardMediumSoftScore.ONE_SOFT, (classId, subjectId, day, count) -> count - 2)
+                        .asConstraint("avoidTripleLessons");
+        }
 
-    public Constraint avoidTripleLessons(ConstraintFactory f) {
-        return f.forEach(SolverLesson.class)
-                .groupBy(
-                        SolverLesson::getClassId,
-                        SolverLesson::getSubjectId,
-                        lesson -> lesson.getTimeslot().day(),
-                        ConstraintCollectors.count()
-                )
-                .filter((classId, subjectId, day, count) -> count > 2)
-                .penalize(HardMediumSoftScore.ONE_SOFT, (classId, subjectId, day, count) -> count - 2)
-                .asConstraint("avoidTripleLessons");
-    }
-
-    public Constraint balancedClassWeek(ConstraintFactory f) {
-        return f.forEach(SolverLesson.class)
-                .groupBy(SolverLesson::getClassId, ConstraintCollectors.toList())
-                .penalize(HardMediumSoftScore.ONE_SOFT, (classId, lessons) -> balancePenalty(lessons))
-                .asConstraint("balancedClassWeek");
-    }
+        public Constraint balancedClassWeek(ConstraintFactory f) {
+                return f.forEach(SolverLesson.class)
+                        .groupBy(SolverLesson::getClassId, ConstraintCollectors.toList())
+                        .penalize(HardMediumSoftScore.ONE_SOFT, (classId, lessons) -> balancePenalty(lessons))
+                        .asConstraint("balancedClassWeek");
+        }
 
     /** Tage der Schulwoche für die Mittelwertrechnung — Mo–Fr; bei Samstagsunterricht auf 6 setzen. */
     private static final int SCHOOL_DAYS = 5;
