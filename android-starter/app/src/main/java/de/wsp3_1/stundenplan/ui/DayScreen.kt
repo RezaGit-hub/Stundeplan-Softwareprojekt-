@@ -158,6 +158,8 @@ fun DayScreen(
                 )
 
                 if (isTeacher) {
+
+                    /*
                     NavigationBarItem(
                         selected = false,
                         onClick = { onAbsence() },
@@ -174,8 +176,10 @@ fun DayScreen(
                             )
                         }
                     )
+                     */
+
+                    SubstitutionTab(onClick = onSubstitute)
                 }
-                if (isTeacher) SubstitutionTab(onClick = onSubstitute)
             }
         }
     ) { innerPadding ->

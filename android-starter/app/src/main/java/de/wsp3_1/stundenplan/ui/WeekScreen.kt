@@ -158,6 +158,8 @@ fun WeekScreen(
                 )
 
                 if (isTeacher) {
+
+                    /*
                     NavigationBarItem(
                         selected = false,
                         onClick = { onAbsence() },
@@ -174,8 +176,10 @@ fun WeekScreen(
                             )
                         }
                     )
+                    */
+
+                    SubstitutionTab(onClick = onSubstitute)
                 }
-                if (isTeacher) SubstitutionTab(onClick = onSubstitute)
             }
         }
     ) { innerPadding ->

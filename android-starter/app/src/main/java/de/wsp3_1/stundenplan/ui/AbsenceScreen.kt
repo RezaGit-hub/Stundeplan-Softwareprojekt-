@@ -58,10 +58,16 @@ fun AbsenceScreen(
     monday: LocalDate,
     today: LocalDate,
     isTeacher: Boolean,
+    absences: List<Absence>,
     onDay: (LocalDate) -> Unit,
     onWeek: () -> Unit,
     onSettings: () -> Unit,
     onSubstitute: () -> Unit = {},
+    onSendAbsence: (
+            fromDate: LocalDate,
+            toDate: LocalDate,
+            reason: String,
+    ) -> Unit,
 ) {
     var showDialog by remember { mutableStateOf(false) }
     var reason by remember { mutableStateOf("") }
@@ -69,7 +75,6 @@ fun AbsenceScreen(
     var toDate by remember { mutableStateOf(today) }
     var showFromDatePicker by remember { mutableStateOf(false) }
     var showToDatePicker by remember { mutableStateOf(false) }
-    var absences by remember { mutableStateOf(listOf<Absence>()) }
 
     Scaffold(
         topBar = {
@@ -283,10 +288,10 @@ fun AbsenceScreen(
                 Button(
                     onClick = {
                         if (reason.isNotBlank()) {
-                            absences = absences + Absence(
-                                from = fromDate,
-                                to = toDate,
-                                reason = reason
+                            onSendAbsence(
+                                fromDate,
+                                toDate,
+                                reason
                             )
 
                             showDialog = false

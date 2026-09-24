@@ -30,6 +30,13 @@ interface TimetableRepository {
     /** DELETE /api/auth/token (bestmoeglich), dann Token und Offline-Stand loeschen. */
     suspend fun logout()
 
+    suspend fun sendNewAbsence(
+        token: String,
+        absence: NewAbsenceRequest
+    ): Result<Absence>
+
+    suspend fun loadAbsences(): Result<List<Absence>>
+
     /** GET /api/me/timetable/week?date=<montag>; bei Erfolg wird der Offline-Stand aktualisiert. */
     suspend fun loadWeek(monday: LocalDate): WeekResult
 
@@ -286,4 +293,68 @@ class HttpTimetableRepository(
             null
         }
     }
+
+    override suspend fun sendNewAbsence(
+        token: String,
+        absence: NewAbsenceRequest
+    ): Result<Absence> = withContext(Dispatchers.IO) {
+        val url = settings.serverUrl.first()
+            ?: return@withContext Result.failure(
+                Exception("Kein Server konfiguriert")
+            )
+
+        try {
+            val response = apiFor(url).sendNewAbsence(
+                authorization = ApiFactory.bearer(token),
+                body = absence
+            )
+
+            if (response.isSuccessful) {
+                response.body()?.let {
+                    Result.success(it)
+                } ?: Result.failure(
+                    Exception("Keine Antwort vom Server")
+                )
+            } else {
+                Result.failure(
+                    Exception("Serverfehler: ${response.code()}")
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun loadAbsences(): Result<List<Absence>> =
+        withContext(Dispatchers.IO) {
+            val url = settings.serverUrl.first()
+                ?: return@withContext Result.failure(
+                    Exception("Kein Server konfiguriert")
+                )
+
+            val token = settings.token.first()
+                ?: return@withContext Result.failure(
+                    Exception("Nicht angemeldet")
+                )
+
+            try {
+                val response = apiFor(url).loadAbsences(
+                    authorization = ApiFactory.bearer(token)
+                )
+
+                if (response.isSuccessful) {
+                    Result.success(response.body().orEmpty())
+                } else {
+                    Result.failure(
+                        Exception("Serverfehler: ${response.code()}")
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
 }

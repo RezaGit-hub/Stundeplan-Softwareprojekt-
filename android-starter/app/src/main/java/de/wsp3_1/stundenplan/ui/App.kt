@@ -4,7 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.wsp3_1.stundenplan.data.ThemeMode
@@ -18,6 +17,7 @@ import java.time.LocalDate
 fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     val screen by viewModel.screen.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val absences by viewModel.absences.collectAsStateWithLifecycle()
     val settingsState by viewModel.settingsState.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val substitutionState by viewModel.substitutionState.collectAsStateWithLifecycle()
@@ -99,10 +99,18 @@ fun App(viewModel: TimetableViewModel, themeMode: ThemeMode, onThemeModeChange: 
             monday = base.monday,
             today = LocalDate.now(),
             isTeacher = settingsState.role == "TEACHER",
+            absences = absences,
             onDay = viewModel::showDay,
             onWeek = viewModel::showWeek,
             onSettings = viewModel::openSettings,
             onSubstitute = viewModel::openSubstitute,
+            onSendAbsence = { fromDate, toDate, reason ->
+                viewModel.sendAbsence(
+                    dateFrom = fromDate,
+                    dateTo = toDate,
+                    reason = reason,
+                )
+            }
         )
 
         is Screen.Detail -> Unit // kommt nicht vor: base ist nie ein Detail
