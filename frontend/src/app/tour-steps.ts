@@ -121,15 +121,11 @@ export const TOUR_STEPS: TourStep[] = [
     ],
   },
 
-  {
-    title: 'Stundentafel öffnen',
-    text: 'Eine Klasse ohne Fächer kann der Solver nicht planen — sie hätte nichts zu belegen. Deshalb gehört zu jeder Klasse eine Stundentafel: welches Fach wie viele Wochenstunden bekommt und wer es unterrichtet.',
-    target: { text: '7c' }, route: '/grunddaten/klassen', weiter: 'klick',
-    action: 'Öffnen Sie die neue Klasse 7c in der Tabelle.',
-  },
+  // Nach dem Speichern oeffnet die Anwendung die neue Klasse selbst (ClassesPage `onCreated`) — ein eigener
+  // Schritt „Klasse oeffnen" waere gegenstandslos.
   {
     title: 'Fach zuordnen',
-    text: 'Jede Zeile ist ein Fach der Klasse. Die Wochenstunden zählen gegen das Deputat der Lehrkraft; passt etwas nicht, erscheint ein Hinweis in der Zeile — gespeichert wird trotzdem.',
+    text: 'Die neue Klasse ist gleich geöffnet. Ohne Fächer kann der Solver sie nicht planen — sie hätte nichts zu belegen. Deshalb gehört zu jeder Klasse eine Stundentafel: Jede Zeile ist ein Fach mit Wochenstunden und Lehrkraft. Die Stunden zählen gegen das Deputat; passt etwas nicht, erscheint ein Hinweis in der Zeile — gespeichert wird trotzdem.',
     target: { text: 'Fach hinzufügen' }, weiter: 'klick',
     action: 'Klicken Sie auf „Fach hinzufügen".',
   },

@@ -39,8 +39,9 @@ const NACHLAUF = 550
 const ANSCHLAG = 55
 /** Ab so viel Platz rechts neben dem Ziel steht der Pfeil daneben statt darunter. */
 const PFEIL_PLATZ = 90
-/** So lange muss die Anwendung ohne Anfrage und ohne Ladeanzeige sein, bevor sie als „fertig" gilt. */
-const RUHE = 400
+/** So lange muss die Anwendung ohne Anfrage und ohne Ladeanzeige sein, bevor sie als „fertig" gilt. Kurz:
+ *  Die Luecke zwischen „Anfrage fertig" und „Nachladen beginnt" ist ein einziger Tick. */
+const RUHE = 200
 /** So lange wartet die Vorbereitung hoechstens auf ihr erstes Feld (Seite laedt noch). */
 const FELD_WARTEZEIT = 8000
 
@@ -204,18 +205,23 @@ function useZielRect(target: TourStep['target'], aktiv: boolean, imDialog = fals
 
 /**
  * Arbeitet die Anwendung noch? Drei Zeichen, jedes fuer sich reicht: eine Mutation laeuft (Speichern, Anlegen,
- * Berechnen starten), eine Abfrage laedt (Seite nach dem Wechsel, Nachladen nach dem Speichern), oder die Seite
+ * Berechnen starten), eine Abfrage der offenen Seite laedt (Seite nach dem Wechsel, Nachladen nach dem
+ * Speichern), oder die Seite
  * zeigt selbst `aria-busy` — Ladegerippe und das Raster, solange der Solver rechnet (Entwurf im Status SOLVING).
- * Das DOM wird alle 150 ms abgefragt; ein MutationObserver auf den ganzen Baum waere teurer als dieser Blick.
+ * Das DOM wird alle 100 ms abgefragt; ein MutationObserver auf den ganzen Baum waere teurer als dieser Blick.
  *
  * Zurueck kommt `ruhig`: erst wahr, wenn RUHE lang nichts davon zu sehen war. Sonst gaelte die kurze Luecke
  * zwischen „Anfrage fertig" und „Nachladen beginnt" schon als Ende.
  */
-function useRuhig(aktiv: boolean): { beschaeftigt: boolean; ruhig: boolean } {
+function useRuhig(aktiv: boolean): { beschaeftigt: boolean; ruhig: boolean; ruhigOhneLaden: boolean } {
   const mutiert = useIsMutating()
-  const laedt = useIsFetching()
+  // Nur Abfragen, die eine sichtbare Komponente gerade braucht. Nach dem Anlegen eines Entwurfs laden sonst
+  // auch Listen nach, die niemand mehr anzeigt (Entwurfsliste, Grunddaten) — darauf zu warten, hielt den
+  // Rundgang spuerbar auf.
+  const laedt = useIsFetching({ type: 'active' })
   const [domBusy, setDomBusy] = useState(false)
   const [ruhig, setRuhig] = useState(false)
+  const [ruhigOhneLaden, setRuhigOhneLaden] = useState(false)
 
   useEffect(() => {
     // Gelesen wird der echte Seitenzustand — ohne DOM gibt es ihn nicht.
@@ -223,7 +229,7 @@ function useRuhig(aktiv: boolean): { beschaeftigt: boolean; ruhig: boolean } {
     if (!aktiv) { setDomBusy(false); return }
     const pruefen = () => setDomBusy(!!document.querySelector('[aria-busy="true"]'))
     pruefen()
-    const t = window.setInterval(pruefen, 150)
+    const t = window.setInterval(pruefen, 100)
     return () => window.clearInterval(t)
   }, [aktiv])
 
@@ -235,7 +241,37 @@ function useRuhig(aktiv: boolean): { beschaeftigt: boolean; ruhig: boolean } {
     return () => window.clearTimeout(t)
   }, [beschaeftigt])
 
-  return { beschaeftigt, ruhig: ruhig && !beschaeftigt }
+  // Dasselbe ohne das Nachladen: Nach einem Klick reicht es oft, dass Anfrage und Ladeanzeige durch sind —
+  // was im Hintergrund nachlaedt, braucht der naechste Schritt meist nicht (siehe Warte-Effekt).
+  const arbeitet = aktiv && (mutiert > 0 || domBusy)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (arbeitet) { setRuhigOhneLaden(false); return }
+    const t = window.setTimeout(() => setRuhigOhneLaden(true), RUHE)
+    return () => window.clearTimeout(t)
+  }, [arbeitet])
+
+  return { beschaeftigt, ruhig: ruhig && !beschaeftigt, ruhigOhneLaden: ruhigOhneLaden && !arbeitet }
+}
+
+/** Steht das Ziel von Schritt i schon da? Schritte ohne Klickziel auf der offenen Seite zaehlen als „da". */
+function zielDa(i: number, pfad: string): boolean {
+  const s = TOUR_STEPS[i]
+  if (!s || s.weiter !== 'klick' || !aufSeite(pfad, s.route)) return true
+  return !!zielFinden(s.target, !!s.imDialog)
+}
+
+/**
+ * Der naechste Schritt ab `ab`, der gerade Sinn hat: Klickschritte auf der offenen Seite, deren Ziel fehlt
+ * („Lösen" ohne Konflikt, der Vorschlagsdialog dazu), werden gleich uebersprungen. Frueher erschien jeder
+ * davon kurz, suchte anderthalb Sekunden und verschwand — das Fenster flackerte durch drei Schritte.
+ * Nur aufrufen, wenn die Seite fertig geladen ist; sonst fehlt ein Ziel bloss, weil es noch kommt.
+ */
+function naechsterSinnvoller(ab: number, pfad: string): number {
+  for (let i = ab; i < TOUR_STEPS.length - 1; i++) {
+    if (zielDa(i, pfad)) return i
+  }
+  return TOUR_STEPS.length - 1
 }
 
 /** Ist die Seite des Schritts offen? Detailseiten zaehlen mit: /grunddaten/klassen/7 liegt auf /grunddaten/klassen. */
@@ -266,7 +302,9 @@ export function TourOverlay() {
   const [freigegeben, setFreigegeben] = useState(false)
   // Das Ziel wurde angeklickt; der Rundgang wartet, bis die Anwendung damit fertig ist (siehe useRuhig).
   // `seit` trennt die Mutationen dieses Klicks von aelteren, `el` ist das angeklickte Element.
-  const [wartet, setWartet] = useState<{ step: number; seit: number; el: HTMLElement } | null>(null)
+  // `lage` haelt das Erklaerfenster waehrend des Wartens an seinem Platz: Das angeklickte Ziel verschwindet
+  // (Dialog zu, Seite wechselt), und ohne Ziel sprang das Fenster in die Ecke und wieder zurueck.
+  const [wartet, setWartet] = useState<{ step: number; seit: number; el: HTMLElement; lage: { top: number; left: number } | null } | null>(null)
   // Der Klick hat nichts bewirkt: Anfrage abgelehnt oder der Dialog steht noch (Pflichtfeld leer, 409 …).
   const [fehlschlag, setFehlschlag] = useState(false)
   // Nach dem Ausfuellen: Index der ersten Vorbereitung, deren Feld noch leer ist (Auswahl ging schief, Nutzer
@@ -301,7 +339,10 @@ export function TourOverlay() {
   // Im Dialog nur suchen, solange der Schritt nicht ohnehin erst zur Seite fuehrt.
   const imDialog = !!current.imDialog && !hinfuehren
   const rect = useZielRect(ziel, sichtbar && !nurLesen, imDialog)
-  const { beschaeftigt, ruhig } = useRuhig(sichtbar)
+  const { beschaeftigt, ruhig, ruhigOhneLaden } = useRuhig(sichtbar)
+  // Die offene Route fuer Pruefungen ausserhalb des Renderns (Zeitgeber, Horcher).
+  const pfad = useRef(location.pathname)
+  useLayoutEffect(() => { pfad.current = location.pathname })
 
   const beenden = useCallback(() => {
     setGeschlossen(true)
@@ -389,23 +430,40 @@ export function TourOverlay() {
     const meiner = step
     const onClick = () => {
       setFehlschlag(false)
-      setWartet({ step: meiner, seit: Date.now(), el })
+      const r = panel.current?.getBoundingClientRect()
+      setWartet({ step: meiner, seit: Date.now(), el, lage: r && r.width > 0 ? { top: Math.round(r.top), left: Math.round(r.left) } : null })
     }
     el.addEventListener('click', onClick)
     return () => el.removeEventListener('click', onClick)
     // `rect` haengt mit drin, damit der Horcher nachgezogen wird, sobald das Ziel auftaucht.
   }, [sichtbar, current.weiter, current.target, hinfuehren, imDialog, rect, step])
 
-  // Nach dem Klick: warten, bis mindestens NACHLAUF vergangen ist UND die Anwendung zur Ruhe gekommen ist —
-  // keine Anfrage, kein Nachladen, keine Ladeanzeige, kein laufender Solver. Dann entscheiden:
+  // Nach dem Klick: warten, bis mindestens NACHLAUF vergangen ist UND die Anwendung fertig ist — keine
+  // Anfrage, keine Ladeanzeige, kein laufender Solver. Laedt die Seite danach noch nach, genuegt es, wenn das
+  // Ziel des naechsten Schritts schon steht (nach „Anlegen" etwa „Berechnen"); sonst wird auch das Nachladen
+  // abgewartet — nach „Berechnen" kommt der neue Stand erst mit der naechsten Abfrage. Dann entscheiden:
   //   - eine Anfrage dieses Klicks ist gescheitert → stehen bleiben, der Nutzer sieht die Fehlermeldung;
   //   - ein Dialog-Schritt, dessen Dialog noch offen steht → ebenso (Pflichtfeld leer, Konflikt 409 …);
-  //   - sonst weiter.
-  // Wird die Anwendung in der Wartezeit wieder unruhig, faengt die Uhr neu an (`ruhig` haengt mit drin).
+  //   - sonst weiter, und zwar gleich zum naechsten Schritt, der auf der Seite Sinn hat.
+  // Wird die Anwendung in der Wartezeit wieder unruhig, faengt die Pruefung neu an.
   useEffect(() => {
-    if (!wartet || wartet.step !== step || !ruhig) return
-    const rest = Math.max(0, NACHLAUF - (Date.now() - wartet.seit))
-    const t = window.setTimeout(() => {
+    if (!wartet || wartet.step !== step || !ruhigOhneLaden) return
+    let t = 0
+    // Geprueft wird direkt am Cache und am DOM, nicht an den gerenderten Zaehlern: Zwischen „Antwort da" und
+    // „Seite zeigt sie" liegt ein Render, und genau dort sah die Seite nach „Berechnen" kurz fertig aus —
+    // der Rundgang sprang dann ueber die ganze Planung. Deshalb muss der Zustand RUHE lang stabil sein.
+    let stabilSeit = 0
+    const pruefen = () => {
+      const jetzt = Date.now()
+      const laedtNoch = qc.isFetching({ type: 'active' }) > 0
+      const fertig = jetzt - wartet.seit >= NACHLAUF
+        && qc.isMutating() === 0
+        && !document.querySelector('[aria-busy="true"]')
+        && (!laedtNoch || zielDa(wartet.step + 1, pfad.current))
+      if (!fertig) { stabilSeit = 0; return }
+      if (stabilSeit === 0) stabilSeit = jetzt
+      if (jetzt - stabilSeit < RUHE) return
+      window.clearInterval(t)
       const gescheitert = qc.getMutationCache().getAll()
         .some((m) => (m.state.submittedAt ?? 0) >= wartet.seit && m.state.status === 'error')
       const dialog = wartet.el.closest('[role="dialog"], [role="alertdialog"]')
@@ -413,16 +471,19 @@ export function TourOverlay() {
         && !!dialog && dialog.getAttribute('data-state') !== 'closed'
       setWartet(null)
       if (gescheitert || dialogOffen) { setFehlschlag(true); return }
-      setStep((s) => (s === wartet.step && s < TOUR_STEPS.length - 1 ? s + 1 : s))
+      const naechster = laedtNoch ? wartet.step + 1 : naechsterSinnvoller(wartet.step + 1, pfad.current)
+      setStep((s) => (s === wartet.step && s < TOUR_STEPS.length - 1 ? Math.min(naechster, TOUR_STEPS.length - 1) : s))
       setFreigegeben(false)
       setTippt(false)
       setGetippt(false)
       setAktuelleAktion(null)
       setFeldIndex(0)
       setFehlt(null)
-    }, rest)
-    return () => window.clearTimeout(t)
-  }, [wartet, step, ruhig, qc])
+    }
+    t = window.setInterval(pruefen, 80)
+    pruefen()
+    return () => window.clearInterval(t)
+  }, [wartet, step, ruhigOhneLaden, qc])
 
   // Gibt es das Ziel nicht (und es kommt auch nicht mehr), ist der Schritt gegenstandslos: „Leer beginnen"
   // fehlt, wenn schon ein Entwurf da ist, „Lösen" fehlt ohne Konflikt. Dann still weiter, statt auf einen
@@ -431,7 +492,7 @@ export function TourOverlay() {
     if (!sichtbar || current.weiter !== 'klick' || hinfuehren || tippt || wartet || !ruhig) return
     if (rect !== null || suchtNoch || letzter) return
     const meiner = step
-    const t = window.setTimeout(() => setStep((s2) => (s2 === meiner ? s2 + 1 : s2)), 400)
+    const t = window.setTimeout(() => setStep((s2) => (s2 === meiner ? naechsterSinnvoller(s2 + 1, pfad.current) : s2)), 400)
     return () => window.clearTimeout(t)
   }, [sichtbar, current.weiter, hinfuehren, tippt, wartet, ruhig, rect, suchtNoch, letzter, step])
 
@@ -581,7 +642,10 @@ export function TourOverlay() {
     ? { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' }
     : null
 
-  const panelStil: CSSProperties = ecke ?? nebenDialog ?? (loch && lage === 'unten'
+  const gehalten: CSSProperties | null = wartet?.lage
+    ? { top: wartet.lage.top, left: wartet.lage.left, maxHeight: `calc(100vh - ${wartet.lage.top + RAND}px)`, overflowY: 'auto' }
+    : null
+  const panelStil: CSSProperties = gehalten ?? ecke ?? nebenDialog ?? (loch && lage === 'unten'
     ? { top: loch.top + loch.height + 28, left: links, maxHeight: platzUnten - 2 * RAND, overflowY: 'auto' }
     : loch && lage === 'oben'
       ? { bottom: window.innerHeight - loch.top + 28, left: links, maxHeight: platzOben - 2 * RAND, overflowY: 'auto' }
@@ -590,7 +654,8 @@ export function TourOverlay() {
   // Solange nach dem Ziel gesucht wird, bleibt das Fenster durchsichtig statt kurz in der Ecke aufzublitzen.
   // Nur warten, wenn es ueberhaupt ein Ziel zu finden gibt. Ein Erklaerschritt hat keins — der blieb sonst
   // bis zu anderthalb Sekunden durchsichtig, und der Wechsel wirkte wie ein Aussetzer.
-  const sucht = !nurLesen && loch === null && suchtNoch
+  // Waehrend des Wartens nie: Dann ist das Ziel absichtlich weg, und das Fenster zeigt den Fortschritt.
+  const sucht = !nurLesen && loch === null && suchtNoch && !wartet
 
   return createPortal(
     <>
@@ -646,7 +711,7 @@ export function TourOverlay() {
         // Gleiten statt springen: Beim Schrittwechsel und beim Scrollen wandert das Fenster weich mit.
         style={{ ...panelStil, pointerEvents: 'auto', opacity: sucht ? 0 : 1, transition: 'top .16s ease-out, left .16s ease-out, bottom .16s ease-out, opacity .12s linear' }}
       >
-        {lage !== 'ecke' && !nebenDialog && !ecke && (
+        {lage !== 'ecke' && !nebenDialog && !ecke && !gehalten && (
           <span
             aria-hidden
             className="absolute size-3 rotate-45 bg-popover ring-1 ring-foreground/10"

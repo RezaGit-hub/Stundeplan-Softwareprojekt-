@@ -108,6 +108,8 @@ describe('TourOverlay (#139)', () => {
     await renderPage(
       <>
         <button type="button">{beschriftung}</button>
+        {/* Der Folgeschritt spielt im Dialog; fehlt sein Ziel, überspringt der Rundgang ihn gleich. */}
+        <div role="dialog" aria-label="Formular"><button type="button">Speichern</button></div>
         <TourOverlay />
       </>,
       { route: schritt.route },
@@ -131,6 +133,7 @@ describe('TourOverlay (#139)', () => {
     await renderPage(
       <>
         <LangsamerKnopf beschriftung={beschriftung} ausgang={ausgang} />
+        <div role="dialog" aria-label="Formular"><button type="button">Speichern</button></div>
         <TourOverlay />
       </>,
       { route: schritt.route },
@@ -162,6 +165,7 @@ describe('TourOverlay (#139)', () => {
     await renderPage(
       <>
         <LangsamerKnopf beschriftung={beschriftung} ausgang={ausgang} />
+        <div role="dialog" aria-label="Formular"><button type="button">Speichern</button></div>
         <TourOverlay />
       </>,
       { route: schritt.route },
