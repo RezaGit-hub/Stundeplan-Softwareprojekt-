@@ -1,5 +1,6 @@
 package de.wsp3_1.stundenplan
 
+import de.wsp3_1.stundenplan.data.Absence
 import de.wsp3_1.stundenplan.data.AppSettings
 import de.wsp3_1.stundenplan.data.CachedWeek
 import de.wsp3_1.stundenplan.data.DayDto
@@ -8,6 +9,7 @@ import de.wsp3_1.stundenplan.data.EntryKind
 import de.wsp3_1.stundenplan.data.EntryOriginal
 import de.wsp3_1.stundenplan.data.HealthResult
 import de.wsp3_1.stundenplan.data.LoginResult
+import de.wsp3_1.stundenplan.data.NewAbsenceRequest
 import de.wsp3_1.stundenplan.data.ThemeMode
 import de.wsp3_1.stundenplan.data.TimegridDto
 import de.wsp3_1.stundenplan.data.TimeslotDto
@@ -183,6 +185,13 @@ class FakeRepository(private val settings: FakeSettings) : TimetableRepository {
     var logoutCalls = 0
     var clearCacheCalls = 0
 
+    /** Antwort auf [sendNewAbsence]; Tests koennen sie ersetzen. */
+    var sendAbsenceResult: (NewAbsenceRequest) -> Result<Absence> =
+        { Result.success(Absence(LocalDate.parse(it.dateFrom), LocalDate.parse(it.dateTo), it.reason)) }
+
+    /** Antwort auf [loadAbsences]; Tests koennen sie ersetzen. */
+    var absencesResult: Result<List<Absence>> = Result.success(emptyList())
+
     /**
      * Sperre je Woche: solange sie offen ist, haengt `loadWeek` - so laesst sich eine verspaetete
      * Antwort nachstellen, ohne mit echten Zeiten zu arbeiten.
@@ -229,4 +238,11 @@ class FakeRepository(private val settings: FakeSettings) : TimetableRepository {
     override suspend fun clearCache() {
         clearCacheCalls++
     }
+
+    override suspend fun sendNewAbsence(
+        token: String,
+        absence: NewAbsenceRequest,
+    ): Result<Absence> = sendAbsenceResult(absence)
+
+    override suspend fun loadAbsences(): Result<List<Absence>> = absencesResult
 }
