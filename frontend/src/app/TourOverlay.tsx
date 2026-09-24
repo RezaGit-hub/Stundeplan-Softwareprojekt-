@@ -18,7 +18,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { Compass, MousePointerClick, PenLine } from 'lucide-react'
+import { useIsFetching, useIsMutating, useQueryClient } from '@tanstack/react-query'
+import { Compass, LoaderCircle, MousePointerClick, PenLine, TriangleAlert } from 'lucide-react'
 import { useMe, useSetTour } from '@/api/hooks'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -32,12 +33,17 @@ const RAND = 12
 const PANEL_PLATZ = 280
 /** Rueckfall, falls sich die Rundung des Bedienelements nicht auslesen laesst. */
 const LOCH_RUNDUNG = 8
-/** Ruhe nach einem Klick, bevor der naechste Schritt anfaengt (Seite/Dialog kommen zur Ruhe). */
+/** Mindestpause nach einem Klick, bevor der naechste Schritt anfaengt — auch wenn nichts nachlaedt. */
 const NACHLAUF = 550
 /** Anschlag je Zeichen der Schreibanimation. */
 const ANSCHLAG = 55
 /** Ab so viel Platz rechts neben dem Ziel steht der Pfeil daneben statt darunter. */
 const PFEIL_PLATZ = 90
+/** So lange muss die Anwendung ohne Anfrage und ohne Ladeanzeige sein, bevor sie als „fertig" gilt. Kurz:
+ *  Die Luecke zwischen „Anfrage fertig" und „Nachladen beginnt" ist ein einziger Tick. */
+const RUHE = 200
+/** So lange wartet die Vorbereitung hoechstens auf ihr erstes Feld (Seite laedt noch). */
+const FELD_WARTEZEIT = 8000
 
 interface Rect { top: number; left: number; width: number; height: number }
 
@@ -96,6 +102,20 @@ function setzeWert(el: HTMLInputElement | HTMLTextAreaElement, wert: string) {
 const pause = (ms: number) => new Promise((r) => window.setTimeout(r, ms))
 
 /**
+ * Ist das Feld einer Vorbereitung noch leer? Textfelder: nur Leerzeichen. Radix-Selects tragen ohne Wert
+ * `data-placeholder`, ein echtes <select> hat den Wert ''. Fehlt das Feld ganz (andere Ereignisart,
+ * Formular anders gebaut), wird es nicht eingefordert — sonst saesse der Rundgang fest.
+ */
+function feldLeer(a: TourAktion): boolean {
+  if (a.art === 'klick') return false
+  const el = document.querySelector<HTMLElement>(a.css)
+  if (!el) return false
+  if (el instanceof HTMLSelectElement) return el.value === ''
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value.trim() === ''
+  return el.hasAttribute('data-placeholder')
+}
+
+/**
  * Fuehrt eine Vorbereitung aus: tippen (Zeichen fuer Zeichen), waehlen (Auswahlfeld oeffnen und Eintrag
  * nehmen) oder klicken. Gibt zurueck, ob sie geklappt hat — fehlt das Feld, geht der Rundgang trotzdem weiter.
  */
@@ -112,14 +132,23 @@ async function fuehreAus(a: TourAktion, abbruch: () => boolean): Promise<void> {
     return
   }
   if (a.art === 'waehlen') {
-    // Auswahlfelder sind keine <select>: Der Knopf oeffnet eine Liste, aus der ein Eintrag geklickt wird.
+    // Auswahlfelder sind keine <select>, sondern Radix-Selects: Der Knopf oeffnet eine Liste, aus der ein
+    // Eintrag geklickt wird. `click()` allein oeffnet sie NICHT — Radix reagiert auf `pointerdown` oder auf die
+    // Tastatur. Die Tastatur ist der verlaesslichere Weg (kein Zeigertyp, keine Koordinaten): Fokus, Pfeil runter.
     const trigger = document.querySelector<HTMLElement>(a.css)
     if (!trigger) return
-    trigger.click()
-    await pause(320)
-    if (abbruch()) return
-    const eintraege = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
-    const treffer = a.option ? eintraege.find((o) => (o.textContent ?? '').includes(a.option!)) : eintraege[0]
+    trigger.focus()
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true, cancelable: true }))
+    // Die Liste kommt animiert; kurz auf ihre Eintraege warten.
+    let eintraege: HTMLElement[] = []
+    for (let i = 0; i < 20 && eintraege.length === 0; i++) {
+      await pause(60)
+      if (abbruch()) return
+      eintraege = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]:not([data-disabled])'))
+    }
+    // Gewuenschter Eintrag, sonst der erste — lieber irgendein Wert als ein leeres Feld.
+    const treffer = (a.option ? eintraege.find((o) => (o.textContent ?? '').includes(a.option!)) : undefined) ?? eintraege[0]
+    // Ein Radix-Eintrag waehlt bei `click`, solange kein Mauszeiger im Spiel war.
     treffer?.click()
     await pause(260)
     return
@@ -174,6 +203,77 @@ function useZielRect(target: TourStep['target'], aktiv: boolean, imDialog = fals
   return rect
 }
 
+/**
+ * Arbeitet die Anwendung noch? Drei Zeichen, jedes fuer sich reicht: eine Mutation laeuft (Speichern, Anlegen,
+ * Berechnen starten), eine Abfrage der offenen Seite laedt (Seite nach dem Wechsel, Nachladen nach dem
+ * Speichern), oder die Seite
+ * zeigt selbst `aria-busy` — Ladegerippe und das Raster, solange der Solver rechnet (Entwurf im Status SOLVING).
+ * Das DOM wird alle 100 ms abgefragt; ein MutationObserver auf den ganzen Baum waere teurer als dieser Blick.
+ *
+ * Zurueck kommt `ruhig`: erst wahr, wenn RUHE lang nichts davon zu sehen war. Sonst gaelte die kurze Luecke
+ * zwischen „Anfrage fertig" und „Nachladen beginnt" schon als Ende.
+ */
+function useRuhig(aktiv: boolean): { beschaeftigt: boolean; ruhig: boolean; ruhigOhneLaden: boolean } {
+  const mutiert = useIsMutating()
+  // Nur Abfragen, die eine sichtbare Komponente gerade braucht. Nach dem Anlegen eines Entwurfs laden sonst
+  // auch Listen nach, die niemand mehr anzeigt (Entwurfsliste, Grunddaten) — darauf zu warten, hielt den
+  // Rundgang spuerbar auf.
+  const laedt = useIsFetching({ type: 'active' })
+  const [domBusy, setDomBusy] = useState(false)
+  const [ruhig, setRuhig] = useState(false)
+  const [ruhigOhneLaden, setRuhigOhneLaden] = useState(false)
+
+  useEffect(() => {
+    // Gelesen wird der echte Seitenzustand — ohne DOM gibt es ihn nicht.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!aktiv) { setDomBusy(false); return }
+    const pruefen = () => setDomBusy(!!document.querySelector('[aria-busy="true"]'))
+    pruefen()
+    const t = window.setInterval(pruefen, 100)
+    return () => window.clearInterval(t)
+  }, [aktiv])
+
+  const beschaeftigt = aktiv && (mutiert > 0 || laedt > 0 || domBusy)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (beschaeftigt) { setRuhig(false); return }
+    const t = window.setTimeout(() => setRuhig(true), RUHE)
+    return () => window.clearTimeout(t)
+  }, [beschaeftigt])
+
+  // Dasselbe ohne das Nachladen: Nach einem Klick reicht es oft, dass Anfrage und Ladeanzeige durch sind —
+  // was im Hintergrund nachlaedt, braucht der naechste Schritt meist nicht (siehe Warte-Effekt).
+  const arbeitet = aktiv && (mutiert > 0 || domBusy)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (arbeitet) { setRuhigOhneLaden(false); return }
+    const t = window.setTimeout(() => setRuhigOhneLaden(true), RUHE)
+    return () => window.clearTimeout(t)
+  }, [arbeitet])
+
+  return { beschaeftigt, ruhig: ruhig && !beschaeftigt, ruhigOhneLaden: ruhigOhneLaden && !arbeitet }
+}
+
+/** Steht das Ziel von Schritt i schon da? Schritte ohne Klickziel auf der offenen Seite zaehlen als „da". */
+function zielDa(i: number, pfad: string): boolean {
+  const s = TOUR_STEPS[i]
+  if (!s || s.weiter !== 'klick' || !aufSeite(pfad, s.route)) return true
+  return !!zielFinden(s.target, !!s.imDialog)
+}
+
+/**
+ * Der naechste Schritt ab `ab`, der gerade Sinn hat: Klickschritte auf der offenen Seite, deren Ziel fehlt
+ * („Lösen" ohne Konflikt, der Vorschlagsdialog dazu), werden gleich uebersprungen. Frueher erschien jeder
+ * davon kurz, suchte anderthalb Sekunden und verschwand — das Fenster flackerte durch drei Schritte.
+ * Nur aufrufen, wenn die Seite fertig geladen ist; sonst fehlt ein Ziel bloss, weil es noch kommt.
+ */
+function naechsterSinnvoller(ab: number, pfad: string): number {
+  for (let i = ab; i < TOUR_STEPS.length - 1; i++) {
+    if (zielDa(i, pfad)) return i
+  }
+  return TOUR_STEPS.length - 1
+}
+
 /** Ist die Seite des Schritts offen? Detailseiten zaehlen mit: /grunddaten/klassen/7 liegt auf /grunddaten/klassen. */
 function aufSeite(pfad: string, route?: string): boolean {
   if (!route) return true
@@ -200,7 +300,18 @@ export function TourOverlay() {
   // Wer neben das Ziel klickt, will etwas anderes tun. Dann faellt die Sperre fuer diesen Schritt — der
   // Rundgang bleibt sichtbar und zeigt weiter aufs Ziel, haelt aber niemanden mehr fest.
   const [freigegeben, setFreigegeben] = useState(false)
+  // Das Ziel wurde angeklickt; der Rundgang wartet, bis die Anwendung damit fertig ist (siehe useRuhig).
+  // `seit` trennt die Mutationen dieses Klicks von aelteren, `el` ist das angeklickte Element.
+  // `lage` haelt das Erklaerfenster waehrend des Wartens an seinem Platz: Das angeklickte Ziel verschwindet
+  // (Dialog zu, Seite wechselt), und ohne Ziel sprang das Fenster in die Ecke und wieder zurueck.
+  const [wartet, setWartet] = useState<{ step: number; seit: number; el: HTMLElement; lage: { top: number; left: number } | null } | null>(null)
+  // Der Klick hat nichts bewirkt: Anfrage abgelehnt oder der Dialog steht noch (Pflichtfeld leer, 409 …).
+  const [fehlschlag, setFehlschlag] = useState(false)
+  // Nach dem Ausfuellen: Index der ersten Vorbereitung, deren Feld noch leer ist (Auswahl ging schief, Nutzer
+  // hat geloescht …). Solange etwas fehlt, zeigt der Rundgang auf dieses Feld, nicht auf „Speichern".
+  const [fehlt, setFehlt] = useState<number | null>(null)
   const panel = useRef<HTMLDivElement>(null)
+  const qc = useQueryClient()
 
   const current = TOUR_STEPS[step]
   const letzter = step === TOUR_STEPS.length - 1
@@ -210,9 +321,12 @@ export function TourOverlay() {
   // Steht der Schritt auf einer anderen Seite (etwa „Berechnen" auf dem Entwurf), fuehrt der Rundgang zuerst
   // dorthin: Ziel ist dann der Eintrag der Seitenleiste, nicht der Knopf, den es hier gar nicht gibt.
   const hinfuehren = !!current.route && !aufSeite(location.pathname, current.route) && current.weiter !== 'route'
-  // Waehrend des Schreibens zeigt der Rundgang auf das Feld, danach auf „Speichern".
-  // Beim Ausfuellen wandert die Hervorhebung mit: immer auf das Feld, das gerade geschrieben wird.
-  const feldZiel = current.vorbereiten && !getippt ? current.vorbereiten[Math.min(feldIndex, current.vorbereiten.length - 1)] : null
+  // Waehrend des Schreibens zeigt der Rundgang auf das Feld, danach auf „Speichern" — aber erst, wenn jedes
+  // Feld wirklich einen Wert hat. Beim Ausfuellen wandert die Hervorhebung mit: immer auf das Feld, das gerade
+  // geschrieben wird; danach auf das erste, das noch leer ist.
+  const feldZiel = current.vorbereiten && !getippt
+    ? current.vorbereiten[Math.min(feldIndex, current.vorbereiten.length - 1)]
+    : current.vorbereiten && fehlt != null ? current.vorbereiten[fehlt] ?? null : null
   // Ein reiner Erklaerschritt hat nichts auf der Seite zum Anklicken — dann auch nichts hervorheben und
   // nichts verdunkeln. Sonst leuchtet ein Knopf, bei dem ein Klick gar nichts bewirkt.
   const nurLesen = current.weiter === 'lesen'
@@ -225,9 +339,15 @@ export function TourOverlay() {
   // Im Dialog nur suchen, solange der Schritt nicht ohnehin erst zur Seite fuehrt.
   const imDialog = !!current.imDialog && !hinfuehren
   const rect = useZielRect(ziel, sichtbar && !nurLesen, imDialog)
+  const { beschaeftigt, ruhig, ruhigOhneLaden } = useRuhig(sichtbar)
+  // Die offene Route fuer Pruefungen ausserhalb des Renderns (Zeitgeber, Horcher).
+  const pfad = useRef(location.pathname)
+  useLayoutEffect(() => { pfad.current = location.pathname })
 
   const beenden = useCallback(() => {
     setGeschlossen(true)
+    setWartet(null)
+    setFehlschlag(false)
     // Nach dem Beenden wieder auf Schritt 1: „Rundgang erneut zeigen" soll vorne anfangen.
     setStep(0)
     setTour.mutate({ completed: true })
@@ -257,6 +377,9 @@ export function TourOverlay() {
     setGetippt(false)
     setAktuelleAktion(null)
     setFeldIndex(0)
+    setWartet(null)
+    setFehlschlag(false)
+    setFehlt(null)
   }, [])
 
   /**
@@ -278,12 +401,15 @@ export function TourOverlay() {
 
   useEffect(() => {
     // Der Suchlauf gehoert zum Schritt, nicht zum Rendern: bei jedem Schritt- und Seitenwechsel
-    // faengt er neu an und laeuft nach 1,5 s von selbst aus.
+    // faengt er neu an und laeuft nach 1,5 s von selbst aus — gezaehlt erst ab dem Moment, in dem die
+    // Anwendung zur Ruhe gekommen ist. Solange ein Entwurf angelegt oder berechnet wird, fehlt der
+    // naechste Knopf nicht, er kommt nur noch.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSuchtNoch(true)
+    if (!ruhig) return
     const t = window.setTimeout(() => setSuchtNoch(false), 1500)
     return () => window.clearTimeout(t)
-  }, [step, location.pathname, getippt])
+  }, [step, location.pathname, getippt, ruhig])
 
   // Navigationsschritt: Die Seite ist offen — weiter zum Handgriff, der auf dieser Seite dran ist.
   // Keine Wartezeit, die von selbst ablaeuft: Jede Seite hat einen eigenen Schritt, der auf ihr stattfindet.
@@ -293,29 +419,82 @@ export function TourOverlay() {
     return () => window.clearTimeout(t)
   }, [sichtbar, current.weiter, current.route, location.pathname, step, weiterNachRuhe])
 
-  // Klickschritt: am Ziel selbst horchen. Der Klick zaehlt, egal was er ausloest — Dialog, Berechnung, Wechsel.
+  // Klickschritt: am Ziel selbst horchen. Der Klick allein schaltet aber nicht weiter — erst muss die
+  // Anwendung fertig sein mit dem, was er ausloest (siehe naechster Effekt). Sonst stuende der Rundgang schon
+  // bei „Berechnen", waehrend der Entwurf noch angelegt wird.
   useEffect(() => {
     // Auch waehrend des Ausfuellens horchen: Wer frueher auf „Speichern" klickt, soll trotzdem weiterkommen.
     if (!sichtbar || current.weiter !== 'klick' || hinfuehren) return
     const el = zielFinden(current.target, imDialog)
     if (!el) return
     const meiner = step
-    const onClick = () => weiterNachRuhe(meiner)
+    const onClick = () => {
+      setFehlschlag(false)
+      const r = panel.current?.getBoundingClientRect()
+      setWartet({ step: meiner, seit: Date.now(), el, lage: r && r.width > 0 ? { top: Math.round(r.top), left: Math.round(r.left) } : null })
+    }
     el.addEventListener('click', onClick)
     return () => el.removeEventListener('click', onClick)
     // `rect` haengt mit drin, damit der Horcher nachgezogen wird, sobald das Ziel auftaucht.
-  }, [sichtbar, current.weiter, current.target, hinfuehren, imDialog, rect, step, weiterNachRuhe])
+  }, [sichtbar, current.weiter, current.target, hinfuehren, imDialog, rect, step])
+
+  // Nach dem Klick: warten, bis mindestens NACHLAUF vergangen ist UND die Anwendung fertig ist — keine
+  // Anfrage, keine Ladeanzeige, kein laufender Solver. Laedt die Seite danach noch nach, genuegt es, wenn das
+  // Ziel des naechsten Schritts schon steht (nach „Anlegen" etwa „Berechnen"); sonst wird auch das Nachladen
+  // abgewartet — nach „Berechnen" kommt der neue Stand erst mit der naechsten Abfrage. Dann entscheiden:
+  //   - eine Anfrage dieses Klicks ist gescheitert → stehen bleiben, der Nutzer sieht die Fehlermeldung;
+  //   - ein Dialog-Schritt, dessen Dialog noch offen steht → ebenso (Pflichtfeld leer, Konflikt 409 …);
+  //   - sonst weiter, und zwar gleich zum naechsten Schritt, der auf der Seite Sinn hat.
+  // Wird die Anwendung in der Wartezeit wieder unruhig, faengt die Pruefung neu an.
+  useEffect(() => {
+    if (!wartet || wartet.step !== step || !ruhigOhneLaden) return
+    let t = 0
+    // Geprueft wird direkt am Cache und am DOM, nicht an den gerenderten Zaehlern: Zwischen „Antwort da" und
+    // „Seite zeigt sie" liegt ein Render, und genau dort sah die Seite nach „Berechnen" kurz fertig aus —
+    // der Rundgang sprang dann ueber die ganze Planung. Deshalb muss der Zustand RUHE lang stabil sein.
+    let stabilSeit = 0
+    const pruefen = () => {
+      const jetzt = Date.now()
+      const laedtNoch = qc.isFetching({ type: 'active' }) > 0
+      const fertig = jetzt - wartet.seit >= NACHLAUF
+        && qc.isMutating() === 0
+        && !document.querySelector('[aria-busy="true"]')
+        && (!laedtNoch || zielDa(wartet.step + 1, pfad.current))
+      if (!fertig) { stabilSeit = 0; return }
+      if (stabilSeit === 0) stabilSeit = jetzt
+      if (jetzt - stabilSeit < RUHE) return
+      window.clearInterval(t)
+      const gescheitert = qc.getMutationCache().getAll()
+        .some((m) => (m.state.submittedAt ?? 0) >= wartet.seit && m.state.status === 'error')
+      const dialog = wartet.el.closest('[role="dialog"], [role="alertdialog"]')
+      const dialogOffen = !!TOUR_STEPS[wartet.step].imDialog && wartet.el.isConnected
+        && !!dialog && dialog.getAttribute('data-state') !== 'closed'
+      setWartet(null)
+      if (gescheitert || dialogOffen) { setFehlschlag(true); return }
+      const naechster = laedtNoch ? wartet.step + 1 : naechsterSinnvoller(wartet.step + 1, pfad.current)
+      setStep((s) => (s === wartet.step && s < TOUR_STEPS.length - 1 ? Math.min(naechster, TOUR_STEPS.length - 1) : s))
+      setFreigegeben(false)
+      setTippt(false)
+      setGetippt(false)
+      setAktuelleAktion(null)
+      setFeldIndex(0)
+      setFehlt(null)
+    }
+    t = window.setInterval(pruefen, 80)
+    pruefen()
+    return () => window.clearInterval(t)
+  }, [wartet, step, ruhigOhneLaden, qc])
 
   // Gibt es das Ziel nicht (und es kommt auch nicht mehr), ist der Schritt gegenstandslos: „Leer beginnen"
   // fehlt, wenn schon ein Entwurf da ist, „Lösen" fehlt ohne Konflikt. Dann still weiter, statt auf einen
-  // Knopf zu warten, den es nie geben wird.
+  // Knopf zu warten, den es nie geben wird. Nie, solange die Anwendung noch arbeitet — dann kommt er noch.
   useEffect(() => {
-    if (!sichtbar || current.weiter !== 'klick' || hinfuehren || tippt) return
+    if (!sichtbar || current.weiter !== 'klick' || hinfuehren || tippt || wartet || !ruhig) return
     if (rect !== null || suchtNoch || letzter) return
     const meiner = step
-    const t = window.setTimeout(() => setStep((s2) => (s2 === meiner ? s2 + 1 : s2)), 400)
+    const t = window.setTimeout(() => setStep((s2) => (s2 === meiner ? naechsterSinnvoller(s2 + 1, pfad.current) : s2)), 400)
     return () => window.clearTimeout(t)
-  }, [sichtbar, current.weiter, hinfuehren, tippt, rect, suchtNoch, letzter, step])
+  }, [sichtbar, current.weiter, hinfuehren, tippt, wartet, ruhig, rect, suchtNoch, letzter, step])
 
   // Vorbereitung: Der Rundgang fuellt die Felder selbst — tippt, waehlt aus, drueckt Hilfsknoepfe. Bricht ab,
   // sobald der Schritt wechselt oder der Rundgang endet; halb Getipptes bleibt stehen und laesst sich von Hand
@@ -326,6 +505,10 @@ export function TourOverlay() {
     let abbruch = false
     void (async () => {
       await pause(420)   // Dialog oder Seite baut sich gerade erst auf
+      // Laedt die Seite noch (Klasse gerade geoeffnet, Vertretung holt ihre Listen), kommt das Feld spaeter.
+      // Darauf warten statt aufzugeben — sonst bliebe das Formular leer und niemand faengt neu an.
+      const bis = Date.now() + FELD_WARTEZEIT
+      while (!abbruch && !document.querySelector(schritte[0].css) && Date.now() < bis) await pause(150)
       if (abbruch || !document.querySelector(schritte[0].css)) return
       setTippt(true)
       for (let i = 0; i < schritte.length; i++) {
@@ -348,6 +531,21 @@ export function TourOverlay() {
     })()
     return () => { abbruch = true }
   }, [sichtbar, step, current.vorbereiten, getippt, hinfuehren])
+
+  // Nach dem Ausfuellen laufend pruefen, ob noch ein Feld leer ist. Abgefragt statt auf Ereignisse gehorcht:
+  // Radix-Selects melden ihre Auswahl nicht als DOM-Ereignis, nur als geaendertes Attribut.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!sichtbar || !current.vorbereiten || !getippt || hinfuehren) { setFehlt(null); return }
+    const schritte = current.vorbereiten
+    const pruefen = () => {
+      const i = schritte.findIndex(feldLeer)
+      setFehlt(i === -1 ? null : i)
+    }
+    pruefen()
+    const t = window.setInterval(pruefen, 250)
+    return () => window.clearInterval(t)
+  }, [sichtbar, current.vorbereiten, getippt, hinfuehren])
 
   // Ziel ins Bild holen, sonst zeigt der Rundgang auf etwas, das ausserhalb des Fensters liegt.
   useEffect(() => {
@@ -406,11 +604,15 @@ export function TourOverlay() {
 
   if (!sichtbar) return null
 
+  const fehlendesFeld = current.vorbereiten && getippt && fehlt != null ? current.vorbereiten[fehlt] ?? null : null
+
   const loch = rect
   const eckenRadius = Number.parseFloat(rundung ?? '') || LOCH_RUNDUNG
   // Waehrend der Rundgang selbst schreibt, darf die Seite nicht gesperrt sein — sonst faengt die Sperre die
   // Eingabe ab. Die Sperre kommt zurueck, sobald auf „Speichern" gezeigt wird.
-  const sperren = loch !== null && !tippt && !nurLesen && !freigegeben
+  // Nach dem Klick sperrt eine eigene Flaeche (unten); die Lochmaske wuerde das Ziel ein zweites Mal anbieten.
+  // Fehlt noch ein Wert, bleibt die Seite frei: Die Liste eines Auswahlfelds oeffnet ausserhalb des Lochs.
+  const sperren = loch !== null && !tippt && !nurLesen && !freigegeben && !wartet && fehlt == null
   const pfeilQuer = !!loch && window.innerWidth - (loch.left + loch.width) > PFEIL_PLATZ
 
   // Steht ein Dialog der Anwendung offen, weicht das Erklaerfenster ihm aus: daneben, wo Platz ist.
@@ -440,7 +642,10 @@ export function TourOverlay() {
     ? { right: RAND, bottom: RAND, maxHeight: `calc(100vh - ${2 * RAND}px)`, overflowY: 'auto' }
     : null
 
-  const panelStil: CSSProperties = ecke ?? nebenDialog ?? (loch && lage === 'unten'
+  const gehalten: CSSProperties | null = wartet?.lage
+    ? { top: wartet.lage.top, left: wartet.lage.left, maxHeight: `calc(100vh - ${wartet.lage.top + RAND}px)`, overflowY: 'auto' }
+    : null
+  const panelStil: CSSProperties = gehalten ?? ecke ?? nebenDialog ?? (loch && lage === 'unten'
     ? { top: loch.top + loch.height + 28, left: links, maxHeight: platzUnten - 2 * RAND, overflowY: 'auto' }
     : loch && lage === 'oben'
       ? { bottom: window.innerHeight - loch.top + 28, left: links, maxHeight: platzOben - 2 * RAND, overflowY: 'auto' }
@@ -449,10 +654,17 @@ export function TourOverlay() {
   // Solange nach dem Ziel gesucht wird, bleibt das Fenster durchsichtig statt kurz in der Ecke aufzublitzen.
   // Nur warten, wenn es ueberhaupt ein Ziel zu finden gibt. Ein Erklaerschritt hat keins — der blieb sonst
   // bis zu anderthalb Sekunden durchsichtig, und der Wechsel wirkte wie ein Aussetzer.
-  const sucht = !nurLesen && loch === null && suchtNoch
+  // Waehrend des Wartens nie: Dann ist das Ziel absichtlich weg, und das Fenster zeigt den Fortschritt.
+  const sucht = !nurLesen && loch === null && suchtNoch && !wartet
 
   return createPortal(
     <>
+      {/* Waehrend der Rundgang auf die Anwendung wartet, ist die Seite ganz gesperrt — durchsichtig, damit der
+          Fortschritt (Ladeanzeige, laufende Berechnung) sichtbar bleibt. So kann niemand vorauseilen und den
+          naechsten Knopf druecken, bevor sein Schritt dran ist. Das Erklaerfenster liegt darueber (z-100). */}
+      {wartet && (
+        <div aria-hidden className="print-hide fixed inset-0 z-[90] cursor-progress" style={{ pointerEvents: 'auto' }} />
+      )}
       {sperren && loch && (
         <div aria-hidden className="print-hide fixed inset-0 z-50" style={{ pointerEvents: 'none' }}>
           {/* Eine dunkle Flaeche ueber allem, aus der das Loch mit der Rundung des Bedienelements ausgestanzt
@@ -470,7 +682,7 @@ export function TourOverlay() {
       )}
 
       {/* Der Pfeil wippt auf das Ziel zu: rechts daneben, wenn dort Platz ist, sonst darunter. */}
-      {loch && !sucht && (
+      {loch && !sucht && !wartet && (
         <div
           aria-hidden
           className={`print-hide fixed z-[60] text-primary ${pfeilQuer ? 'tour-pfeil-quer' : 'tour-pfeil-hoch'}`}
@@ -499,7 +711,7 @@ export function TourOverlay() {
         // Gleiten statt springen: Beim Schrittwechsel und beim Scrollen wandert das Fenster weich mit.
         style={{ ...panelStil, pointerEvents: 'auto', opacity: sucht ? 0 : 1, transition: 'top .16s ease-out, left .16s ease-out, bottom .16s ease-out, opacity .12s linear' }}
       >
-        {lage !== 'ecke' && !nebenDialog && !ecke && (
+        {lage !== 'ecke' && !nebenDialog && !ecke && !gehalten && (
           <span
             aria-hidden
             className="absolute size-3 rotate-45 bg-popover ring-1 ring-foreground/10"
@@ -518,16 +730,27 @@ export function TourOverlay() {
         <h2 className="mt-3 font-heading text-base font-medium">{current.title}</h2>
         <p className="mt-1 text-muted-foreground">{current.text}</p>
 
-        <p className="mt-3 flex items-start gap-2 rounded-lg bg-primary/10 p-2 font-medium text-primary">
-          {tippt
-            ? <PenLine className="mt-0.5 size-4 shrink-0 animate-pulse" aria-hidden />
-            : <MousePointerClick className="mt-0.5 size-4 shrink-0" aria-hidden />}
+        <p className="mt-3 flex items-start gap-2 rounded-lg bg-primary/10 p-2 font-medium text-primary" role="status" aria-live="polite">
+          {wartet
+            ? <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" aria-hidden />
+            : fehlschlag
+              ? <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              : tippt
+                ? <PenLine className="mt-0.5 size-4 shrink-0 animate-pulse" aria-hidden />
+                : <MousePointerClick className="mt-0.5 size-4 shrink-0" aria-hidden />}
           <span>
-            {tippt
-              ? `Der Rundgang füllt das Formular aus${aktuelleAktion ? ` — ${aktuelleAktion}` : ''} …`
-              : hinfuehren ? 'Öffnen Sie zuerst die Seite, auf der das passiert.' : current.action}
-            {freigegeben && <span className="mt-1 block font-normal text-muted-foreground">Die Sperre ist aufgehoben — Sie können die Seite frei bedienen. Der Rundgang wartet, bis Sie das hervorgehobene Element anklicken, oder springt mit „Überspringen" weiter.</span>}
-            {loch === null && !suchtNoch && !nurLesen && <span className="mt-1 block font-normal text-muted-foreground">Das Element ist gerade nicht da — es erscheint erst, wenn die Seite es anbietet. Mit „Überspringen" geht es zum nächsten Thema.</span>}
+            {wartet
+              ? 'Einen Moment — die Anwendung arbeitet noch. Der Rundgang geht weiter, sobald sie fertig ist.'
+              : tippt
+                ? `Der Rundgang füllt das Formular aus${aktuelleAktion ? ` — ${aktuelleAktion}` : ''} …`
+                : hinfuehren ? 'Öffnen Sie zuerst die Seite, auf der das passiert.'
+                  : fehlendesFeld
+                    ? `Bitte noch ${fehlendesFeld.art === 'waehlen' ? 'auswählen' : 'ausfüllen'}: ${fehlendesFeld.was}. Danach geht es mit dem Speichern weiter.`
+                    : current.action}
+            {fehlschlag && !wartet && <span className="mt-1 block font-normal text-muted-foreground">Das hat nicht geklappt — die Meldung der Anwendung sagt, warum. Korrigieren Sie die Angaben und klicken Sie erneut, oder gehen Sie mit „Überspringen" zum nächsten Thema.</span>}
+            {!wartet && beschaeftigt && !tippt && loch === null && !nurLesen && <span className="mt-1 block font-normal text-muted-foreground">Die Seite lädt noch …</span>}
+            {freigegeben && !wartet && <span className="mt-1 block font-normal text-muted-foreground">Die Sperre ist aufgehoben — Sie können die Seite frei bedienen. Der Rundgang wartet, bis Sie das hervorgehobene Element anklicken, oder springt mit „Überspringen" weiter.</span>}
+            {loch === null && !suchtNoch && !nurLesen && !wartet && <span className="mt-1 block font-normal text-muted-foreground">Das Element ist gerade nicht da — es erscheint erst, wenn die Seite es anbietet. Mit „Überspringen" geht es zum nächsten Thema.</span>}
           </span>
         </p>
 
@@ -536,13 +759,15 @@ export function TourOverlay() {
         <div className="mt-4 flex items-center justify-between gap-2">
           <Button variant="ghost" size="sm" onClick={beenden}>Beenden</Button>
           <div className="flex gap-2">
-            {step > 0 && <Button variant="outline" size="sm" onClick={() => geheZu(step - 1)}>Zurück</Button>}
+            {/* Waehrend der Rundgang auf die Anwendung wartet, ruhen Zurück/Weiter/Überspringen — sonst liefe er
+                der Seite davon. „Beenden" (und Escape) bleiben immer frei. */}
+            {step > 0 && <Button variant="outline" size="sm" disabled={!!wartet} onClick={() => geheZu(step - 1)}>Zurück</Button>}
             {letzter
               ? <Button size="sm" onClick={beenden}>Fertig</Button>
               : current.weiter === 'lesen'
                 // Reine Erklaerschritte haben nichts zum Anklicken auf der Seite — hier fuehrt „Weiter" weiter.
-                ? <Button size="sm" className="tour-ziel" onClick={() => geheZu(step + 1)}>Weiter</Button>
-                : <Button variant="ghost" size="sm" className="text-foreground-subtle" onClick={() => geheZu(naechsteSeite())}>Überspringen</Button>}
+                ? <Button size="sm" className="tour-ziel" disabled={!!wartet} onClick={() => geheZu(step + 1)}>Weiter</Button>
+                : <Button variant="ghost" size="sm" className="text-foreground-subtle" disabled={!!wartet} onClick={() => geheZu(naechsteSeite())}>Überspringen</Button>}
           </div>
         </div>
       </div>

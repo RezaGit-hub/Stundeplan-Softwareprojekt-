@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useMutation } from '@tanstack/react-query'
 import { renderPage, testStore } from '@/test-utils'
 import { TourOverlay } from './TourOverlay'
 import { TOUR_STEPS } from './tour-steps'
@@ -28,6 +29,17 @@ const ERSTER = TOUR_STEPS[NAVI]
 const KLICKSCHRITT = TOUR_STEPS.findIndex((s) => s.weiter === 'klick')
 /** „Überspringen" laesst das ganze Thema aus: der naechste Schritt auf einer anderen Seite. */
 const NAECHSTE_SEITE = TOUR_STEPS.findIndex((s, i) => i > NAVI && s.route !== ERSTER.route)
+
+/**
+ * Ein Knopf, dessen Anfrage so lange laeuft, bis der Test sie aufloest — wie „Anlegen" beim Entwurf, das
+ * spuerbar laenger braucht als die Mindestpause des Rundgangs.
+ */
+function LangsamerKnopf({ beschriftung, ausgang }: { beschriftung: string; ausgang: { fertig?: () => void; fehler?: () => void } }) {
+  const m = useMutation({
+    mutationFn: () => new Promise<void>((fertig, fehler) => { ausgang.fertig = fertig; ausgang.fehler = () => fehler(new Error('409')) }),
+  })
+  return <button type="button" onClick={() => m.mutate()}>{beschriftung}</button>
+}
 
 /** Klickt sich bis zum letzten Schritt durch, egal ob „Weiter" oder „Überspringen" dasteht. */
 /** Klickt die Erklärschritte des Auftakts weg, bis der erste Schritt mit Seitenwechsel dran ist. */
@@ -96,6 +108,8 @@ describe('TourOverlay (#139)', () => {
     await renderPage(
       <>
         <button type="button">{beschriftung}</button>
+        {/* Der Folgeschritt spielt im Dialog; fehlt sein Ziel, überspringt der Rundgang ihn gleich. */}
+        <div role="dialog" aria-label="Formular"><button type="button">Speichern</button></div>
         <TourOverlay />
       </>,
       { route: schritt.route },
@@ -109,6 +123,104 @@ describe('TourOverlay (#139)', () => {
       () => expect(screen.getByRole('heading', { name: TOUR_STEPS[KLICKSCHRITT + 1].title })).toBeTruthy(),
       { timeout: 8000 },
     )
+  })
+
+  it('ein Klickschritt wartet, bis die ausgelöste Anfrage fertig ist', { timeout: 20_000 }, async () => {
+    const nutzer = userEvent.setup()
+    const schritt = TOUR_STEPS[KLICKSCHRITT]
+    const beschriftung = Array.isArray(schritt.target.text) ? schritt.target.text[0] : schritt.target.text!
+    const ausgang: { fertig?: () => void; fehler?: () => void } = {}
+    await renderPage(
+      <>
+        <LangsamerKnopf beschriftung={beschriftung} ausgang={ausgang} />
+        <div role="dialog" aria-label="Formular"><button type="button">Speichern</button></div>
+        <TourOverlay />
+      </>,
+      { route: schritt.route },
+    )
+    await screen.findByRole('dialog', { name: 'Rundgang' })
+    await bisZumNavigationsschritt(nutzer)
+    await waitFor(() => expect(screen.getByRole('heading', { name: schritt.title })).toBeTruthy(), { timeout: 8000 })
+
+    await nutzer.click(screen.getByRole('button', { name: beschriftung }))
+    // Weit länger als die Mindestpause: Solange die Anfrage läuft, bleibt der Schritt stehen, und vorwärts
+    // geht es auch nicht von Hand.
+    await act(() => new Promise<void>((r) => setTimeout(r, 1500)))
+    expect(screen.getByRole('heading', { name: schritt.title })).toBeTruthy()
+    expect(screen.getByText(/die Anwendung arbeitet noch/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Überspringen' }) as HTMLButtonElement).disabled).toBe(true)
+
+    await act(async () => { ausgang.fertig!() })
+    await waitFor(
+      () => expect(screen.getByRole('heading', { name: TOUR_STEPS[KLICKSCHRITT + 1].title })).toBeTruthy(),
+      { timeout: 8000 },
+    )
+  })
+
+  it('scheitert die Anfrage, bleibt der Klickschritt stehen', { timeout: 20_000 }, async () => {
+    const nutzer = userEvent.setup()
+    const schritt = TOUR_STEPS[KLICKSCHRITT]
+    const beschriftung = Array.isArray(schritt.target.text) ? schritt.target.text[0] : schritt.target.text!
+    const ausgang: { fertig?: () => void; fehler?: () => void } = {}
+    await renderPage(
+      <>
+        <LangsamerKnopf beschriftung={beschriftung} ausgang={ausgang} />
+        <div role="dialog" aria-label="Formular"><button type="button">Speichern</button></div>
+        <TourOverlay />
+      </>,
+      { route: schritt.route },
+    )
+    await screen.findByRole('dialog', { name: 'Rundgang' })
+    await bisZumNavigationsschritt(nutzer)
+    await waitFor(() => expect(screen.getByRole('heading', { name: schritt.title })).toBeTruthy(), { timeout: 8000 })
+
+    await nutzer.click(screen.getByRole('button', { name: beschriftung }))
+    await act(async () => { ausgang.fehler!() })
+    await waitFor(() => expect(screen.getByText(/Das hat nicht geklappt/)).toBeTruthy(), { timeout: 8000 })
+    expect(screen.getByRole('heading', { name: schritt.title })).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Überspringen' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('zeigt erst auf „Speichern", wenn jedes vorbereitete Feld einen Wert hat', { timeout: 30_000 }, async () => {
+    const nutzer = userEvent.setup()
+    const formular = TOUR_STEPS.findIndex((st) => st.imDialog && st.vorbereiten?.every((a) => a.art === 'tippen'))
+    const schritt = TOUR_STEPS[formular]
+    const oeffner = TOUR_STEPS[formular - 1]
+    const oeffnerText = Array.isArray(oeffner.target.text) ? oeffner.target.text[0] : oeffner.target.text!
+    const erstes = schritt.vorbereiten![0] as { css: string; was: string }
+    await renderPage(
+      <>
+        <button type="button">{oeffnerText}</button>
+        <div role="dialog" aria-label="Formular">
+          {schritt.vorbereiten!.map((a) => <input key={a.css} id={a.css.slice(1)} aria-label={a.was} />)}
+          <button type="button">Speichern</button>
+        </div>
+        <TourOverlay />
+      </>,
+      { route: schritt.route },
+    )
+    await screen.findByRole('dialog', { name: 'Rundgang' })
+    await bisZumNavigationsschritt(nutzer)
+    await waitFor(() => expect(screen.getByRole('heading', { name: oeffner.title })).toBeTruthy(), { timeout: 8000 })
+    await nutzer.click(screen.getByRole('button', { name: oeffnerText }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: schritt.title })).toBeTruthy(), { timeout: 8000 })
+
+    // Der Rundgang füllt aus und zeigt danach auf „Speichern". Die Anweisung steht auch schon vor dem Tippen
+    // da — deshalb zuerst auf die Werte warten.
+    for (const a of schritt.vorbereiten!) {
+      const wert = (a as { wert: string }).wert
+      await waitFor(() => expect((screen.getByLabelText(a.was) as HTMLInputElement).value).toBe(wert), { timeout: 10_000 })
+    }
+    await waitFor(() => expect(screen.getByText(schritt.action)).toBeTruthy(), { timeout: 5000 })
+
+    // Wird ein Feld wieder geleert, zeigt er auf dieses Feld statt auf „Speichern" …
+    await nutzer.clear(screen.getByLabelText(erstes.was))
+    await waitFor(() => expect(screen.getByText(new RegExp(`Bitte noch ausfüllen: ${erstes.was}`))).toBeTruthy(), { timeout: 3000 })
+    expect(screen.queryByText(schritt.action)).toBeNull()
+
+    // … und erst mit Wert wieder auf „Speichern".
+    await nutzer.type(screen.getByLabelText(erstes.was), 'X')
+    await waitFor(() => expect(screen.getByText(schritt.action)).toBeTruthy(), { timeout: 3000 })
   })
 
   it('„Fertig" am letzten Schritt merkt den Rundgang ebenfalls am Konto', async () => {

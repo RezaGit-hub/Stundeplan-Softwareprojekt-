@@ -55,7 +55,7 @@ export function DraftBanner({ draft, onSolve, onCancel, onAccept, onDiscard, pen
 
   return (
     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} transition={{ duration: SLOW, ease: EASE }} className={cn('overflow-hidden', className)}>
-      <div className="rounded-lg border border-draft-border bg-draft-bg px-4 py-3 text-draft-fg" role="status" aria-live="polite">
+      <div className="rounded-lg border border-draft-border bg-draft-bg px-4 py-3 text-draft-fg" role="status" aria-live="polite" aria-busy={solving || undefined}>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <div className="flex items-center gap-2">
             <PencilRuler className="size-4" aria-hidden />

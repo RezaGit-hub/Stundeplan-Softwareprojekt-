@@ -19,7 +19,8 @@
 //
 // Wann ein Schritt als getan gilt (`weiter`):
 //   'route' — die Seite des Schritts ist offen
-//   'klick' — das Ziel wurde angeklickt
+//   'klick' — das Ziel wurde angeklickt UND die Anwendung ist damit fertig (Anfrage durch, Seite geladen,
+//             Solver fertig); scheitert die Anfrage oder bleibt der Dialog offen, bleibt der Schritt stehen
 //   'lesen' — Schlusswort, nur der letzte Schritt
 export type TourAktion =
   | { art: 'tippen'; css: string; wert: string; was: string }
@@ -120,15 +121,11 @@ export const TOUR_STEPS: TourStep[] = [
     ],
   },
 
-  {
-    title: 'Stundentafel öffnen',
-    text: 'Eine Klasse ohne Fächer kann der Solver nicht planen — sie hätte nichts zu belegen. Deshalb gehört zu jeder Klasse eine Stundentafel: welches Fach wie viele Wochenstunden bekommt und wer es unterrichtet.',
-    target: { text: '7c' }, route: '/grunddaten/klassen', weiter: 'klick',
-    action: 'Öffnen Sie die neue Klasse 7c in der Tabelle.',
-  },
+  // Nach dem Speichern oeffnet die Anwendung die neue Klasse selbst (ClassesPage `onCreated`) — ein eigener
+  // Schritt „Klasse oeffnen" waere gegenstandslos.
   {
     title: 'Fach zuordnen',
-    text: 'Jede Zeile ist ein Fach der Klasse. Die Wochenstunden zählen gegen das Deputat der Lehrkraft; passt etwas nicht, erscheint ein Hinweis in der Zeile — gespeichert wird trotzdem.',
+    text: 'Die neue Klasse ist gleich geöffnet. Ohne Fächer kann der Solver sie nicht planen — sie hätte nichts zu belegen. Deshalb gehört zu jeder Klasse eine Stundentafel: Jede Zeile ist ein Fach mit Wochenstunden und Lehrkraft. Die Stunden zählen gegen das Deputat; passt etwas nicht, erscheint ein Hinweis in der Zeile — gespeichert wird trotzdem.',
     target: { text: 'Fach hinzufügen' }, weiter: 'klick',
     action: 'Klicken Sie auf „Fach hinzufügen".',
   },
@@ -138,9 +135,10 @@ export const TOUR_STEPS: TourStep[] = [
     target: { text: 'Speichern' }, weiter: 'klick',
     action: 'Klicken Sie auf „Speichern".',
     vorbereiten: [
-      { art: 'waehlen', css: '[aria-label="Fach"]', was: 'Fach' },
+      // Das neue Fach mit der neuen Lehrkraft — so passt alles zusammen, was der Rundgang eben angelegt hat.
+      { art: 'waehlen', css: '[aria-label="Fach"]', option: 'Astronomie', was: 'Fach' },
       { art: 'tippen', css: '[aria-label="Wochenstunden"]', wert: '4', was: 'Wochenstunden' },
-      { art: 'waehlen', css: '[aria-label="Lehrkraft"]', was: 'Lehrkraft' },
+      { art: 'waehlen', css: '[aria-label="Lehrkraft"]', option: 'Sommer', was: 'Lehrkraft' },
     ],
   },
 
@@ -244,6 +242,14 @@ export const TOUR_STEPS: TourStep[] = [
     action: 'Klicken Sie in der Konfliktliste auf „Lösen".',
   },
   {
+    // Ohne diesen Schritt stuende der Dialog mit den Vorschlaegen noch offen, waehrend der Rundgang schon auf
+    // „Annehmen" dahinter zeigt. Kam kein Vorschlag heraus, gibt es nur „Schließen" — dann eben das.
+    title: 'Vorschlag übernehmen',
+    text: 'Der Server hat bis zu drei Vorschläge gerechnet; der empfohlene steht oben. Jeder zeigt, welche Stunden wohin wandern und ob danach noch Konflikte bleiben. Erst „Übernehmen" ändert den Entwurf.',
+    target: { text: ['Übernehmen', 'Schließen'] }, route: '/entwurf', weiter: 'klick', imDialog: true,
+    action: 'Klicken Sie beim empfohlenen Vorschlag auf „Übernehmen" — gibt es keinen, auf „Schließen".',
+  },
+  {
     title: 'Entwurf annehmen',
     text: 'Erst „Annehmen" macht aus dem Entwurf den aktiven Plan — den, den Lehrkräfte und Klassen zu sehen bekommen.',
     target: { text: 'Annehmen' }, route: '/entwurf', weiter: 'klick',
@@ -271,8 +277,8 @@ export const TOUR_STEPS: TourStep[] = [
     target: { text: 'Ereignis speichern' }, route: '/vertretung', weiter: 'klick',
     action: 'Klicken Sie auf „Ereignis speichern".',
     vorbereiten: [
+      // Art „Ausfall Lehrkraft" ist vorbelegt, Von/Bis stehen auf heute — offen sind nur Lehrkraft und Anlass.
       { art: 'waehlen', css: '#ev-teacher', was: 'Lehrkraft' },
-      { art: 'waehlen', css: '#ev-slot', was: 'Stunde' },
       { art: 'tippen', css: '#ev-reason', wert: 'Fortbildung', was: 'Anlass' },
     ],
   },
