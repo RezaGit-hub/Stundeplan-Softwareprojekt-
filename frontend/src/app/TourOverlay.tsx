@@ -101,6 +101,20 @@ function setzeWert(el: HTMLInputElement | HTMLTextAreaElement, wert: string) {
 const pause = (ms: number) => new Promise((r) => window.setTimeout(r, ms))
 
 /**
+ * Ist das Feld einer Vorbereitung noch leer? Textfelder: nur Leerzeichen. Radix-Selects tragen ohne Wert
+ * `data-placeholder`, ein echtes <select> hat den Wert ''. Fehlt das Feld ganz (andere Ereignisart,
+ * Formular anders gebaut), wird es nicht eingefordert — sonst saesse der Rundgang fest.
+ */
+function feldLeer(a: TourAktion): boolean {
+  if (a.art === 'klick') return false
+  const el = document.querySelector<HTMLElement>(a.css)
+  if (!el) return false
+  if (el instanceof HTMLSelectElement) return el.value === ''
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value.trim() === ''
+  return el.hasAttribute('data-placeholder')
+}
+
+/**
  * Fuehrt eine Vorbereitung aus: tippen (Zeichen fuer Zeichen), waehlen (Auswahlfeld oeffnen und Eintrag
  * nehmen) oder klicken. Gibt zurueck, ob sie geklappt hat — fehlt das Feld, geht der Rundgang trotzdem weiter.
  */
@@ -117,14 +131,23 @@ async function fuehreAus(a: TourAktion, abbruch: () => boolean): Promise<void> {
     return
   }
   if (a.art === 'waehlen') {
-    // Auswahlfelder sind keine <select>: Der Knopf oeffnet eine Liste, aus der ein Eintrag geklickt wird.
+    // Auswahlfelder sind keine <select>, sondern Radix-Selects: Der Knopf oeffnet eine Liste, aus der ein
+    // Eintrag geklickt wird. `click()` allein oeffnet sie NICHT — Radix reagiert auf `pointerdown` oder auf die
+    // Tastatur. Die Tastatur ist der verlaesslichere Weg (kein Zeigertyp, keine Koordinaten): Fokus, Pfeil runter.
     const trigger = document.querySelector<HTMLElement>(a.css)
     if (!trigger) return
-    trigger.click()
-    await pause(320)
-    if (abbruch()) return
-    const eintraege = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
-    const treffer = a.option ? eintraege.find((o) => (o.textContent ?? '').includes(a.option!)) : eintraege[0]
+    trigger.focus()
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true, cancelable: true }))
+    // Die Liste kommt animiert; kurz auf ihre Eintraege warten.
+    let eintraege: HTMLElement[] = []
+    for (let i = 0; i < 20 && eintraege.length === 0; i++) {
+      await pause(60)
+      if (abbruch()) return
+      eintraege = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]:not([data-disabled])'))
+    }
+    // Gewuenschter Eintrag, sonst der erste — lieber irgendein Wert als ein leeres Feld.
+    const treffer = (a.option ? eintraege.find((o) => (o.textContent ?? '').includes(a.option!)) : undefined) ?? eintraege[0]
+    // Ein Radix-Eintrag waehlt bei `click`, solange kein Mauszeiger im Spiel war.
     treffer?.click()
     await pause(260)
     return
@@ -246,6 +269,9 @@ export function TourOverlay() {
   const [wartet, setWartet] = useState<{ step: number; seit: number; el: HTMLElement } | null>(null)
   // Der Klick hat nichts bewirkt: Anfrage abgelehnt oder der Dialog steht noch (Pflichtfeld leer, 409 …).
   const [fehlschlag, setFehlschlag] = useState(false)
+  // Nach dem Ausfuellen: Index der ersten Vorbereitung, deren Feld noch leer ist (Auswahl ging schief, Nutzer
+  // hat geloescht …). Solange etwas fehlt, zeigt der Rundgang auf dieses Feld, nicht auf „Speichern".
+  const [fehlt, setFehlt] = useState<number | null>(null)
   const panel = useRef<HTMLDivElement>(null)
   const qc = useQueryClient()
 
@@ -257,9 +283,12 @@ export function TourOverlay() {
   // Steht der Schritt auf einer anderen Seite (etwa „Berechnen" auf dem Entwurf), fuehrt der Rundgang zuerst
   // dorthin: Ziel ist dann der Eintrag der Seitenleiste, nicht der Knopf, den es hier gar nicht gibt.
   const hinfuehren = !!current.route && !aufSeite(location.pathname, current.route) && current.weiter !== 'route'
-  // Waehrend des Schreibens zeigt der Rundgang auf das Feld, danach auf „Speichern".
-  // Beim Ausfuellen wandert die Hervorhebung mit: immer auf das Feld, das gerade geschrieben wird.
-  const feldZiel = current.vorbereiten && !getippt ? current.vorbereiten[Math.min(feldIndex, current.vorbereiten.length - 1)] : null
+  // Waehrend des Schreibens zeigt der Rundgang auf das Feld, danach auf „Speichern" — aber erst, wenn jedes
+  // Feld wirklich einen Wert hat. Beim Ausfuellen wandert die Hervorhebung mit: immer auf das Feld, das gerade
+  // geschrieben wird; danach auf das erste, das noch leer ist.
+  const feldZiel = current.vorbereiten && !getippt
+    ? current.vorbereiten[Math.min(feldIndex, current.vorbereiten.length - 1)]
+    : current.vorbereiten && fehlt != null ? current.vorbereiten[fehlt] ?? null : null
   // Ein reiner Erklaerschritt hat nichts auf der Seite zum Anklicken — dann auch nichts hervorheben und
   // nichts verdunkeln. Sonst leuchtet ein Knopf, bei dem ein Klick gar nichts bewirkt.
   const nurLesen = current.weiter === 'lesen'
@@ -309,6 +338,7 @@ export function TourOverlay() {
     setFeldIndex(0)
     setWartet(null)
     setFehlschlag(false)
+    setFehlt(null)
   }, [])
 
   /**
@@ -389,6 +419,7 @@ export function TourOverlay() {
       setGetippt(false)
       setAktuelleAktion(null)
       setFeldIndex(0)
+      setFehlt(null)
     }, rest)
     return () => window.clearTimeout(t)
   }, [wartet, step, ruhig, qc])
@@ -439,6 +470,21 @@ export function TourOverlay() {
     })()
     return () => { abbruch = true }
   }, [sichtbar, step, current.vorbereiten, getippt, hinfuehren])
+
+  // Nach dem Ausfuellen laufend pruefen, ob noch ein Feld leer ist. Abgefragt statt auf Ereignisse gehorcht:
+  // Radix-Selects melden ihre Auswahl nicht als DOM-Ereignis, nur als geaendertes Attribut.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!sichtbar || !current.vorbereiten || !getippt || hinfuehren) { setFehlt(null); return }
+    const schritte = current.vorbereiten
+    const pruefen = () => {
+      const i = schritte.findIndex(feldLeer)
+      setFehlt(i === -1 ? null : i)
+    }
+    pruefen()
+    const t = window.setInterval(pruefen, 250)
+    return () => window.clearInterval(t)
+  }, [sichtbar, current.vorbereiten, getippt, hinfuehren])
 
   // Ziel ins Bild holen, sonst zeigt der Rundgang auf etwas, das ausserhalb des Fensters liegt.
   useEffect(() => {
@@ -497,12 +543,15 @@ export function TourOverlay() {
 
   if (!sichtbar) return null
 
+  const fehlendesFeld = current.vorbereiten && getippt && fehlt != null ? current.vorbereiten[fehlt] ?? null : null
+
   const loch = rect
   const eckenRadius = Number.parseFloat(rundung ?? '') || LOCH_RUNDUNG
   // Waehrend der Rundgang selbst schreibt, darf die Seite nicht gesperrt sein — sonst faengt die Sperre die
   // Eingabe ab. Die Sperre kommt zurueck, sobald auf „Speichern" gezeigt wird.
   // Nach dem Klick sperrt eine eigene Flaeche (unten); die Lochmaske wuerde das Ziel ein zweites Mal anbieten.
-  const sperren = loch !== null && !tippt && !nurLesen && !freigegeben && !wartet
+  // Fehlt noch ein Wert, bleibt die Seite frei: Die Liste eines Auswahlfelds oeffnet ausserhalb des Lochs.
+  const sperren = loch !== null && !tippt && !nurLesen && !freigegeben && !wartet && fehlt == null
   const pfeilQuer = !!loch && window.innerWidth - (loch.left + loch.width) > PFEIL_PLATZ
 
   // Steht ein Dialog der Anwendung offen, weicht das Erklaerfenster ihm aus: daneben, wo Platz ist.
@@ -629,7 +678,10 @@ export function TourOverlay() {
               ? 'Einen Moment — die Anwendung arbeitet noch. Der Rundgang geht weiter, sobald sie fertig ist.'
               : tippt
                 ? `Der Rundgang füllt das Formular aus${aktuelleAktion ? ` — ${aktuelleAktion}` : ''} …`
-                : hinfuehren ? 'Öffnen Sie zuerst die Seite, auf der das passiert.' : current.action}
+                : hinfuehren ? 'Öffnen Sie zuerst die Seite, auf der das passiert.'
+                  : fehlendesFeld
+                    ? `Bitte noch ${fehlendesFeld.art === 'waehlen' ? 'auswählen' : 'ausfüllen'}: ${fehlendesFeld.was}. Danach geht es mit dem Speichern weiter.`
+                    : current.action}
             {fehlschlag && !wartet && <span className="mt-1 block font-normal text-muted-foreground">Das hat nicht geklappt — die Meldung der Anwendung sagt, warum. Korrigieren Sie die Angaben und klicken Sie erneut, oder gehen Sie mit „Überspringen" zum nächsten Thema.</span>}
             {!wartet && beschaeftigt && !tippt && loch === null && !nurLesen && <span className="mt-1 block font-normal text-muted-foreground">Die Seite lädt noch …</span>}
             {freigegeben && !wartet && <span className="mt-1 block font-normal text-muted-foreground">Die Sperre ist aufgehoben — Sie können die Seite frei bedienen. Der Rundgang wartet, bis Sie das hervorgehobene Element anklicken, oder springt mit „Überspringen" weiter.</span>}

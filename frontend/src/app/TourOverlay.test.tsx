@@ -177,6 +177,48 @@ describe('TourOverlay (#139)', () => {
     expect((screen.getByRole('button', { name: 'Überspringen' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
+  it('zeigt erst auf „Speichern", wenn jedes vorbereitete Feld einen Wert hat', { timeout: 30_000 }, async () => {
+    const nutzer = userEvent.setup()
+    const formular = TOUR_STEPS.findIndex((st) => st.imDialog && st.vorbereiten?.every((a) => a.art === 'tippen'))
+    const schritt = TOUR_STEPS[formular]
+    const oeffner = TOUR_STEPS[formular - 1]
+    const oeffnerText = Array.isArray(oeffner.target.text) ? oeffner.target.text[0] : oeffner.target.text!
+    const erstes = schritt.vorbereiten![0] as { css: string; was: string }
+    await renderPage(
+      <>
+        <button type="button">{oeffnerText}</button>
+        <div role="dialog" aria-label="Formular">
+          {schritt.vorbereiten!.map((a) => <input key={a.css} id={a.css.slice(1)} aria-label={a.was} />)}
+          <button type="button">Speichern</button>
+        </div>
+        <TourOverlay />
+      </>,
+      { route: schritt.route },
+    )
+    await screen.findByRole('dialog', { name: 'Rundgang' })
+    await bisZumNavigationsschritt(nutzer)
+    await waitFor(() => expect(screen.getByRole('heading', { name: oeffner.title })).toBeTruthy(), { timeout: 8000 })
+    await nutzer.click(screen.getByRole('button', { name: oeffnerText }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: schritt.title })).toBeTruthy(), { timeout: 8000 })
+
+    // Der Rundgang füllt aus und zeigt danach auf „Speichern". Die Anweisung steht auch schon vor dem Tippen
+    // da — deshalb zuerst auf die Werte warten.
+    for (const a of schritt.vorbereiten!) {
+      const wert = (a as { wert: string }).wert
+      await waitFor(() => expect((screen.getByLabelText(a.was) as HTMLInputElement).value).toBe(wert), { timeout: 10_000 })
+    }
+    await waitFor(() => expect(screen.getByText(schritt.action)).toBeTruthy(), { timeout: 5000 })
+
+    // Wird ein Feld wieder geleert, zeigt er auf dieses Feld statt auf „Speichern" …
+    await nutzer.clear(screen.getByLabelText(erstes.was))
+    await waitFor(() => expect(screen.getByText(new RegExp(`Bitte noch ausfüllen: ${erstes.was}`))).toBeTruthy(), { timeout: 3000 })
+    expect(screen.queryByText(schritt.action)).toBeNull()
+
+    // … und erst mit Wert wieder auf „Speichern".
+    await nutzer.type(screen.getByLabelText(erstes.was), 'X')
+    await waitFor(() => expect(screen.getByText(schritt.action)).toBeTruthy(), { timeout: 3000 })
+  })
+
   it('„Fertig" am letzten Schritt merkt den Rundgang ebenfalls am Konto', async () => {
     const nutzer = userEvent.setup()
     const store = testStore()

@@ -139,9 +139,10 @@ export const TOUR_STEPS: TourStep[] = [
     target: { text: 'Speichern' }, weiter: 'klick',
     action: 'Klicken Sie auf „Speichern".',
     vorbereiten: [
-      { art: 'waehlen', css: '[aria-label="Fach"]', was: 'Fach' },
+      // Das neue Fach mit der neuen Lehrkraft — so passt alles zusammen, was der Rundgang eben angelegt hat.
+      { art: 'waehlen', css: '[aria-label="Fach"]', option: 'Astronomie', was: 'Fach' },
       { art: 'tippen', css: '[aria-label="Wochenstunden"]', wert: '4', was: 'Wochenstunden' },
-      { art: 'waehlen', css: '[aria-label="Lehrkraft"]', was: 'Lehrkraft' },
+      { art: 'waehlen', css: '[aria-label="Lehrkraft"]', option: 'Sommer', was: 'Lehrkraft' },
     ],
   },
 
@@ -280,8 +281,8 @@ export const TOUR_STEPS: TourStep[] = [
     target: { text: 'Ereignis speichern' }, route: '/vertretung', weiter: 'klick',
     action: 'Klicken Sie auf „Ereignis speichern".',
     vorbereiten: [
+      // Art „Ausfall Lehrkraft" ist vorbelegt, Von/Bis stehen auf heute — offen sind nur Lehrkraft und Anlass.
       { art: 'waehlen', css: '#ev-teacher', was: 'Lehrkraft' },
-      { art: 'waehlen', css: '#ev-slot', was: 'Stunde' },
       { art: 'tippen', css: '#ev-reason', wert: 'Fortbildung', was: 'Anlass' },
     ],
   },
