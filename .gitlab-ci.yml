@@ -355,6 +355,7 @@ deploy:vm:
       rsync -a --delete \
         --exclude .git --exclude node_modules \
         --exclude deployment/.env --exclude deployment/backups \
+        --exclude deployment/certs \
         --exclude /app --exclude /docs --exclude /android-starter \
         --exclude "**/build" --exclude "**/.gradle" --exclude "**/.demo-dist" \
         ./ /deploy-target/
