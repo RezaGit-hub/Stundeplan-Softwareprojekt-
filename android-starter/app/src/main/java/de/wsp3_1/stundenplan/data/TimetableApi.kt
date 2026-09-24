@@ -29,6 +29,12 @@ interface TimetableApi {
         @Body body: AnswerSubstitutionRequestDto,
     ): Response<SubstitutionRequestDto>
 
+    @POST("api/absences/me")
+    suspend fun sendNewAbsence(
+        @Header("Authorization") authorization: String,
+        @Body absence: Absence
+    ): Response<Absence>
+
     @GET("api/health")
     suspend fun health(): Response<HealthDto>
 

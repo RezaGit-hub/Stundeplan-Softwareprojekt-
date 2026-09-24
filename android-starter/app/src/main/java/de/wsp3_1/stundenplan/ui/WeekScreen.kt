@@ -302,6 +302,9 @@ private fun WeekGrid(
                             text = WeekView.rowTime(state.timegrid, position) ?: "",
                             style = MaterialTheme.typography.labelSmall,
                             textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            softWrap = false,
+                            fontSize = 9.sp,
                         )
                     }
                 }

@@ -352,7 +352,7 @@ internal fun entryKey(entry: EntryDto): String =
 @Composable
 private fun TimeColumn(position: Int, time: String?) {
     Column(
-        modifier = Modifier.width(64.dp).padding(top = 6.dp),
+        modifier = Modifier.width(80.dp).padding(top = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -363,6 +363,8 @@ private fun TimeColumn(position: Int, time: String?) {
         Text(
             text = time ?: stringResource(R.string.time_unknown),
             style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            softWrap = false
         )
     }
 }

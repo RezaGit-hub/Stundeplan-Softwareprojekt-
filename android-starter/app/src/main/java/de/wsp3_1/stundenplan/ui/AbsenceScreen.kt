@@ -161,7 +161,6 @@ fun AbsenceScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
