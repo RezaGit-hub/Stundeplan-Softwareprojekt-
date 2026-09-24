@@ -19,7 +19,8 @@
 //
 // Wann ein Schritt als getan gilt (`weiter`):
 //   'route' — die Seite des Schritts ist offen
-//   'klick' — das Ziel wurde angeklickt
+//   'klick' — das Ziel wurde angeklickt UND die Anwendung ist damit fertig (Anfrage durch, Seite geladen,
+//             Solver fertig); scheitert die Anfrage oder bleibt der Dialog offen, bleibt der Schritt stehen
 //   'lesen' — Schlusswort, nur der letzte Schritt
 export type TourAktion =
   | { art: 'tippen'; css: string; wert: string; was: string }
@@ -242,6 +243,14 @@ export const TOUR_STEPS: TourStep[] = [
     text: 'Konflikte blockieren nie das Speichern — sie werden bei jedem Lesen neu berechnet. Auflösen geht per Knopf: Der Server rechnet drei kurze Läufe mit wachsendem Spielraum.',
     target: { text: 'Lösen' }, route: '/entwurf', weiter: 'klick',
     action: 'Klicken Sie in der Konfliktliste auf „Lösen".',
+  },
+  {
+    // Ohne diesen Schritt stuende der Dialog mit den Vorschlaegen noch offen, waehrend der Rundgang schon auf
+    // „Annehmen" dahinter zeigt. Kam kein Vorschlag heraus, gibt es nur „Schließen" — dann eben das.
+    title: 'Vorschlag übernehmen',
+    text: 'Der Server hat bis zu drei Vorschläge gerechnet; der empfohlene steht oben. Jeder zeigt, welche Stunden wohin wandern und ob danach noch Konflikte bleiben. Erst „Übernehmen" ändert den Entwurf.',
+    target: { text: ['Übernehmen', 'Schließen'] }, route: '/entwurf', weiter: 'klick', imDialog: true,
+    action: 'Klicken Sie beim empfohlenen Vorschlag auf „Übernehmen" — gibt es keinen, auf „Schließen".',
   },
   {
     title: 'Entwurf annehmen',
