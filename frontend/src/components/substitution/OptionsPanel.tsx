@@ -7,7 +7,7 @@ import { ArrowRightLeft, Ban, Check, DoorOpen, MessageCircleQuestion, MousePoint
 import { TeacherRequestPanel } from './TeacherRequestPanel'
 import { useTeacherRequestGroups } from './teacher-requests'
 import { toastValidation } from '@/api/errors'
-import { useCreateException, useCreateSubstitutionRequests, useOptions, useSubjects, useTimegrid, useWithdrawSubstitutionRequest } from '@/api/hooks'
+import { useCreateException, useCreateSubstitutionRequests, useOptions, useSubjects, useTeachers, useTimegrid, useWithdrawSubstitutionRequest } from '@/api/hooks'
 import type { PendingRow, RoomOption, TeacherOption } from '@/api/types'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { ErrorState } from '@/components/states/ErrorState'
@@ -62,7 +62,7 @@ export function OptionsPanel({ row, onAssigned, relatedRows = [] }: {
   const createRequests = useCreateSubstitutionRequests()
   const withdrawRequest = useWithdrawSubstitutionRequest()
   const [requestTarget, setRequestTarget] = useState<TeacherOption | null>(null)
-
+  const teachers = useTeachers()
 
   const frame = 'flex h-full flex-col rounded-lg border bg-card shadow-xs'
 
@@ -156,7 +156,7 @@ export function OptionsPanel({ row, onAssigned, relatedRows = [] }: {
                         onClick={() => setRequestTarget(t)}
                         disabled={requested}
                         aria-label={`${t.name} anfragen`}
-                        title="Lehrkraft anfragen (echte Anfrage, Backend V14/V15)"
+                        title="Lehrkraft anfragen"
                         className={cn(
                           'flex size-9 shrink-0 items-center justify-center rounded-md border text-foreground-subtle transition-colors hover:border-primary/50 hover:text-foreground',
                           requested && 'border-transparent text-success',
@@ -192,7 +192,7 @@ export function OptionsPanel({ row, onAssigned, relatedRows = [] }: {
               
             <TeacherRequestPanel
               groups={groups}
-              teacherNames={Object.fromEntries((options.data?.teachers ?? []).map((t) => [t.id, t.name]))}
+              teacherNames={Object.fromEntries((teachers.data ?? []).map((t) => [t.id, t.name]))}
               timeslots={timegrid.data?.slots}
               onWithdraw={(id) => withdrawRequest.mutate(id)}
             />

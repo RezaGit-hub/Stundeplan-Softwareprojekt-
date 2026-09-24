@@ -1,9 +1,9 @@
 // Mitte der Vertretungsseite: offene Stunden der Woche (GET /substitutions/pending), nach Tag gruppiert.
 // Offene Zeile: orange gestrichelter Linksrand. Aufgelöste Zeile (resolved): orange durchgezogen, alte Werte durchgestrichen.
-import { Fragment } from 'react'
+import { Fragment, useMemo } from 'react'
 import { motion } from 'motion/react'
-import { ArrowRight, CheckCircle2, Undo2 } from 'lucide-react'
-import { usePending, useTimegrid } from '@/api/hooks'
+import { ArrowRight, CheckCircle2, Mail, Undo2 } from 'lucide-react'
+import { usePending, useTimegrid, useSubstitutionRequests } from '@/api/hooks'
 import type { PendingRow } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/states/EmptyState'
@@ -44,6 +44,10 @@ export function PendingTable({ from, to, selected, onSelect, resolved = [], onUn
 }) {
   const pending = usePending(from, to)
   const timegrid = useTimegrid()
+  const requests = useSubstitutionRequests()
+  // Nur ob überhaupt eine Anfrage existiert, nicht welcher Status — ein zurückgezogener Wunsch
+  // (Hard-Delete) hinterlässt keine Zeile und ist damit ununterscheidbar von "nie angefragt".
+  const requestedKeys = useMemo(() => new Set((requests.data ?? []).map((r) => `${r.date}|${r.lessonId}`)), [requests.data])
   const slots = timegrid.data?.slots
 
   if (pending.isPending) {
@@ -132,10 +136,15 @@ export function PendingTable({ from, to, selected, onSelect, resolved = [], onUn
                       <TableCell>
                         {res?.roomShort ? <><Old>{r.roomShort}</Old> <ArrowRight className="inline size-3 text-substitution-fg" aria-hidden /> <New>{res.roomShort}</New></> : r.roomShort}
                       </TableCell>
-                      <TableCell className="max-w-56 text-xs whitespace-normal text-foreground-muted">
+                                            <TableCell className="max-w-56 text-xs whitespace-normal text-foreground-muted">
                         {res?.kind === 'CANCEL' && <span className="mr-2 font-semibold text-cancelled">✕ entfällt</span>}
                         {res?.kind === 'MOVE' && <New>{`verlegt → ${res.target ?? ''}`}</New>}
                         {res?.kind === 'SUBSTITUTION' && <span className="mr-2 rounded-sm border border-substitution px-1 text-2xs font-semibold text-substitution-fg">V</span>}
+                        {!res && requestedKeys.has(`${r.date}|${r.lessonId}`) && (
+                          <span className="mr-2 inline-flex items-center gap-0.5 rounded-sm border border-warning/40 bg-warning-soft px-1 text-2xs font-medium text-warning">
+                            <Mail className="size-2.5" aria-hidden /> angefragt
+                          </span>
+                        )}
                         {!res && <span className="mr-2 rounded-sm border border-dashed border-substitution px-1 text-2xs font-semibold text-substitution-fg">!</span>}
                         {r.reasons.join('; ')}
                       </TableCell>
