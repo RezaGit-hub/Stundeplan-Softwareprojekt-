@@ -69,9 +69,19 @@ fun SubstituteScreen(
                 icon = { Icon(Icons.Default.DateRange, null) }, label = { Text("Tag") })
             NavigationBarItem(selected = false, onClick = onWeek,
                 icon = { Icon(Icons.Default.DateRange, null) }, label = { Text("Woche") })
+            /*
             NavigationBarItem(selected = false, onClick = onAbsence,
                 icon = { Icon(Icons.Default.Email, null) }, label = { Text("Abwesenheit") })
-            SubstitutionTab(selected = true, onClick = {})
+            */
+            NavigationBarItem(selected = true, onClick = {},
+                icon = { Icon(Icons.Default.Email, null) }, label = { Text("Vertretung") },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                ))
         } },
     ) { padding ->
         PullToRefreshBox(

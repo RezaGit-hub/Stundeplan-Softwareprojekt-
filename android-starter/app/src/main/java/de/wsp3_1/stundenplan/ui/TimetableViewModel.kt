@@ -7,11 +7,13 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import de.wsp3_1.stundenplan.AppContainer
 import de.wsp3_1.stundenplan.Defaults
+import de.wsp3_1.stundenplan.data.Absence
 import de.wsp3_1.stundenplan.data.ApiFactory
 import de.wsp3_1.stundenplan.data.AppSettings
 import de.wsp3_1.stundenplan.data.EntryDto
 import de.wsp3_1.stundenplan.data.HealthResult
 import de.wsp3_1.stundenplan.data.LoginResult
+import de.wsp3_1.stundenplan.data.NewAbsenceRequest
 import de.wsp3_1.stundenplan.data.PlanDates
 import de.wsp3_1.stundenplan.data.ThemeMode
 import de.wsp3_1.stundenplan.data.TimetableRepository
@@ -48,6 +50,9 @@ class TimetableViewModel(
     private val _screen = MutableStateFlow<Screen>(Screen.Day(today()))
     val screen: StateFlow<Screen> = _screen.asStateFlow()
 
+    private val _absences = MutableStateFlow<List<Absence>>(emptyList())
+    val absences : StateFlow<List<Absence>> = _absences.asStateFlow()
+
     private val _settingsState = MutableStateFlow(SettingsUiState())
     val settingsState: StateFlow<SettingsUiState> = _settingsState.asStateFlow()
 
@@ -75,6 +80,45 @@ class TimetableViewModel(
     private var substitutionJob: Job? = null
     private val _substitutionState = MutableStateFlow(SubstitutionUiState())
     val substitutionState: StateFlow<SubstitutionUiState> = _substitutionState.asStateFlow()
+
+    fun sendAbsence(
+        dateFrom: LocalDate,
+        dateTo: LocalDate,
+        reason: String
+    ) {
+        viewModelScope.launch {
+            val token = settings.token.first() ?: return@launch
+
+            val request = NewAbsenceRequest(
+                dateFrom = dateFrom.toString(),
+                dateTo = dateTo.toString(),
+                reason = reason
+            )
+
+            val result = repository.sendNewAbsence(
+                token = token,
+                absence = request
+            )
+
+            result.onSuccess {
+                loadAbsences()
+            }
+        }
+    }
+
+    fun loadAbsences() {
+        viewModelScope.launch {
+            val result = repository.loadAbsences()
+
+            result.onSuccess { absences ->
+                _absences.value = absences
+            }
+
+            result.onFailure {
+                // Fehler behandeln
+            }
+        }
+    }
 
     fun openSubstitute() {
         if (_settingsState.value.role != "TEACHER") return
@@ -319,6 +363,7 @@ class TimetableViewModel(
 
     fun openAbsence() {
         _screen.value = Screen.Absence(PlanDates.mondayOf(dayDate))
+        loadAbsences()
     }
 
     /**
